@@ -98,6 +98,7 @@ class Tree:
         self._resize_factor = resize_factor
         self._has_unsupported_branches = False
         self._has_divergent_baskets = False
+        self._rewrite_blockers = ()
         self._needs_relocation_before_extend = False
 
         if isinstance(branch_types, dict):
@@ -522,6 +523,7 @@ class Tree:
         file._move_tree(oldloc, newloc)
 
         self._freesegments.release(start, stop)
+        self._freesegments.write(sink)
         sink.set_file_length(self._freesegments.fileheader.end)
         sink.flush()
 
@@ -813,12 +815,7 @@ class Tree:
                     branch_array, datum["dtype"], datum["shape"], operation="extend"
                 )
                 tofill.append(
-                    (
-                        branch_name,
-                        datum["compression"],
-                        big_endian.reshape(-1),
-                        big_endian_offsets,
-                    )
+                    (branch_name, datum["compression"], big_endian, big_endian_offsets)
                 )
 
         # actually write baskets into the file
@@ -1073,8 +1070,10 @@ class Tree:
                 dims = "[" + datum["counter"]["fName"] + "]" + dims
 
             # single TLeaf
-            leaf_name = datum["fName"].encode(errors="surrogateescape")
-            leaf_title = (datum["fName"] + dims).encode(errors="surrogateescape")
+            leaf_name = datum.get("leaf_name", datum["fName"])
+            leaf_title = datum.get("leaf_title", leaf_name + dims)
+            leaf_name = leaf_name.encode(errors="surrogateescape")
+            leaf_title = leaf_title.encode(errors="surrogateescape")
             leaf_name_length = (1 if len(leaf_name) < 255 else 5) + len(leaf_name)
             leaf_title_length = (1 if len(leaf_title) < 255 else 5) + len(leaf_title)
 
@@ -1680,8 +1679,6 @@ def recarray_to_dict(array):
 def _normalize_jagged_array(
     branch_array, target_dtype, target_shape, operation="extend"
 ):
-    import awkward
-
     layout = branch_array.layout
     while not isinstance(layout, awkward.contents.ListOffsetArray):
         if isinstance(layout, awkward.contents.IndexedArray):
@@ -1724,5 +1721,9 @@ def _normalize_jagged_array(
         raise ValueError(
             f"'{operation}' must fill branches with a consistent shape: has {target_shape}, trying to fill with {shape[1:]}"
         )
+    # keep the fixed inner dimensions (if any) so that write_jagged_basket scales
+    # the offsets by them; a RegularArray's content can be longer than it needs
+    # to be, so drop the excess
+    big_endian = big_endian.reshape(-1)[: math.prod(shape)].reshape(shape)
     big_endian_offsets = offsets.astype(">i4", copy=True)
     return big_endian, big_endian_offsets

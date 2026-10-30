@@ -1169,6 +1169,7 @@ class DirectoryData(CascadeLeaf):
                 for j in range(len(keys)):
                     if keys[j].cycle == key.cycle:
                         del keys[j]
+                        break
                 keys.append(key)
                 self._keys[i] = key
                 return
@@ -1185,6 +1186,7 @@ class DirectoryData(CascadeLeaf):
                 for j in range(len(keys)):
                     if keys[j].cycle == key.cycle:
                         del keys[j]
+                        break
                 del self._keys[i]
                 return
         else:
