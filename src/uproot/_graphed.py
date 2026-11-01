@@ -134,6 +134,13 @@ class _GraphedTTreeSource:
             resources.open_once(partition.uri, self._open_directory), partition.tree
         )
 
+    def num_entries(self, partition):
+        """Entries in the whole ``TTree`` ``partition`` reads, so ``graphed`` can state a blind
+        chunk's range when it reports a failure; opens the file, so call it only then.
+        """
+        tree = self._tree_in(self._open_directory(partition.uri), partition.tree)
+        return 0 if tree is None else tree.num_entries
+
     def _trees(self):
         """Every tree, opened here and now (the whole-dataset loader and ``graphed_head``)."""
         for file_path, object_path, _ in self._file_tree:

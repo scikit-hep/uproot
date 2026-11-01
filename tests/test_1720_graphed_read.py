@@ -119,6 +119,21 @@ def test_an_open_tree_is_reopened_by_path_in_the_workers(tmp_path):
     assert (partition.uri, partition.tree) == (path, "/events;1")
 
 
+def test_num_entries_counts_the_tree_a_blind_chunk_reads(tmp_path):
+    path = _make_tree(os.path.join(tmp_path, "t.root"))
+    source = _source_of(uproot.graphed(path + ":events"))
+    assert [source.num_entries(p) for p in source.partitions(3)] == [10, 10, 10]
+
+
+def test_num_entries_of_a_missing_tree_is_zero(tmp_path):
+    a = _make_tree(os.path.join(tmp_path, "a.root"))
+    b = _make_tree(os.path.join(tmp_path, "b.root"), name="other")
+    source = _source_of(
+        uproot.graphed([a + ":events", b + ":events"], allow_missing=True)
+    )
+    assert [source.num_entries(p) for p in source.partitions(1)] == [10, 0]
+
+
 def test_steps_for_some_but_not_all_files_are_refused(tmp_path):
     a = _make_tree(os.path.join(tmp_path, "a.root"))
     b = _make_tree(os.path.join(tmp_path, "b.root"))
