@@ -921,6 +921,7 @@ class NTuple(CascadeNode):
             )
 
         data = _to_packed(data.layout)
+        data = _fill_unknown(data, self._header._akform)
 
         # A tuple RNTuple reads back with fields named "0", "1", ..., so a dict or record
         # with those names can extend it too
@@ -1163,7 +1164,9 @@ def _to_packed_form(form):
                 "i64", _to_packed_form(form.content), parameters=form.parameters
             )
         case awkward.forms.EmptyForm:
-            return form
+            # Awkward's "unknown" type (e.g. a list whose entries are all empty)
+            # has no column type; write it as float64, like the TTree writer does
+            return awkward.forms.NumpyForm("float64", parameters=form.parameters)
         case awkward.forms.IndexedForm:
             return _to_packed_form(form.content)
         case awkward.forms.IndexedOptionForm:
@@ -1204,6 +1207,61 @@ def _to_packed_form(form):
         case _:
             msg = f"Form type {type(form)} cannot be written. If you believe this should be supported, please let the Uproot developers know."
             raise NotImplementedError(msg)
+
+
+def _fill_unknown(layout, form):
+    """
+    Replaces each ``EmptyArray`` in ``layout`` (Awkward's "unknown" type, which is
+    what a list with only empty entries has) by a zero-length array of the type
+    that ``form`` expects at that position. Anything else is left unchanged, so
+    data that does not match ``form`` is still rejected by the caller.
+    """
+    if isinstance(layout, awkward.contents.EmptyArray):
+        return form.length_zero_array()
+    match layout.__class__:
+        case awkward.contents.ListOffsetArray if isinstance(
+            form, awkward.forms.ListOffsetForm
+        ):
+            return awkward.contents.ListOffsetArray(
+                layout.offsets,
+                _fill_unknown(layout.content, form.content),
+                parameters=layout.parameters,
+            )
+        case awkward.contents.RegularArray if isinstance(
+            form, awkward.forms.RegularForm
+        ):
+            return awkward.contents.RegularArray(
+                _fill_unknown(layout.content, form.content),
+                layout.size,
+                layout.length,
+                parameters=layout.parameters,
+            )
+        case awkward.contents.IndexedOptionArray if isinstance(
+            form, awkward.forms.IndexedOptionForm
+        ):
+            return awkward.contents.IndexedOptionArray(
+                layout.index,
+                _fill_unknown(layout.content, form.content),
+                parameters=layout.parameters,
+            )
+        case awkward.contents.RecordArray if isinstance(form, awkward.forms.RecordForm):
+            if layout.is_tuple != form.is_tuple:
+                return layout
+            contents = [
+                (
+                    _fill_unknown(layout.content(field), form.content(field))
+                    if form.has_field(field)
+                    else layout.content(field)
+                )
+                for field in layout.fields
+            ]
+            return awkward.contents.RecordArray(
+                contents,
+                None if layout.is_tuple else layout.fields,
+                length=layout.length,
+                parameters=layout.parameters,
+            )
+    return layout
 
 
 def _to_packed(layout):
