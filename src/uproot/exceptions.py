@@ -14,6 +14,15 @@ class NameConflictWarning(Warning):
     pass
 
 
+class CoalescedReadError(OSError):
+    """
+    Exception raised when a range of a coalesced request fails and the original
+    error has no built-in ``OSError`` type to keep, such as
+    ``aiohttp.ClientPayloadError``. The original error is the ``__cause__`` of
+    this exception and is included in its message.
+    """
+
+
 class KeyInFileError(KeyError):
     """
     Exception raised by attempts to find ROOT objects in ``TDirectories``

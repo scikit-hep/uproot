@@ -28,7 +28,7 @@ def test_coalesce(ranges, config):
     for merged_request in _coalesce(all_requests, config):
         future = Future()
         future.set_result([data[start:stop] for start, stop in merged_request.ranges()])
-        merged_request.set_future(future)
+        merged_request.set_future(future, "test.root")
         nreq += 1
 
     if config.max_range_gap == 2:

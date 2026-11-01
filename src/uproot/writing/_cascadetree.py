@@ -865,6 +865,9 @@ class Tree:
                     )
                 )
 
+        if num_entries == 0:
+            return
+
         # actually write baskets into the file
         uncompressed_bytes = 0
         compressed_bytes = 0

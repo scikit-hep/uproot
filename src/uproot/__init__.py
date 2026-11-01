@@ -105,7 +105,7 @@ from uproot.reading import open
 from uproot.reading import ReadOnlyFile
 from uproot.reading import ReadOnlyDirectory
 
-from uproot.exceptions import KeyInFileError
+from uproot.exceptions import CoalescedReadError, KeyInFileError
 
 from uproot.model import Model
 from uproot.model import classname_decode

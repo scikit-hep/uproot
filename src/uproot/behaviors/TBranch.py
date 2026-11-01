@@ -37,7 +37,7 @@ class _NoClose:
         self.hasbranches = hasbranches
 
     def __enter__(self):
-        return self
+        return self.hasbranches
 
     def __exit__(self, exception_type, exception_value, traceback):
         pass
@@ -211,12 +211,12 @@ def iterate(
 
     global_offset = 0
     for file_path, object_path in files:
-        hasbranches = uproot._util.regularize_object_path(
+        hasbranches_context = uproot._util.regularize_object_path(
             file_path, object_path, custom_classes, allow_missing, options
         )
 
-        if hasbranches is not None:
-            with hasbranches:
+        if hasbranches_context is not None:
+            with hasbranches_context as hasbranches:
                 try:
                     for item in hasbranches.iterate(
                         expressions=expressions,
@@ -439,8 +439,8 @@ def concatenate(
     entry_start, entry_stop = _regularize_entries_start_stop(
         total_num_entries, entry_start, entry_stop
     )
-    for hasbranches in all_hasbranches:
-        with hasbranches:
+    for hasbranches_context in all_hasbranches:
+        with hasbranches_context as hasbranches:
             nentries = hasbranches.num_entries
             global_stop += nentries
 
@@ -2220,6 +2220,15 @@ class TBranch(HasBranches):
         my_branch["subbranch/subsubbranch"]
     """
 
+    # Set on first use, so instances unpickled without it still work
+    _uncompressed_bytes_cache = None
+
+    def __getstate__(self):
+        # The sizes can be read again, but would be sent with every Dask task
+        class_data, instance_data = super().__getstate__()
+        instance_data.pop("_uncompressed_bytes_cache", None)
+        return class_data, instance_data
+
     def __repr__(self):
         if len(self) == 0:
             return f"<{self.classname} {self.name!r} at 0x{id(self):012x}>"
@@ -2832,10 +2841,14 @@ in file {self._file.file_path}"""
 
         The number of uncompressed bytes cannot be determined without reading a
         ``TKey``, which are small, but may be slow for remote connections because
-        of the latency of round-trip requests.
+        of the latency of round-trip requests. The result is cached.
         """
         if 0 <= basket_num < self._num_normal_baskets:
-            return _key_uncompressed_bytes(self.basket_key(basket_num))
+            _check_file_open(self._file)
+            cache = self._get_uncompressed_bytes_cache()
+            if cache[basket_num] < 0:
+                cache[basket_num] = _key_uncompressed_bytes(self.basket_key(basket_num))
+            return int(cache[basket_num])
         elif 0 <= basket_num < self.num_baskets:
             return self.basket(basket_num).uncompressed_bytes
         else:
@@ -2867,6 +2880,14 @@ in file {self._file.file_path}"""
                 f"""branch {self.name!r} has {self.num_baskets} baskets; cannot get basket chunk {basket_num}
 in file {self._file.file_path}"""
             )
+
+    def _get_uncompressed_bytes_cache(self):
+        # Uncompressed bytes of each normal basket, -1 if not read yet
+        if self._uncompressed_bytes_cache is None:
+            self._uncompressed_bytes_cache = numpy.full(
+                self._num_normal_baskets, -1, dtype=numpy.int64
+            )
+        return self._uncompressed_bytes_cache
 
     def _basket_key_range(self, basket_num):
         # xrootd doesn't like NumPy ints
@@ -3820,6 +3841,12 @@ def _key_uncompressed_bytes(key):
     return key.data_uncompressed_bytes + key.fKeylen
 
 
+def _check_file_open(file):
+    # A closed file must fail whether or not the sizes happen to be cached
+    if file.source.closed:
+        raise OSError(f"file {file.file_path!r} is closed")
+
+
 # The gaps between TKeys are basket data, which must not be fetched.
 _basket_keys_coalesce_config = uproot.source.coalesce.CoalesceConfig(max_range_gap=0)
 
@@ -3827,11 +3854,26 @@ _basket_keys_coalesce_config = uproot.source.coalesce.CoalesceConfig(max_range_g
 def _basket_keys_uncompressed_bytes(file, branch_baskets):
     """
     Total of ``TBranch.basket_uncompressed_bytes`` for normal baskets, with all
-    ``TKeys`` read in one request instead of one round trip per basket.
+    uncached ``TKeys`` read in one request instead of one round trip per basket.
     """
     if not branch_baskets:
         return 0
 
+    _check_file_open(file)
+    missing = [
+        (branch, num)
+        for branch, num in branch_baskets
+        if branch._get_uncompressed_bytes_cache()[num] < 0
+    ]
+    if missing:
+        _read_basket_keys(file, missing)
+    return sum(
+        int(branch._get_uncompressed_bytes_cache()[num])
+        for branch, num in branch_baskets
+    )
+
+
+def _read_basket_keys(file, branch_baskets):
     source = file.source
     ranges = [branch._basket_key_range(num) for branch, num in branch_baskets]
     # Chunks will not be retained; we don't have to detach_memmap()
@@ -3844,10 +3886,10 @@ def _basket_keys_uncompressed_bytes(file, branch_baskets):
     else:
         chunks = source.chunks(ranges, notifications=queue.Queue())
 
-    return sum(
-        _key_uncompressed_bytes(branch._basket_key_from_chunk(chunk))
-        for (branch, _), chunk in zip(branch_baskets, chunks, strict=True)
-    )
+    for (branch, num), chunk in zip(branch_baskets, chunks, strict=True):
+        branch._get_uncompressed_bytes_cache()[num] = _key_uncompressed_bytes(
+            branch._basket_key_from_chunk(chunk)
+        )
 
 
 def _hasbranches_num_entries_for(

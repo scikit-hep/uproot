@@ -114,7 +114,10 @@ def dask(
             catch any of those exceptions and return empty arrays for those nodes. In either of
             those cases, The return of this function becomes a two element tuple, where the
             first return is the dask-awkward collection of interest and the second return is a
-            report dask-awkward collection.
+            report dask-awkward collection. A failed read of a coalesced range keeps the
+            nearest built-in OSError type of the original error, or else is a
+            :doc:`uproot.exceptions.CoalescedReadError`. A tuple also matches against that
+            original error, and the report includes it in the message.
         known_base_form (awkward.forms.Form | None): If not none use this form instead of opening
             one file to determine the dataset's form. Only available with open_files=False.
         decompression_executor (None or Executor with a ``submit`` method): The
@@ -1327,6 +1330,18 @@ class UprootReadMixin:
         return (OSError,)
 
     @property
+    def caught_exceptions(self):
+        # coalesced read errors are OSErrors that can match on their original error
+        return (*self.allowed_exceptions, OSError)
+
+    def is_allowed_exception(self, err: BaseException) -> bool:
+        if isinstance(err, self.allowed_exceptions):
+            return True
+        return getattr(err, "coalesced_read", False) and isinstance(
+            err.__cause__, self.allowed_exceptions
+        )
+
+    @property
     def return_report(self) -> bool:
         return bool(self.allow_read_errors_with_report)
 
@@ -1535,7 +1550,9 @@ class _UprootRead(UprootReadMixin):
                         counters=counters,
                     ),
                 )
-            except self.allowed_exceptions as err:
+            except self.caught_exceptions as err:
+                if not self.is_allowed_exception(err):
+                    raise
                 return (
                     self.mock_empty(backend="cpu"),
                     _report_failure(
@@ -1652,7 +1669,9 @@ which has {num_entries} entries"""
                         counters=counters,
                     ),
                 )
-            except self.allowed_exceptions as err:
+            except self.caught_exceptions as err:
+                if not self.is_allowed_exception(err):
+                    raise
                 return (
                     self.mock_empty(backend="cpu"),
                     _report_failure(
