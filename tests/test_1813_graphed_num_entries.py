@@ -141,6 +141,18 @@ def test_graphed_partitions_reads_each_tree_then_closes_its_file(tmp_path, opene
     assert [f.closed for f in opened] == [True, True]
 
 
+def test_graphed_partitions_closes_a_file_that_yields_no_partitions(tmp_path, opened):
+    path = _make_tree(os.path.join(tmp_path, "t.root"))
+    with uproot.update(path) as f:
+        f["h"] = np.histogram(np.arange(10.0))
+    assert uproot._graphed.graphed_partitions({path: "gone"}, allow_missing=True) == []
+    with pytest.raises(uproot.KeyInFileError):
+        uproot._graphed.graphed_partitions({path: "gone"})
+    with pytest.raises(AttributeError, match="num_entries"):
+        uproot._graphed.graphed_partitions({path: "h"})
+    assert [f.closed for f in opened] == [True, True, True]
+
+
 def test_graphed_partitions_leaves_a_given_tree_open(tmp_path):
     path = _make_tree(os.path.join(tmp_path, "t.root"))
     with uproot.open(path + ":events") as tree:

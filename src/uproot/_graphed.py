@@ -127,12 +127,16 @@ class _GraphedTTreeSource:
             directory, object_path or None, self._allow_missing
         )
 
-    @contextlib.contextmanager
     def _opened_tree(self, file_path, object_path):
         """The tree at ``object_path``, as :meth:`_tree_in` gives it, with its file open only
         inside this context."""
-        with contextlib.closing(self._open_directory(file_path)) as directory:
-            yield self._tree_in(directory, object_path)
+        return _opened_object(
+            file_path,
+            object_path,
+            self._custom_classes,
+            self._allow_missing,
+            self._options,
+        )
 
     def open_tree(self, partition, resources):
         """This partition's ``TTree``, from a file opened once per worker with the options
@@ -396,6 +400,22 @@ def _open_directory(file_path, custom_classes, options):
         custom_classes=custom_classes,
         **options,
     ).root_directory
+
+
+@contextlib.contextmanager
+def _opened_object(file_path, object_path, custom_classes, allow_missing, options):
+    """The object at ``object_path`` (None when ``allow_missing`` and absent); a file opened here
+    closes with this context whatever it found, and a given ``TTree``'s file stays open.
+    """
+    if isinstance(file_path, HasBranches):
+        yield file_path
+        return
+    with contextlib.closing(
+        _open_directory(file_path, custom_classes, options)
+    ) as directory:
+        yield uproot._util.object_in_directory(
+            directory, object_path or None, allow_missing
+        )
 
 
 def _selection(leaf):
@@ -908,12 +928,11 @@ def graphed_partitions(
                 for step in range(n_steps)
             )
             continue
-        context = uproot._util.regularize_object_path(
+        with _opened_object(
             file_path, object_path, custom_classes, allow_missing, real_options
-        )
-        if context is None:
-            continue
-        with context as obj:
+        ) as obj:
+            if obj is None:
+                continue
             if align_baskets and isinstance(obj, HasFields):
                 raise NotImplementedError(
                     "align_baskets=True follows TBasket boundaries; an RNTuple has none"
@@ -934,9 +953,8 @@ def graphed_partitions(
                     filter_name=no_filter if align_baskets is True else align_baskets,
                     recursive=True,
                 )
-                if n_entries and shared == [
-                    0
-                ]:  # a non-empty tree's fold holds n_entries
+                # a non-empty tree's fold holds n_entries
+                if n_entries and shared == [0]:
                     raise ValueError(
                         f"align_baskets={align_baskets!r} selects no TBranch with TBaskets in "
                         f"{obj.file.file_path}:{obj.object_path}"
