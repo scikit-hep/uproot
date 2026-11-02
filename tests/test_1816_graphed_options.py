@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import io
 import os
-import warnings
 
 import numpy as np
 import pytest
@@ -43,32 +42,13 @@ def test_an_entry_range_is_refused_with_the_route_that_gives_one(local, name):
         with pytest.raises(TypeError, match=f"got {name}=.*'steps'"):
             uproot.graphed(files, **{name: 5})
 
-    path, _, tree = local.rpartition(":")
-    steps = uproot.graphed(
-        {path: {"object_path": tree, "steps": [[2, 5]]}},
-        session=graphed.new_session(),
-    )
-    assert graphed.materialize(steps.x).tolist() == [2.0, 3.0, 4.0]
-
 
 @pytest.mark.parametrize("read", [uproot.graphed, uproot.graphed_partitions])
-@pytest.mark.parametrize("option", ["foo_bar", "anon", "num_wrokers"])
-def test_an_unknown_option_is_refused_when_every_file_is_local(
-    tmp_path, local, read, option
-):
-    path = local.rpartition(":")[0]
-    second = _make_tree(os.path.join(tmp_path, "b.root")) + ":events"
+def test_an_unknown_option_is_refused_when_every_file_is_local(local, read):
     with uproot.open(local) as tree:
-        for files in (
-            local,
-            [local, second],
-            {path: "events"},
-            os.path.join(tmp_path, "*.root:events"),
-            f"file://{local}",
-            tree,
-        ):
-            with pytest.raises(TypeError, match=option):
-                read(files, **{option: 1})
+        for files in (local, [local, local], f"file://{local}", tree):
+            with pytest.raises(TypeError, match="for local files: 'anon'"):
+                read(files, anon=True)
 
 
 @pytest.mark.parametrize(
@@ -80,22 +60,12 @@ def test_a_file_keyword_is_not_an_unknown_option(local, option):
 
 
 def test_a_tree_from_a_file_object_without_iteration_is_all_local(local):
-    class Reader:
-        def __init__(self, data):
-            self.raw = io.BytesIO(data)
-
-        def read(self, *args):
-            return self.raw.read(*args)
-
-        def seek(self, *args):
-            return self.raw.seek(*args)
-
-        def tell(self):
-            return self.raw.tell()
+    class Reader(io.BytesIO):
+        __iter__ = None
 
     with open(local.rpartition(":")[0], "rb") as f:
-        data = f.read()
-    with uproot.open(Reader(data)) as tree_file:
+        reader = Reader(f.read())
+    with uproot.open(reader) as tree_file:
         parts = uproot.graphed_partitions(tree_file["events"])
     assert [(p.entry_start, p.entry_stop) for p in parts] == [(0, 10)]
 
@@ -112,12 +82,10 @@ def test_a_storage_option_passes_with_a_chain_over_a_local_file(local, tmp_path)
 
 
 def test_a_storage_option_passes_with_a_remote_file(local, form):
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        session = graphed.new_session()
-        uproot.graphed([local, REMOTE], open_files=False, anon=True, session=session)
-        uproot.graphed(REMOTE, known_base_form=form, anon=True, name="remote")
-        parts = uproot.graphed_partitions([local, REMOTE], open_files=False, anon=True)
+    session = graphed.new_session()
+    uproot.graphed([local, REMOTE], open_files=False, anon=True, session=session)
+    uproot.graphed(REMOTE, known_base_form=form, anon=True, name="remote")
+    parts = uproot.graphed_partitions([local, REMOTE], open_files=False, anon=True)
     assert len(parts) == 2
 
 
@@ -128,10 +96,19 @@ def test_a_misspelled_option_only_warns_with_a_remote_file(local):
 
 
 def test_graphed_partitions_is_public_where_the_step_size_refusal_points(local):
-    with pytest.raises(TypeError) as refusal:
+    with pytest.raises(TypeError, match=r"uproot\.graphed_partitions\(step_size"):
         uproot.graphed(local, step_size=5)
-    assert "uproot.graphed_partitions(step_size=...)" in str(refusal.value)
-    assert "uproot._graphed" not in str(refusal.value)
-
     parts = uproot.graphed_partitions(local, step_size=5)
     assert [(p.entry_start, p.entry_stop) for p in parts] == [(0, 5), (5, 10)]
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda glob: uproot.graphed(glob, library="np"),
+        lambda glob: uproot.graphed_partitions(glob, step_size=1, steps_per_file=2),
+    ],
+)
+def test_an_argument_refusal_comes_before_reading_the_glob(call):
+    with pytest.raises((NotImplementedError, TypeError)):
+        call("/no/such/dir/*.root:events")

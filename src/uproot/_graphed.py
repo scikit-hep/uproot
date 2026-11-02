@@ -30,6 +30,8 @@ import contextlib
 import hashlib
 import itertools
 
+import fsspec
+
 import uproot
 import uproot._util
 import uproot.interpretation.library
@@ -46,6 +48,7 @@ from uproot._util import no_filter, unset
 from uproot.behaviors.RNTuple import HasFields
 from uproot.behaviors.TBranch import HasBranches, TBranch
 
+_DASK = "which belongs to uproot.dask; "
 _ENTRY_RANGE = (
     "but it reads whole TTrees; give a range as 'steps' in files: "
     "{path: {'object_path': tree, 'steps': [[start, stop]]}}"
@@ -53,13 +56,14 @@ _ENTRY_RANGE = (
 #: Keywords of other ``uproot`` readers that ``uproot.graphed`` has no counterpart for, and where
 #: that concern lives instead; ``**options`` would otherwise swallow them silently.
 _REFUSED = {
-    "step_size": "which belongs to uproot.dask; partition with "
-    "uproot.graphed_partitions(step_size=...) and pass the result to "
-    "graphed.aggregate_plan(partitions=...)",
-    "steps_per_file": "which belongs to uproot.dask; pass steps_per_file= where the plan is "
-    "built: graphed.aggregate_plan, graphed.awkward.to_parquet or uproot.graphed_write",
-    "allow_read_errors_with_report": "which belongs to uproot.dask; a failed partition is "
-    "dead-lettered and retried by graphed.checkpoint.run_resumable",
+    "step_size": _DASK
+    + "partition with uproot.graphed_partitions(step_size=...) and pass the "
+    "result to graphed.aggregate_plan(partitions=...)",
+    "steps_per_file": _DASK + "pass steps_per_file= where the plan is built: "
+    "graphed.aggregate_plan, graphed.awkward.to_parquet or uproot.graphed_write",
+    "allow_read_errors_with_report": _DASK
+    + "a failed partition is dead-lettered and retried "
+    "by graphed.checkpoint.run_resumable",
     "entry_start": _ENTRY_RANGE,
     "entry_stop": _ENTRY_RANGE,
 }
@@ -417,22 +421,16 @@ def _file_and_path(file_path, object_path):
     return file_path, object_path
 
 
-def _all_local(files):
-    """Whether every entry of regularized ``files`` is a local file, which needs no fsspec
-    storage option."""
-    paths = (_file_and_path(file_path, None)[0] for file_path, *_ in files)
-    # a given file object has no URL; "::" chains an fsspec filesystem over a local path
-    return not any(
-        isinstance(path, str) and ("::" in path or uproot._util.is_remote_url(path))
-        for path in paths
-    )
-
-
 def _check_options(options, files):
     """Refuse or warn about ``options`` given regularized ``files``, for a public entry point."""
+    paths = (_file_and_path(file_path, None)[0] for file_path, *_ in files)
     uproot._util._check_unknown_options(
         {k: v for k, v in options.items() if k not in _FILE_KEYWORDS},
-        all_local=_all_local(files),
+        all_local=not any(
+            isinstance(path, str)  # a given file object has no URL
+            and fsspec.utils.get_protocol(path) not in ("file", "local")
+            for path in paths
+        ),
         stacklevel=4,
     )
 
@@ -737,8 +735,6 @@ def graphed(
     for option, instead in _REFUSED.items():
         if option in options:
             raise TypeError(f"uproot.graphed() got {option}=, {instead}")
-    files = uproot._util.regularize_files(files, steps_allowed=True, **options)
-    _check_options(options, files)
     library = uproot.interpretation.library._regularize_library(library)
     if library.name != "ak":
         raise NotImplementedError(
@@ -757,6 +753,8 @@ def graphed(
             "uproot.graphed: session= records on that Session's backend; pass backend= or "
             "session=, not both"
         )
+    files = uproot._util.regularize_files(files, steps_allowed=True, **options)
+    _check_options(options, files)
 
     import awkward
 
@@ -970,10 +968,6 @@ def graphed_partitions(
       read with ``uproot.graphed(align_baskets=True)`` follows only the branches each
       partition reads. Needs ``open_files=True``; ``TTrees`` only.
     """
-    resolved = uproot._util.regularize_files(files, steps_allowed=False, **options)
-    _check_options(options, resolved)
-    graphed = uproot.extras.graphed()
-
     have_step_size = not isinstance(step_size, uproot._util._Unset)
     have_steps_per_file = not isinstance(steps_per_file, uproot._util._Unset)
     if align_baskets and not open_files:
@@ -992,6 +986,10 @@ def graphed_partitions(
     if have_step_size:
         uproot._util.check_step_size(step_size)
     n_steps = int(steps_per_file) if have_steps_per_file else 1
+
+    resolved = uproot._util.regularize_files(files, steps_allowed=False, **options)
+    _check_options(options, resolved)
+    graphed = uproot.extras.graphed()
 
     real_options = options.copy()
     real_options.setdefault("num_workers", 1)

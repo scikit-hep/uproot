@@ -456,7 +456,8 @@ def _check_unknown_options(
     ):
         return
 
-    if issubclass(source_cls, uproot.source.fsspec.FSSpecSource) and not all_local:
+    fsspec_source = issubclass(source_cls, uproot.source.fsspec.FSSpecSource)
+    if fsspec_source and not all_local:
         for key in unknown:
             matches = [k for k in sorted(known) if _edit_distance(key, k) <= 2]
             if matches:
@@ -467,7 +468,8 @@ def _check_unknown_options(
                 )
     else:
         raise TypeError(
-            f"unrecognized option(s) for {source_cls.__name__}: "
+            f"unrecognized option(s) for "
+            f"{'local files' if fsspec_source else source_cls.__name__}: "
             f"{', '.join(map(repr, unknown))}; valid options are {sorted(known)}"
         )
 
