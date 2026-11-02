@@ -106,3 +106,19 @@ def test_graphed_head_reads_its_tree_then_closes_the_file(tmp_path, opened):
     opened.clear()
     assert ak.to_list(uproot._graphed.graphed_head(array.x, 3)) == [0.0, 1.0, 2.0]
     assert [d.file.closed for d in opened] == [True]
+
+
+def test_graphed_head_closes_the_file_while_its_failure_is_held(
+    tmp_path, opened, monkeypatch
+):
+    path = _make_tree(os.path.join(tmp_path, "t.root"))
+    array = uproot.graphed(path + ":events")
+    opened.clear()
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(uproot.extras.graphed(), "evaluate_ir", boom)
+    with pytest.raises(RuntimeError, match="boom") as failure:
+        uproot._graphed.graphed_head(array.x, 3)
+    assert [d.file.closed for d in opened] == [True]

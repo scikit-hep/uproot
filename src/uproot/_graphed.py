@@ -131,11 +131,8 @@ class _GraphedTTreeSource:
     def _opened_tree(self, file_path, object_path):
         """The tree at ``object_path``, as :meth:`_tree_in` gives it, with its file open only
         inside this context."""
-        directory = self._open_directory(file_path)
-        try:
+        with contextlib.closing(self._open_directory(file_path)) as directory:
             yield self._tree_in(directory, object_path)
-        finally:
-            directory.file.close()
 
     def open_tree(self, partition, resources):
         """This partition's ``TTree``, from a file opened once per worker with the options
