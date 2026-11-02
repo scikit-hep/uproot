@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import io
 import os
 import warnings
 
@@ -70,6 +71,46 @@ def test_an_unknown_option_is_refused_when_every_file_is_local(
                 read(files, **{option: 1})
 
 
+@pytest.mark.parametrize(
+    "option", ["object_cache", "decompression_executor", "interpretation_executor"]
+)
+def test_a_file_keyword_is_not_an_unknown_option(local, option):
+    uproot.graphed(local, session=graphed.new_session(), **{option: None})
+    assert len(uproot.graphed_partitions(local, **{option: None})) == 1
+
+
+def test_a_tree_from_a_file_object_without_iteration_is_all_local(local):
+    class Reader:
+        def __init__(self, data):
+            self.raw = io.BytesIO(data)
+
+        def read(self, *args):
+            return self.raw.read(*args)
+
+        def seek(self, *args):
+            return self.raw.seek(*args)
+
+        def tell(self):
+            return self.raw.tell()
+
+    with open(local.rpartition(":")[0], "rb") as f:
+        data = f.read()
+    with uproot.open(Reader(data)) as tree_file:
+        parts = uproot.graphed_partitions(tree_file["events"])
+    assert [(p.entry_start, p.entry_stop) for p in parts] == [(0, 10)]
+
+
+def test_a_storage_option_passes_with_a_chain_over_a_local_file(local, tmp_path):
+    cache = str(tmp_path / "cache")
+    array = uproot.graphed(
+        f"simplecache::{local}",
+        session=graphed.new_session(),
+        cache_storage=cache,
+    )
+    assert graphed.materialize(array.x).tolist()[:2] == [0.0, 1.0]
+    assert os.listdir(cache)
+
+
 def test_a_storage_option_passes_with_a_remote_file(local, form):
     with warnings.catch_warnings():
         warnings.simplefilter("error")
@@ -81,8 +122,9 @@ def test_a_storage_option_passes_with_a_remote_file(local, form):
 
 
 def test_a_misspelled_option_only_warns_with_a_remote_file(local):
-    with pytest.warns(UserWarning, match="did you mean.*'num_workers'"):
+    with pytest.warns(UserWarning, match="did you mean.*'num_workers'") as record:
         uproot.graphed_partitions([local, REMOTE], open_files=False, num_wrokers=1)
+    assert record[0].filename == __file__
 
 
 def test_graphed_partitions_is_public_where_the_step_size_refusal_points(local):

@@ -429,8 +429,8 @@ def _check_unknown_options(
 ) -> None:
     """
     Raise on unrecognized options for uproot's own sources and warn about likely
-    misspellings of uproot options for fsspec, whose storage options are open-ended,
-    unless the caller knows ``all_local``: nothing then reads a storage option.
+    misspellings of uproot options for fsspec, whose storage options are open-ended;
+    ``all_local`` refuses those too.
     Handlers that are not uproot Sources are skipped here and rejected later by
     ``file_path_to_source_class``.
 
