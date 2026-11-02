@@ -43,16 +43,25 @@ def test_an_entry_range_is_refused_with_the_route_that_gives_one(local, name):
             uproot.graphed(files, **{name: 5})
 
 
-@pytest.mark.parametrize("name", ["entry_start", "entry_stop"])
-def test_graphed_partitions_refuses_an_entry_range_before_touching_files(
-    local, monkeypatch, name
+@pytest.mark.parametrize(
+    "name, route",
+    [
+        ("entry_start", "files of uproot.graphed"),
+        ("entry_stop", "files of uproot.graphed"),
+        ("allow_read_errors_with_report", "run_resumable"),
+    ],
+)
+def test_graphed_partitions_refuses_a_reader_keyword_before_touching_files(
+    local, monkeypatch, name, route
 ):
     def touched(*args, **kwargs):
         raise AssertionError("resolved files")
 
     monkeypatch.setattr(uproot._util, "regularize_files", touched)
     for files in (local, REMOTE, f"simplecache::{REMOTE}"):
-        with pytest.raises(TypeError, match=f"got {name}=.*files of uproot.graphed"):
+        with pytest.raises(
+            TypeError, match=f"graphed_partitions.*got {name}=.*{route}"
+        ):
             uproot.graphed_partitions(files, open_files=False, **{name: 5})
 
 

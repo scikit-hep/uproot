@@ -50,11 +50,11 @@ from uproot.behaviors.TBranch import HasBranches, TBranch
 
 _DASK = "which belongs to uproot.dask; "
 _ENTRY_RANGE = (
-    "but it reads whole TTrees; give a range as 'steps' in files: "
+    "but it takes whole TTrees; give a range as 'steps' in the files of uproot.graphed: "
     "{path: {'object_path': tree, 'steps': [[start, stop]]}}"
 )
-#: Keywords of other ``uproot`` readers that ``uproot.graphed`` has no counterpart for, and where
-#: that concern lives instead; ``**options`` would otherwise swallow them silently.
+#: Keywords of other ``uproot`` readers that the ``graphed`` entry points have no counterpart for,
+#: and where that concern lives instead; ``**options`` would otherwise swallow them silently.
 _REFUSED = {
     "step_size": _DASK
     + "partition with uproot.graphed_partitions(step_size=...) and pass the "
@@ -421,6 +421,13 @@ def _file_and_path(file_path, object_path):
     return file_path, object_path
 
 
+def _refuse_options(function, options):
+    """Refuse any ``_REFUSED`` keyword in the ``options`` of the public ``function``."""
+    for option, instead in _REFUSED.items():
+        if option in options:
+            raise TypeError(f"uproot.{function}() got {option}=, {instead}")
+
+
 def _check_options(options, files):
     """Refuse or warn about ``options`` given regularized ``files``, for a public entry point."""
     paths = (_file_and_path(file_path, None)[0] for file_path, *_ in files)
@@ -732,9 +739,7 @@ def graphed(
 
     This is the ``graphed`` analogue of :doc:`uproot._dask.dask`.
     """
-    for option, instead in _REFUSED.items():
-        if option in options:
-            raise TypeError(f"uproot.graphed() got {option}=, {instead}")
+    _refuse_options("graphed", options)
     library = uproot.interpretation.library._regularize_library(library)
     if library.name != "ak":
         raise NotImplementedError(
@@ -967,13 +972,11 @@ def graphed_partitions(
       the shared offsets can shrink to the file's ends and the file yields one chunk, where a
       read with ``uproot.graphed(align_baskets=True)`` follows only the branches each
       partition reads. Needs ``open_files=True``; ``TTrees`` only.
+
+    ``entry_start``, ``entry_stop`` and ``allow_read_errors_with_report`` are refused by name, as
+    in :doc:`uproot._graphed.graphed`; other ``options`` are passed through to file opening.
     """
-    for option in ("entry_start", "entry_stop"):
-        if option in options:
-            raise TypeError(
-                f"uproot.graphed_partitions() got {option}=, but it partitions whole TTrees; "
-                "to read a range, give 'steps' in the files of uproot.graphed"
-            )
+    _refuse_options("graphed_partitions", options)
     have_step_size = not isinstance(step_size, uproot._util._Unset)
     have_steps_per_file = not isinstance(steps_per_file, uproot._util._Unset)
     if align_baskets and not open_files:
