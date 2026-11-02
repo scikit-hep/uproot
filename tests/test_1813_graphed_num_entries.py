@@ -45,24 +45,14 @@ def test_num_entries_counts_the_tree_a_blind_chunk_reads(tmp_path):
     assert [source.num_entries(p) for p in source.partitions(3)] == [10, 10, 10]
 
 
-def test_num_entries_of_a_missing_tree_is_zero(tmp_path):
-    a = _make_tree(os.path.join(tmp_path, "a.root"))
-    b = _make_tree(os.path.join(tmp_path, "b.root"), name="other")
-    source = _source_of(
-        uproot.graphed([a + ":events", b + ":events"], allow_missing=True)
-    )
-    assert [source.num_entries(p) for p in source.partitions(1)] == [10, 0]
-
-
-def test_num_entries_closes_the_file(tmp_path, opened):
+def test_num_entries_closes_the_file_and_a_missing_tree_is_zero(tmp_path, opened):
     a = _make_tree(os.path.join(tmp_path, "a.root"))
     b = _make_tree(os.path.join(tmp_path, "b.root"), name="other")
     source = _source_of(
         uproot.graphed([a + ":events", b + ":events"], allow_missing=True)
     )
     opened.clear()
-    for partition in source.partitions(1):
-        source.num_entries(partition)
+    assert [source.num_entries(p) for p in source.partitions(1)] == [10, 0]
     assert [d.file.closed for d in opened] == [True, True]
 
 
@@ -121,4 +111,20 @@ def test_graphed_head_closes_the_file_while_its_failure_is_held(
     monkeypatch.setattr(uproot.extras.graphed(), "evaluate_ir", boom)
     with pytest.raises(RuntimeError, match="boom") as failure:
         uproot._graphed.graphed_head(array.x, 3)
+    assert [d.file.closed for d in opened] == [True]
+
+
+def test_whole_dataset_loader_closes_the_file_while_its_failure_is_held(
+    tmp_path, opened, monkeypatch
+):
+    path = _make_tree(os.path.join(tmp_path, "t.root"))
+    source = _source_of(uproot.graphed(path + ":events"))
+    opened.clear()
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(source, "read_range", boom)
+    with pytest.raises(RuntimeError, match="boom") as failure:
+        source()
     assert [d.file.closed for d in opened] == [True]

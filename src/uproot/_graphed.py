@@ -156,7 +156,8 @@ class _GraphedTTreeSource:
 
     def _trees(self):
         """Every tree, opened here and now (the whole-dataset loader and ``graphed_head``). A
-        tree's file closes when the generator resumes or is closed, so read it before either."""
+        tree's file closes when the generator resumes or is closed, so read it before either.
+        """
         for file_path, object_path, _ in self._file_tree:
             with self._opened_tree(file_path, object_path) as tree:
                 if tree is not None:
@@ -189,10 +190,11 @@ class _GraphedTTreeSource:
     def __call__(self):
         import awkward
 
-        parts = [
-            self.read_range(tree, self._common_keys, 0, tree.num_entries)
-            for tree in self._trees()
-        ]
+        with contextlib.closing(self._trees()) as trees:
+            parts = [
+                self.read_range(tree, self._common_keys, 0, tree.num_entries)
+                for tree in trees
+            ]
         if not parts:
             return self._empty()
         return parts[0] if len(parts) == 1 else awkward.concatenate(parts)
