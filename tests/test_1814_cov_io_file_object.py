@@ -43,7 +43,7 @@ def test_file_resource(path):
 def test_memmap_repr(path, monkeypatch):
     with MemmapSource(path, num_fallback_workers=1, use_threads=True) as source:
         assert repr(source) == (
-            f"<MemmapSource '...{path[-10:]}' at 0x{id(source):012x}>"
+            f"<MemmapSource {'...' + path[-10:]!r} at 0x{id(source):012x}>"
         )
         assert isinstance(source.file, numpy.memmap)
         monkeypatch.setattr(source, "_file_path", "short")

@@ -23,7 +23,9 @@ def test_file_attributes(tmp_path):
         file = directory.file
         directory["object"] = "text"
 
-        assert repr(file) == f"<WritableFile {str(path)!r} at 0x{id(file):012x}>"
+        assert repr(file) == (
+            f"<WritableFile {path.as_posix()!r} at 0x{id(file):012x}>"
+        )
 
         new_uuid = uuid.UUID(int=1)
         file.initial_directory_bytes = 512
@@ -346,7 +348,7 @@ def test_tree_attributes(tmp_path):
         tree = file.mktree("sub/tree", {"x": "float64", "y": "var * int32"})
         assert tree.path == ("sub", "tree")
         assert tree.object_path == "/sub/tree/"
-        assert tree.file_path == str(path)
+        assert tree.file_path == path.as_posix()
         assert tree.file is file.file
         assert repr(tree) == f"<WritableTree '/sub/tree' at 0x{id(tree):012x}>"
         assert tree.num_baskets == 0
@@ -439,7 +441,7 @@ def test_ntuple_attributes(tmp_path):
         ntuple = make_ntuple(file)
         assert ntuple.path == ("sub", "ntuple")
         assert ntuple.object_path == "/sub/ntuple/"
-        assert ntuple.file_path == str(path)
+        assert ntuple.file_path == path.as_posix()
         assert ntuple.file is file.file
         assert repr(ntuple) == f"<WritableNTuple '/sub/ntuple' at 0x{id(ntuple):012x}>"
         assert ntuple.compression == uproot.ZLIB(2)

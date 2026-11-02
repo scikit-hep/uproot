@@ -420,7 +420,8 @@ def test_regularize_files_expands_several_braces(root_files):
 
 def test_regularize_files_repeated_match_in_one_pattern(root_files):
     directory, paths = root_files
-    assert sorted(regularized_paths(f"{directory}/{{a,a,?}}.root:tree")) == [
+    # every item globs, so they all come back with the same separators
+    assert sorted(regularized_paths(f"{directory}/{{a*,?}}.root:tree")) == [
         (paths["a.root"], "tree"),
         (paths["b.root"], "tree"),
         (paths["c.root"], "tree"),

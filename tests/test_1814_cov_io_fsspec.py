@@ -1,6 +1,7 @@
 # BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
 
 import asyncio
+import pathlib
 import pickle
 import queue
 import zipfile
@@ -61,7 +62,9 @@ def test_repr_of_short_path():
 def test_repr_of_long_path(path):
     with FSSpecSource(path) as source:
         assert repr(source) == (
-            f"<FSSpecSource '...{path[-10:]}' at 0x{id(source):012x}>"
+            # fsspec keeps local paths with forward slashes, also on Windows
+            f"<FSSpecSource '...{pathlib.Path(path).as_posix()[-10:]}' "
+            f"at 0x{id(source):012x}>"
         )
 
 

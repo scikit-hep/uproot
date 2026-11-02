@@ -218,7 +218,9 @@ def test_cascading_ntuple_properties(tmp_path):
 
 def test_cascading_reprs(tmp_path):
     with uproot.recreate(tmp_path / "file.root") as file:
-        cascading = file.mkrntuple("ntuple", {"x": np.array([1, 2])})._cascading
+        cascading = file.mkrntuple(
+            "ntuple", {"x": np.array([1, 2], np.int64)}
+        )._cascading
 
         field = cascading._header._field_records[0]
         assert repr(field) == (
