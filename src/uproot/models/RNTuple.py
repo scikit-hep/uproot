@@ -1206,29 +1206,18 @@ in file {self.file.file_path}"""
 
             res = cupy.empty(total_length, field_metadata.dtype_result)
             res[: starts[0]] = 0
-            # Get uncompressed array for key for all clusters
+            # Get uncompressed array for key for all clusters, in the order of
+            # cluster_range (which never starts below zero on this path)
             col_decompressed_buffers = clusters_datas._grab_field_output(ncol)
-            # ``starts`` only contains entries for non-negative cluster indices
-            # (see _expected_array_length_starts_dtype), so skip negative ones
-            # here to keep the pairing between ``starts[i]`` and the cluster
-            # index aligned.
-            i = 0
-            for cluster_i in cluster_range:
-                if cluster_i < 0:
-                    continue
+            for i, cluster_i in enumerate(cluster_range):
                 stop = starts[i + 1] if i + 1 < len(starts) else total_length
-                cluster_buffer = col_decompressed_buffers[cluster_i]
+                cluster_buffer = col_decompressed_buffers[i]
                 cluster_buffer = self.gpu_deserialize_pages(
                     cluster_buffer, ncol, cluster_i, field_metadata
                 )
-                # if field_metadata.dtype != field_metadata.dtype_result:
+                # assigning converts the values of a narrower representation to
+                # dtype_result (the CPU path reads raw bytes and has to view them)
                 res[starts[i] : stop] = cluster_buffer
-
-                if field_metadata.dtype != field_metadata.dtype_result:
-                    res[starts[i] : stop] = res[starts[i] : stop].view(
-                        field_metadata.dtype
-                    )[: stop - starts[i]]
-                i += 1
 
             self.combine_cluster_arrays(res, starts, field_metadata)
             col_arrays[key_nr] = res
