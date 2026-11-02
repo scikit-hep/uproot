@@ -362,7 +362,7 @@ def dask(
                 decompression_executor,
                 interpretation_executor,
             )
-    else:
+    else:  # pragma: no cover  (_regularize_library only gives np, ak and pd, and pd raised above)
         raise NotImplementedError()
 
 
@@ -515,7 +515,7 @@ def _dask_array_from_map(
         blockwise_kwargs["task"] = dask._task_spec.Task(
             name, io_func, dask._task_spec.TaskRef(dask.blockwise.blockwise_token(0))
         )
-    else:
+    else:  # pragma: no cover  (dask without _task_spec, whose Blockwise takes dsk instead of task)
         blockwise_kwargs["dsk"] = {name: (io_func, dask.blockwise.blockwise_token(0))}
 
     dsk = dask.blockwise.Blockwise(**blockwise_kwargs)
@@ -638,6 +638,11 @@ def _branch_or_field_numpy_dtype(branch):
                 else:
                     raise KeyError(f"field {p!r} not found in form {form!r}")
         return _form_to_numpy_dtype(form, initial_sizes=sizes)
+    elif isinstance(branch.interpretation, uproot.interpretation.grouped.AsGrouped):
+        raise NotImplementedError(
+            f"uproot.dask with library='np' cannot read the grouped TBranch "
+            f"{branch.name!r}: select its sub-branches or use library='ak'"
+        )
     else:
         return branch.interpretation.numpy_dtype
 
@@ -782,6 +787,8 @@ def _get_dask_array(
         total_entries = sum(ttree.num_entries for ttree in ttrees)
         step_size = max(1, math.ceil(total_entries / (total_files * steps_per_file)))
 
+    common_keys = _normalize_grouped_keys(ttrees[0], common_keys, full_paths)
+
     dask_dict = {}
 
     step_sum = 0
@@ -812,7 +819,7 @@ def _get_dask_array(
                 for start in range(entry_start, entry_stop, entry_step):
                     stop = min(start + entry_step, entry_stop)
                     length = stop - start
-                    if length > 0:
+                    if length > 0:  # pragma: no branch  (range steps are non-empty)
                         chunks.append(length)
                         chunk_args.append((i, start, stop))
             else:
@@ -891,6 +898,7 @@ def _get_dask_array_delay_open(
     )
     if isinstance(obj, HasFields):
         common_keys = _with_subfield_keys(obj, common_keys)
+    common_keys = _normalize_grouped_keys(obj, common_keys, full_paths)
 
     dask_dict = {}
 
@@ -1976,7 +1984,7 @@ def _get_dak_array(
             for start in range(entry_start, entry_stop, entry_step):
                 stop = min(start + entry_step, entry_stop)
                 length = stop - start
-                if length > 0:
+                if length > 0:  # pragma: no branch  (range steps are non-empty)
                     divisions.append(divisions[-1] + length)
                     partition_args.append((i, start, stop))
         else:

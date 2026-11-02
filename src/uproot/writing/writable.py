@@ -966,14 +966,11 @@ class WritableDirectory(MutableMapping):
                             step = step[item]
 
                     elif isinstance(step, WritableTree):
-                        rest = items[i:]
-                        if len(rest) != 0:
-                            raise uproot.KeyInFileError(
-                                where,
-                                because="TTrees in writable files can't be indexed by TBranch name",
-                                file_path=self.file_path,
-                            )
-                        return step
+                        raise uproot.KeyInFileError(
+                            where,
+                            because="TTrees in writable files can't be indexed by TBranch name",
+                            file_path=self.file_path,
+                        )
 
                     else:
                         raise uproot.KeyInFileError(
@@ -1172,8 +1169,12 @@ class WritableDirectory(MutableMapping):
                     dtype = numpy.dtype(str).newbyteorder(">")
                 else:
                     dtype = interpretation.numpy_dtype.newbyteorder(">")
-            except AttributeError:
-                # TBranchElement or other complex branch — skip
+            except (
+                AttributeError,
+                NotImplementedError,
+                uproot.interpretation.identify.UnknownInterpretation,
+            ):
+                # TBranch that this cascade can't extend — skip
                 continue
 
             if dtype.kind == "O":
@@ -2131,12 +2132,13 @@ in file {source.file_path} in directory {source.path}"""
             )
 
         for name, allocation in new_dirs.items():
-            self.mkdir(
-                name,
-                initial_directory_bytes=max(
-                    self._file.initial_directory_bytes, allocation
-                ),
-            )
+            if name != "":  # the root of the copy is this directory, not a new one
+                self.mkdir(
+                    name,
+                    initial_directory_bytes=max(
+                        self._file.initial_directory_bytes, allocation
+                    ),
+                )
 
         for _ in range(len(ranges)):
             chunk = notifications.get()
@@ -2491,10 +2493,6 @@ class WritableTree:
         # extend()/add_branches() call (the same trust extend() itself places in
         # it), so there's no need to re-read and re-parse the whole tree from
         # disk here
-        if self._cascading is None:
-            raise RuntimeError(
-                "_cascading is None — this should not happen; please report this bug"
-            )
         casc = self._cascading
         num_entries = casc._num_entries
 
@@ -2634,10 +2632,6 @@ class WritableTree:
             desynchronizing or corrupting the tree's branches.
         """
         self._check_not_deleted()
-        if self._cascading is None:
-            raise RuntimeError(
-                "_cascading is None — this should not happen; please report this bug"
-            )
         if self._cascading._has_unsupported_branches:
             # _load_existing_ttree leaves TBranchElement (and other non-TBranch)
             # branches out of _branch_data entirely, so extend() would only add
@@ -3502,7 +3496,7 @@ def _is_type_specification(obj):
         if isinstance(obj, str):
             try:
                 numpy.dtype(obj)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, SyntaxError):
                 pass
             else:
                 continue
@@ -3537,7 +3531,7 @@ def _type_specification_to_awkward_form(obj):
         # so we can try to convert it to a string Awkward understands
         try:
             dt = numpy.dtype(obj)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, SyntaxError):
             pass
         else:
             obj = dt

@@ -263,7 +263,7 @@ class NumPy(Library):
             return tuple(concatenated[k] for k in keys)
         elif isinstance(all_arrays[0], list):
             return [concatenated[k] for k in keys]
-        elif isinstance(all_arrays[0], dict):
+        elif isinstance(all_arrays[0], dict):  # pragma: no branch  (checked above)
             return concatenated
 
 
@@ -540,7 +540,7 @@ class Awkward(Library):
             )
             if issubclass(array.offsets.dtype.type, numpy.int32):
                 offsets = awkward.index.Index32(array.offsets)
-                layout = awkward.contents.ListOffsetArray32(offsets, content)
+                layout = awkward.contents.ListOffsetArray(offsets, content)
             else:
                 offsets = awkward.index.Index64(array.offsets)
                 layout = awkward.contents.ListOffsetArray(offsets, content)
@@ -552,7 +552,7 @@ class Awkward(Library):
             )
             if issubclass(array.offsets.dtype.type, numpy.int32):
                 offsets = awkward.index.Index32(array.offsets)
-                layout = awkward.contents.ListOffsetArray32(offsets, content)
+                layout = awkward.contents.ListOffsetArray(offsets, content)
             else:
                 offsets = awkward.index.Index64(array.offsets)
                 layout = awkward.contents.ListOffsetArray(offsets, content)
@@ -565,12 +565,12 @@ class Awkward(Library):
             )
             if issubclass(array.offsets.dtype.type, numpy.int32):
                 offsets = awkward.index.Index32(array.offsets)
-                layout = awkward.contents.ListOffsetArray32(
+                layout = awkward.contents.ListOffsetArray(
                     offsets, content, parameters={"__array__": "string"}
                 )
             elif issubclass(array.offsets.dtype.type, numpy.uint32):
                 offsets = awkward.index.IndexU32(array.offsets)
-                layout = awkward.contents.ListOffsetArrayU32(
+                layout = awkward.contents.ListOffsetArray(
                     offsets, content, parameters={"__array__": "string"}
                 )
             elif issubclass(array.offsets.dtype.type, numpy.int64):
@@ -667,14 +667,9 @@ class Awkward(Library):
 
             out = None
             if len(nonjagged) != 0:
-                if len(nonjagged) == 0:
-                    out = awkward.Array(
-                        awkward.contents.RecordArray([], fields=[], length=0)
-                    )
-                else:
-                    out = awkward.Array(
-                        {name: renamed_arrays[name] for name in nonjagged},
-                    )
+                out = awkward.Array(
+                    {name: renamed_arrays[name] for name in nonjagged},
+                )
             for number, jagged in enumerate(jaggeds):
                 cut = len(jagged[0])
                 for name in jagged:
@@ -694,27 +689,17 @@ class Awkward(Library):
                     cut = 0
                 if cut == 0:
                     common = f"jagged{number}"
-                    if len(jagged) == 0:
-                        subarray = awkward.Array(
-                            awkward.contents.RecordArray([], fields=[], length=0)
-                        )
-                    else:
-                        subarray = awkward.zip(
-                            {name: renamed_arrays[name] for name in jagged}
-                        )
+                    subarray = awkward.zip(
+                        {name: renamed_arrays[name] for name in jagged}
+                    )
                 else:
                     common = jagged[0][:cut].strip("_./")
-                    if len(jagged) == 0:
-                        subarray = awkward.Array(
-                            awkward.contents.RecordArray([], fields=[], length=0)
-                        )
-                    else:
-                        subarray = awkward.zip(
-                            {
-                                name[cut:].strip("_./"): renamed_arrays[name]
-                                for name in jagged
-                            }
-                        )
+                    subarray = awkward.zip(
+                        {
+                            name[cut:].strip("_./"): renamed_arrays[name]
+                            for name in jagged
+                        }
+                    )
                 if out is None:
                     out = awkward.Array({common: subarray})
                 else:
@@ -752,7 +737,7 @@ class Awkward(Library):
             return tuple(concatenated[k] for k in keys)
         elif isinstance(all_arrays[0], list):
             return [concatenated[k] for k in keys]
-        elif isinstance(all_arrays[0], dict):
+        elif isinstance(all_arrays[0], dict):  # pragma: no branch  (checked above)
             return concatenated
 
 
@@ -953,7 +938,7 @@ class Pandas(Library):
             return tuple(concatenated[k] for k in keys)
         elif isinstance(all_arrays[0], list):
             return [concatenated[k] for k in keys]
-        elif isinstance(all_arrays[0], dict):
+        elif isinstance(all_arrays[0], dict):  # pragma: no branch  (checked above)
             return concatenated
 
 

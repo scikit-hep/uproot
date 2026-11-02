@@ -20,7 +20,7 @@ class Model_THashList(uproot.model.Model):
     def read_members(self, chunk, cursor, context, file):
         if uproot._awkwardforth.get_forth_obj(context) is not None:
             raise uproot.interpretation.objects.CannotBeForth()
-        if self.is_memberwise:
+        if self.is_memberwise:  # pragma: no cover  (always False: no header read)
             raise NotImplementedError(
                 f"""memberwise serialization of {type(self).__name__}
 in file {self.file.file_path}"""

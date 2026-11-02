@@ -327,7 +327,7 @@ def _float16_or_double32(branch, context, leaf, is_float16, dims):
             low, high, num_bits = spec
 
         else:
-            num_bits = "no brackets"
+            low, high, num_bits = 0, 0, "no brackets"
 
     if not is_float16:
         if num_bits == "no brackets":
@@ -431,7 +431,7 @@ def interpretation_of(branch, context, simplify=True):
     dims, _is_jagged = _from_leaves(branch, context)
 
     try:
-        if len(branch.member("fLeaves")) == 0:
+        if len(branch.member("fLeaves")) == 0:  # pragma: no cover  (see _from_leaves)
             raise NotNumerical()
 
         elif len(branch.member("fLeaves")) == 1:
@@ -469,6 +469,16 @@ def interpretation_of(branch, context, simplify=True):
                 return uproot.interpretation.jagged.AsJagged(out)
 
         else:
+            if any(
+                leaf.member("fLeafCount") is not None
+                for leaf in branch.member("fLeaves")
+            ):
+                raise UnknownInterpretation(
+                    "leaf-list with non-null fLeafCount",
+                    branch.file.file_path,
+                    branch.object_path,
+                )
+
             from_dtype = []
             for leaf in branch.member("fLeaves"):
                 from_dtype.append(
@@ -483,18 +493,9 @@ def interpretation_of(branch, context, simplify=True):
             else:
                 to_dtype = from_dtype
 
-            if all(
-                leaf.member("fLeafCount") is None for leaf in branch.member("fLeaves")
-            ):
-                return uproot.interpretation.numerical.AsDtype(
-                    numpy.dtype((from_dtype, dims)), numpy.dtype((to_dtype, dims))
-                )
-            else:
-                raise UnknownInterpretation(
-                    "leaf-list with non-null fLeafCount",
-                    branch.file.file_path,
-                    branch.object_path,
-                )
+            return uproot.interpretation.numerical.AsDtype(
+                numpy.dtype((from_dtype, dims)), numpy.dtype((to_dtype, dims))
+            )
 
     except NotNumerical:
         if (
@@ -509,7 +510,7 @@ def interpretation_of(branch, context, simplify=True):
             if leaf.classname == "TLeafC":
                 return uproot.interpretation.strings.AsStrings()
 
-        elif len(branch.member("fLeaves")) > 1:
+        elif len(branch.member("fLeaves")) > 1:  # pragma: no branch  (see _from_leaves)
             raise UnknownInterpretation(
                 "more than one TLeaf ({}) in a non-numerical TBranch".format(
                     len(branch.member("fLeaves"))
@@ -625,7 +626,7 @@ def _parse_expect(what, tokens, i, typename, file):
 
 
 def _parse_ignore_extra_arguments(tokens, i, typename, file, at_most):
-    while tokens[i].group(0) == ",":
+    while i < len(tokens) and tokens[i].group(0) == ",":
         if at_most == 0:
             _parse_error(tokens[i].start() + 1, typename, file)
         i, _values = _parse_node(tokens, i + 1, typename, file, True, False, False)
@@ -1114,7 +1115,7 @@ def _parse_node(tokens, i, typename, file, quote, header, inner_header):
             i, keys = _parse_node(
                 tokens, i + 2, typename, file, quote, inner_header, inner_header
             )
-            while tokens[i].group(0) == ",":
+            while i < len(tokens) and tokens[i].group(0) == ",":
                 i, keys = _parse_node(
                     tokens, i + 1, typename, file, quote, inner_header, inner_header
                 )

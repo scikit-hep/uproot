@@ -110,7 +110,7 @@ def _cpp_typename(akform, subcall=False):
         typename = f"std::variant<{','.join(field_typenames)}>"
     elif isinstance(akform, awkward.forms.UnmaskedForm):
         return _cpp_typename(akform.content, subcall=True)
-    else:
+    else:  # pragma: no cover  (_to_packed_form only returns the forms above)
         msg = "This should not have happened. Please report this issue to the Uproot developers."
         raise AssertionError(msg)
     if not subcall and "UntypedRecord" in typename:
@@ -322,11 +322,7 @@ class NTuple_Header(CascadeLeaf):
         super().__init__(location, aloc)
 
     def __repr__(self):
-        return "{}({}, {})".format(
-            type(self).__name__,
-            self._location,
-            ", ".join([repr(x) for x in self._akform]),
-        )
+        return f"{type(self).__name__}({self._location}, {self._akform!r})"
 
     def _build_field_col_records(
         self, akform, field_name=None, parent_fid=None, add_field=True, description=""
@@ -475,7 +471,7 @@ class NTuple_Header(CascadeLeaf):
                 field_name=field_name,
                 description=description,
             )
-        else:
+        else:  # pragma: no cover  (_to_packed_form only returns the forms above)
             msg = "This should not have happened. Please report this issue to the Uproot developers."
             raise AssertionError(msg)
 
@@ -1163,7 +1159,8 @@ def _to_packed_form(form):
                 "i64", _to_packed_form(form.content), parameters=form.parameters
             )
         case awkward.forms.EmptyForm:
-            return form
+            msg = "Fields of unknown type cannot be written to an RNTuple. Empty arrays need a type, which can be set with ak.enforce_type."
+            raise TypeError(msg)
         case awkward.forms.IndexedForm:
             return _to_packed_form(form.content)
         case awkward.forms.IndexedOptionForm:
@@ -1211,18 +1208,9 @@ def _to_packed(layout):
     This is similar to `to_packed` in Awkward, but a bit more consistent.
     """
     match layout.__class__:
-        case awkward.contents.BitMaskedArray:
-            next = layout.to_IndexedOptionArray64()
-            content = _to_packed(next._content[: layout.length])
-            return awkward.contents.IndexedOptionArray(
-                next._index, content, parameters=next.parameters
-            )
-        case awkward.contents.ByteMaskedArray:
-            next = layout.to_IndexedOptionArray64()
-            content = _to_packed(next._content[: layout._mask.length])
-            return awkward.contents.IndexedOptionArray(
-                next._index, content, parameters=next.parameters
-            )
+        case awkward.contents.BitMaskedArray | awkward.contents.ByteMaskedArray:
+            # the content of an option has no entries for the missing values on disk
+            return _to_packed(layout.to_IndexedOptionArray64())
         case awkward.contents.EmptyArray:
             return layout
         case awkward.contents.IndexedArray:

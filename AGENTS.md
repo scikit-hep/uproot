@@ -21,6 +21,7 @@ prek -a --quiet                      # lint/format (pre-commit: black, ruff, etc
 - Test files are named `test_<issue-or-PR-number>_<short_description>.py`. New tests for a fix or feature go in a new file numbered after the issue/PR.
 - Tests pull sample ROOT files via `skhep_testdata`; many tests need network access. Markers: `slow`, `network`, `distributed`, `xrootd`.
 - Pytest treats warnings as errors (`filterwarnings = error`).
+- Codecov enforces 100% line and branch coverage, measured on the CPU job plus the GPU job (`tests-cuda/`). Tests must not depend on the network or on timing to reach a line. Mark code that can't be reached with `# pragma: no cover  (reason)` or `# pragma: no branch  (reason)`; `raise AssertionError` is excluded in `pyproject.toml`.
 - Ruff lints `src/` but not `tests/`; isort requires `from __future__ import annotations` in every module. Every source file starts with the license header line `# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE`.
 - Version is derived from git tags via hatch-vcs (`src/uproot/version.py` is generated; don't edit).
 

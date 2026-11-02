@@ -107,7 +107,7 @@ class _DecompressZLIB:
 
         elif self.library == "deflate":
             deflate = uproot.extras.deflate()
-            return deflate.zlib_decompress(data, bufsize=uncompressed_bytes)
+            return deflate.zlib_decompress(data, uncompressed_bytes)
 
         else:
             raise ValueError(

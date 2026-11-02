@@ -100,7 +100,7 @@ class Tree:
         self._has_divergent_baskets = False
         self._needs_relocation_before_extend = False
 
-        if isinstance(branch_types, dict):
+        if isinstance(branch_types, Mapping):
             branch_types_items = branch_types.items()
         else:
             branch_types_items = branch_types
@@ -129,7 +129,7 @@ class Tree:
                         raise TypeError
                     branch_dtype = numpy.dtype(branch_type)
 
-                except (TypeError, ValueError) as err:
+                except (TypeError, ValueError, SyntaxError) as err:
                     if isinstance(
                         branch_type,
                         (awkward.types.Type, awkward.types.ArrayType),
@@ -188,8 +188,6 @@ class Tree:
 
             else:
                 parameters = branch_datashape.parameters
-                if parameters is None:
-                    parameters = {}
 
                 if parameters.get("__array__") == "string":
                     self._check_not_counter(branch_name)
@@ -243,13 +241,8 @@ class Tree:
                     self._check_not_counter(branch_name)
 
                     if type(content).__name__ == "RecordType":
-                        if hasattr(content, "contents"):
-                            contents = content.contents
-                        else:
-                            contents = content.fields()
+                        contents = content.contents
                         keys = content.fields
-                        if callable(keys):
-                            keys = keys()
                         if keys is None:
                             keys = [str(x) for x in range(len(contents))]
 
@@ -290,13 +283,8 @@ class Tree:
                             )
 
                 elif type(branch_datashape).__name__ == "RecordType":
-                    if hasattr(branch_datashape, "contents"):
-                        contents = branch_datashape.contents
-                    else:
-                        contents = branch_datashape.fields()
+                    contents = branch_datashape.contents
                     keys = branch_datashape.fields
-                    if callable(keys):
-                        keys = keys()
                     if keys is None:
                         keys = [str(x) for x in range(len(contents))]
 
@@ -365,8 +353,6 @@ class Tree:
             return numpy.dtype("float64")
         elif type(branch_datashape).__name__ == "NumpyType":
             return numpy.dtype(branch_datashape.primitive)
-        elif type(branch_datashape).__name__ == "PrimitiveType":
-            return numpy.dtype(branch_datashape.dtype)
         elif type(branch_datashape).__name__ == "RegularType":
             content = self._branch_ak_to_np(branch_datashape.content)
             if content is None:
@@ -721,12 +707,14 @@ class Tree:
                 )
 
             datum = self._branch_data[self._branch_lookup[branch_name]]
-            if datum["kind"] == "record":
+            if datum["kind"] == "record":  # pragma: no cover  (these are leaf branches)
                 continue
 
             if datum["counter"] is None:
                 if datum["dtype"] == ">U0":
                     layout = awkward.to_layout(branch_array)
+                    if isinstance(layout, awkward.contents.IndexedArray):
+                        layout = layout.project()
                     if isinstance(
                         layout,
                         (
@@ -809,8 +797,9 @@ class Tree:
                         layout = layout.to_ListOffsetArray64(False)
 
                     else:
-                        raise AssertionError(
-                            "how did this pass the type check?\n\n" + repr(layout)
+                        raise TypeError(
+                            f"jagged branch {branch_name!r} can't be filled with this "
+                            f"Awkward Array:\n\n{layout!r}"
                         )
 
                 content = layout.content
@@ -835,8 +824,9 @@ class Tree:
                         content = content.content
 
                     else:
-                        raise AssertionError(
-                            "how did this pass the type check?\n\n" + repr(content)
+                        raise TypeError(
+                            f"jagged branch {branch_name!r} can't be filled with lists "
+                            f"of this Awkward Array:\n\n{content!r}"
                         )
 
                 big_endian = numpy.asarray(content.data, dtype=datum["dtype"])
@@ -1097,7 +1087,7 @@ class Tree:
                 special_struct = uproot.models.TLeaf._tleafs1_format1
             elif letter_upper == "I":
                 special_struct = uproot.models.TLeaf._tleafi1_format1
-            elif letter_upper == "G":
+            elif letter_upper == "G":  # pragma: no cover  (not in _dtype_to_char)
                 special_struct = uproot.models.TLeaf._tleafl1_format0
             elif letter_upper == "L":
                 special_struct = uproot.models.TLeaf._tleafl1_format0
@@ -1105,7 +1095,7 @@ class Tree:
                 special_struct = uproot.models.TLeaf._tleaff1_format1
             elif letter_upper == "D":
                 special_struct = uproot.models.TLeaf._tleafd1_format1
-            elif letter_upper == "C":
+            elif letter_upper == "C":  # pragma: no branch  (all of _dtype_to_char)
                 special_struct = uproot.models.TLeaf._tleafc1_format1
 
             fLenType = datum["dtype"].itemsize
@@ -1622,7 +1612,7 @@ class Tree:
         )
 
         itemsize = array.dtype.itemsize
-        for item in array.shape[1:]:
+        for item in array.shape[1:]:  # pragma: no cover  (strings are flat bytes)
             itemsize *= item
 
         offsets *= itemsize

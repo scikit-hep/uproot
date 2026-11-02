@@ -226,6 +226,19 @@ class Key(CascadeLeaf):
         return self.num_bytes
 
     @property
+    def location(self):
+        return self._location
+
+    @location.setter
+    def location(self, value):
+        if self._location != value:
+            self._file_dirty = True
+            if self._big is False:
+                # read from a file; it might have to be big in its new location
+                self._big = None
+            self._location = value
+
+    @property
     def uncompressed_bytes(self):
         return self._uncompressed_bytes
 
@@ -946,21 +959,29 @@ class TListOfStreamers(CascadeNode):
                         streamer.copy_to(self._key.location + self.num_bytes)
                     )
 
+                else:
+                    raise TypeError(
+                        f"streamers must be TStreamerInfo or RawStreamerInfo, not {type(streamer).__name__}"
+                    )
+
         self.more_dependencies(*self._rawstreamers[where:])
 
         if flush:
             self.write(sink)
+            sink.set_file_length(self._freesegments.fileheader.end)
             sink.flush()
 
     def _reallocate(self, self_num_bytes):
         original_start = self._key.location
         original_stop = self._key.location + self._key.allocation + self._allocation
 
+        self._key.location = None  # let it assume the key might be big
+        self._key.seek_location = None
         requested_num_bytes = self._key.num_bytes + self_num_bytes
 
         self._key.location = self._freesegments.allocate(requested_num_bytes)
         self._key.seek_location = self._key.location
-        self._allocation = self_num_bytes
+        self._allocation = requested_num_bytes - self._key.num_bytes
 
         self._freesegments.release(original_start, original_stop)
 

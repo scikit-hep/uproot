@@ -853,7 +853,7 @@ in file {file_path}""")
         first = True
         for name, version in names:
             streamer = self.streamers[name].get(version)
-            if streamer is not None:
+            if streamer is not None:  # pragma: no branch  (all from self.streamers)
                 if not first:
                     stream.write("\n")
                 streamer.show(stream=stream)
@@ -881,6 +881,7 @@ in file {file_path}""")
         if self._streamers is None:
             if self._fSeekInfo == 0:
                 self._streamers = {}
+                self._streamer_rules = []
 
             else:
                 key_cursor = uproot.source.cursor.Cursor(self._fSeekInfo)
@@ -1034,7 +1035,7 @@ in file {self._file_path}"""
                     if x not in out:
                         for i in range(-1, -len(out) - 1, -1):
                             if out[i][0] == x[0]:
-                                out.insert(i + 1, x)
+                                out.insert(len(out) + i + 1, x)
                                 break
                         else:
                             out.append(x)
@@ -2111,7 +2112,13 @@ class ReadOnlyDirectory(Mapping):
                             head, tail = item[:index], item[index + 1 :]
                             last = step
                             step = step[head]
-                            if isinstance(step, uproot.behaviors.TBranch.HasBranches):
+                            if isinstance(
+                                step,
+                                (
+                                    uproot.behaviors.TBranch.HasBranches,
+                                    uproot.behaviors.RNTuple.HasFields,
+                                ),
+                            ):
                                 return step["/".join([tail, *items[i + 1 :]])]
                             else:
                                 raise uproot.KeyInFileError(

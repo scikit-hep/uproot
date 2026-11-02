@@ -43,12 +43,18 @@ def test_from_pyroot():
     h4 = uproot.from_pyroot(pyroot_h4)
     h5 = uproot.from_pyroot(pyroot_h5)
     h6 = uproot.from_pyroot(pyroot_h6)
-    assert h1.classname == "TH1F"
-    assert h2.classname == "TH1D"
-    assert h3.classname == "TH2F"
-    assert h4.classname == "TH2D"
-    assert h5.classname == "TH3F"
-    assert h6.classname == "TH3D"
+    for hist, classname, shape in [
+        (h1, "TH1F", (100,)),
+        (h2, "TH1D", (100,)),
+        (h3, "TH2F", (100, 100)),
+        (h4, "TH2D", (100, 100)),
+        (h5, "TH3F", (100, 100, 100)),
+        (h6, "TH3D", (100, 100, 100)),
+    ]:
+        assert hist.classname == classname
+        assert hist.values().shape == shape
+        assert hist.values().sum() == 0
+        assert hist.axis(0).edges()[[0, -1]].tolist() == [0.0, 1.0]
 
 
 def test_write_pyroot_TObjString(tmp_path):

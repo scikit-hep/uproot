@@ -1532,8 +1532,6 @@ class HasBranches(Mapping):
             previous_baskets = {}
             for sub_entry_start in range(entry_start, entry_stop, entry_step):
                 sub_entry_stop = min(sub_entry_start + entry_step, entry_stop)
-                if sub_entry_stop - sub_entry_start == 0:
-                    continue
 
                 ranges_or_baskets = []
                 checked = set()
@@ -2473,10 +2471,7 @@ class TBranch(HasBranches):
         :doc:`uproot.interpretation.identify.UnknownInterpretation`, the
         typename is ``"unknown"``.
         """
-        if self.interpretation is None:
-            return "unknown"
-        else:
-            return self.interpretation.typename
+        return self.interpretation.typename
 
     @property
     def num_entries(self):
@@ -3633,6 +3628,9 @@ def _regularize_expressions(
             None,
         )
 
+    else:
+        raise TypeError(f"cut must be None or a string, not {cut!r}")
+
     return arrays, expression_context, branchid_interpretation
 
 
@@ -3783,7 +3781,9 @@ def _ranges_or_baskets_to_arrays(
         return
 
     # Request all chunks and then poll notifications queue until we have all the arrays we expect
-    hasbranches._file.source.chunks(ranges, notifications=notifications)
+    # (a step within baskets that have already been read has nothing to request)
+    if len(ranges) != 0:
+        hasbranches._file.source.chunks(ranges, notifications=notifications)
 
     while len(arrays) < len(branchid_interpretation):
         obj = notifications.get()

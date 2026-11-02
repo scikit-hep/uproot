@@ -40,8 +40,14 @@ def test_volley(tmp_path):
     y.Write()
     f5.Close()
 
+    # the TList of streamers has to move to the end of the file
     with uproot.writing.update(filename) as f6:
-        f6.file._cascading.streamers.write(f6.file.sink)
+        f6.file.update_streamers([])
+
+    streamers = set(uproot.open(filename).file.streamers)
+    assert {"TObjString", "TH1F", "TH1", "TAxis"} <= streamers
+    assert uproot.open(filename)["hey"].title == "there"
+    assert uproot.open(filename)["hello"] == "hello"
 
 
 def test_with_mkdir(tmp_path):
@@ -77,6 +83,16 @@ def test_with_mkdir(tmp_path):
 
     with uproot.writing.update(filename) as f6:
         f6.mkdir("three")
+
+    with uproot.open(filename) as f7:
+        assert set(f7.keys(cycle=False)) == {
+            "one",
+            "one/hello",
+            "two",
+            "hey",
+            "three",
+        }
+        assert {"TObjString", "TH1F"} <= set(f7.file.streamers)
 
 
 def test_add_streamers_1(tmp_path):
@@ -117,6 +133,8 @@ def test_add_streamers_1(tmp_path):
     z = ROOT.TH1F("histogram", "", 100, -5, 5)
     z.Write()
     f4.Close()
+
+    assert uproot.open(filename)["histogram"].values().tolist() == [0] * 100
 
 
 def test_add_streamers_2(tmp_path):
@@ -205,6 +223,10 @@ def test_add_streamers_2(tmp_path):
     z = ROOT.TObjString("there")
     z.Write()
     f3.Close()
+
+    f4 = ROOT.TFile(filename)
+    assert str(f4.Get("there")) == "there"
+    f4.Close()
 
 
 def test_add_streamers_3(tmp_path):

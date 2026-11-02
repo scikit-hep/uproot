@@ -68,7 +68,8 @@ def test_prefix_tree_name_and_multifile_numbering(tmp_path):
     assert [os.path.basename(p) for p in paths] == [
         f"skim-0000{i}.root" for i in range(4)
     ]
-    assert [len(uproot.open(p)["ev"].arrays()) for p in paths] == [3, 3, 2, 2]
+    pieces = [uproot.open(p)["ev"].arrays().x.tolist() for p in paths]
+    assert pieces == [[0, 1, 2], [3, 4, 5], [0, 1], [2, 3]]
 
 
 def test_nested_records_flatten_to_joined_branch_names(tmp_path):
@@ -88,18 +89,19 @@ def test_compute_false_returns_the_plan_and_writes_nothing(tmp_path):
     plan = uproot.graphed_write(g, outdir, steps_per_file=2, compute=False)
     assert isinstance(plan, Plan) and len(plan.tasks) == 2
     assert os.listdir(outdir) == []
-    assert len(pickle.dumps(plan)) > 0  # ships to a process pool unchanged
-    paths = SequentialRunner().run(plan).value
+    # ships to a process pool unchanged
+    paths = SequentialRunner().run(pickle.loads(pickle.dumps(plan))).value
     assert sorted(os.listdir(outdir)) == [os.path.basename(p) for p in paths]
+    assert _back(paths).x.tolist() == list(range(20))
 
 
 def test_executor_is_a_name_an_instance_or_a_class(tmp_path):
     g = uproot.graphed(_make_tree(os.path.join(tmp_path, "in.root")))
     out = os.path.join(tmp_path, "out")
-    assert len(uproot.graphed_write(g, out, executor=SequentialRunner())) == 1
-    assert (
-        len(uproot.graphed_write(g, out, executor=ThreadExecutor, max_workers=2)) == 1
-    )
+    paths = uproot.graphed_write(g, out, executor=SequentialRunner())
+    assert _back(paths).x.tolist() == list(range(20))
+    paths = uproot.graphed_write(g, out, executor=ThreadExecutor, max_workers=2)
+    assert _back(paths).x.tolist() == list(range(20))
     with pytest.raises(ValueError, match="executor must be 'process' or 'thread'"):
         uproot.graphed_write(g, out, executor="threads")
 
@@ -126,7 +128,7 @@ def test_process_pool_with_a_behavior_backend_by_import_ref(tmp_path):
         out,
         steps_per_file=2,
         executor=ProcessPoolExecutor,
-        max_workers=2,
+        max_workers=1,
         backend="tests.graphed_helpers.vector_backend_ref:make_backend",
     )
     ref = uproot.open(src).arrays()
@@ -188,7 +190,7 @@ def test_remote_destinations_go_through_fsspec(tmp_path):
         storage_options={},
     )
     assert paths == [f"memory:///bucket/skims/part-0000{i}.root" for i in range(2)]
-    assert len(_back(paths)) == 20
+    assert _back(paths).x.tolist() == list(range(20))
 
 
 def test_steps_beyond_the_entry_count_write_no_empty_part(tmp_path):
@@ -201,7 +203,7 @@ def test_steps_beyond_the_entry_count_write_no_empty_part(tmp_path):
         "part-00003.root",
         "part-00004.root",
     ]  # steps 0 and 2 resolve empty and write nothing
-    assert len(_back(paths)) == 3
+    assert _back(paths).x.tolist() == [0.0, 1.0, 2.0]
 
 
 def test_a_missing_tree_under_allow_missing_writes_no_part(tmp_path):
@@ -217,6 +219,7 @@ def test_a_missing_tree_under_allow_missing_writes_no_part(tmp_path):
     )
     paths = uproot.graphed_write(g, os.path.join(tmp_path, "out"), executor="thread")
     assert [os.path.basename(p) for p in paths] == ["part-00000.root"]
+    assert _back(paths).x.tolist() == list(range(20))
 
 
 def test_externals_reach_the_write_workers(tmp_path):

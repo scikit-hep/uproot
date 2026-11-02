@@ -58,3 +58,5 @@ def test_pandas_and_double_nested_vectors_issue_885(tmp_path):
         interp._forth = False
         u2 = branch.array(interp, library="pd")
         assert isinstance(u2[0], ak.highlevel.Array)
+        assert ak.to_list(u2[0]) == [[0, 1, 2], [0, 1, 2, 3, 4]]
+        assert len(u2) == 25

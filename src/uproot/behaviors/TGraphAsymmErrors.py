@@ -32,7 +32,7 @@ class TGraphAsymmErrors:
             return (
                 self._normalize_array(highkey) + self._normalize_array(lowkey)
             ) / 2.0
-        elif which == "diff":
+        elif which == "diff":  # pragma: no branch  (errors has validated which)
             return self._normalize_array(highkey) - self._normalize_array(lowkey)
 
     def values(self, axis="both"):

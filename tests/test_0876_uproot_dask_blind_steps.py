@@ -7,61 +7,64 @@ import awkward as ak
 
 import uproot
 
+dask = pytest.importorskip("dask")
 dask_awkward = pytest.importorskip("dask_awkward")
 
 
 @pytest.mark.parametrize("library", ["np", "ak"])
-@pytest.mark.parametrize("step_size", ["100MB", uproot._util.unset])
-@pytest.mark.parametrize("steps_per_file", [1, 2, 5, 10, 15, uproot._util.unset])
-@pytest.mark.parametrize("open_files", [False, True])
-def test_uproot_dask_steps(library, step_size, steps_per_file, open_files):
+@pytest.mark.parametrize(
+    ("open_files", "steps", "num_partitions"),
+    [
+        (open_files, {"steps_per_file": n}, n)
+        for open_files in (False, True)
+        # uproot-Zmumu.root has one TBasket: all but 1 are blind steps
+        for n in (1, 2, 15)
+    ]
+    + [(False, {}, 1), (True, {}, 1), (True, {"step_size": "100MB"}, 1)],
+)
+def test_uproot_dask_steps(library, open_files, steps, num_partitions):
     test_path = skhep_testdata.data_path("uproot-Zmumu.root") + ":events"
-    ttree = uproot.open(test_path)
+    columns = ["Type", "Run", "px1", "py2"]
+    arrays = uproot.open(test_path).arrays(columns, library=library)
 
-    arrays = ttree.arrays(library=library)
-    if not isinstance(step_size, uproot._util._Unset) and not open_files:
-        with pytest.raises(TypeError):
-            uproot.dask(
-                test_path,
-                library=library,
-                step_size=step_size,
-                steps_per_file=steps_per_file,
-                open_files=open_files,
-            )
-    elif not isinstance(step_size, uproot._util._Unset) and not isinstance(
-        steps_per_file, uproot._util._Unset
-    ):
-        with pytest.raises(TypeError):
-            uproot.dask(
-                test_path,
-                library=library,
-                step_size=step_size,
-                steps_per_file=steps_per_file,
-                open_files=open_files,
-            )
+    dask_arrays = uproot.dask(
+        test_path, filter_name=columns, library=library, open_files=open_files, **steps
+    )
+
+    if library == "np":
+        assert list(dask_arrays.keys()) == list(
+            arrays.keys()
+        ), "Different keys detected in dictionary of dask arrays and dictionary of numpy arrays"
+        assert dask_arrays["px1"].numblocks == (num_partitions,)
+
+        computed = dask.compute(dask_arrays, scheduler="synchronous")[0]
+        for key in arrays.keys():
+            assert numpy.array_equal(computed[key], arrays[key]), key
+
     else:
-        dask_arrays = uproot.dask(
-            test_path,
-            library=library,
-            step_size=step_size,
-            steps_per_file=steps_per_file,
-            open_files=open_files,
-        )
+        assert dask_arrays.npartitions == num_partitions
+        assert ak.array_equal(dask_arrays.compute(scheduler="synchronous"), arrays)
 
-        if library == "np":
-            assert list(dask_arrays.keys()) == list(
-                arrays.keys()
-            ), "Different keys detected in dictionary of dask arrays and dictionary of numpy arrays"
 
-            comp = []
-            for key in arrays.keys():
-                comp.append(numpy.array_equal(dask_arrays[key].compute(), arrays[key]))
-            assert all(comp), f"Incorrect array at key {key}"
-
-        else:
-            assert ak.almost_equal(
-                dask_arrays[["px1", "px2", "py1", "py2"]].compute(
-                    scheduler="synchronous"
-                ),
-                arrays[["px1", "px2", "py1", "py2"]],
-            )
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        (
+            {"step_size": "100MB", "open_files": False},
+            "'step_size' should not be set when 'open_files' is False",
+        ),
+        (
+            {"step_size": "100MB", "steps_per_file": 5, "open_files": False},
+            "only 'step_size' or 'steps_per_file' should be set, not both",
+        ),
+        (
+            {"step_size": "100MB", "steps_per_file": 5, "open_files": True},
+            "only 'step_size' or 'steps_per_file' should be set, not both",
+        ),
+    ],
+)
+@pytest.mark.parametrize("library", ["np", "ak"])
+def test_uproot_dask_incompatible_steps(library, kwargs, message):
+    test_path = skhep_testdata.data_path("uproot-Zmumu.root") + ":events"
+    with pytest.raises(TypeError, match=message):
+        uproot.dask(test_path, library=library, **kwargs)

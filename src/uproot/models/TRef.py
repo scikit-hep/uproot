@@ -32,21 +32,21 @@ class Model_TRef(uproot.model.Model):
         """
         The reference number as an integer.
         """
-        return self._ref
+        return self._members["ref"]
 
     def read_numbytes_version(self, chunk, cursor, context):
         pass
 
     def read_members(self, chunk, cursor, context, file):
-        if self.is_memberwise:
+        if self.is_memberwise:  # pragma: no cover  (always False: no header read)
             raise NotImplementedError(
                 f"""memberwise serialization of {type(self).__name__}
 in file {self.file.file_path}"""
             )
-        self._ref = cursor.field(chunk, _tref_format1, context)
+        self._members["ref"] = cursor.field(chunk, _tref_format1, context)
 
     def __repr__(self):
-        return f"<TRef {self._ref}>"
+        return f"<TRef {self.ref}>"
 
     @classmethod
     def strided_interpretation(

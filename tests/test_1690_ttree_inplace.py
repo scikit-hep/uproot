@@ -96,7 +96,9 @@ def test_add_branch_tbranchelement(tmp_path):
     )
 
     with uproot.update(os.path.join(tmp_path, "HZZ.root")) as f:
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(
+            NotImplementedError, match="add_branches for files with TBranchElement"
+        ):
             f["events"].add_branches({"new_branch": np.ones(2421, dtype=np.float32)})
 
 
@@ -164,7 +166,9 @@ def test_add_branch_nonexistent_tree(tmp_path):
         f["tree"].extend({"x": np.ones(100, dtype=np.float32)})
 
     with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        with pytest.raises(uproot.exceptions.KeyInFileError):
+        with pytest.raises(
+            uproot.exceptions.KeyInFileError, match="not found: 'nonexistent'"
+        ):
             f["nonexistent"].add_branches(
                 {"new_branch": np.ones(100, dtype=np.float32)}
             )
@@ -185,17 +189,6 @@ def test_add_branch_root_readable(tmp_path):
     tree.GetEntry(0)
     assert tree.new_branch == pytest.approx(1.0)
     f.Close()
-
-
-@skip_no_root
-def test_add_branch_tbranchelement_root_readable(tmp_path):
-    shutil.copy(
-        data_path("uproot-HZZ-objects.root"), os.path.join(tmp_path, "HZZ.root")
-    )
-
-    with uproot.update(os.path.join(tmp_path, "HZZ.root")) as f:
-        with pytest.raises(NotImplementedError):
-            f["events"].add_branches({"new_branch": np.ones(2421, dtype=np.float32)})
 
 
 # ── extend tests ──────────────────────────────────────────────────────────────
@@ -287,7 +280,7 @@ def test_extend_mismatched_lengths(tmp_path):
         )
 
     with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="same number of entries; 'y' has 30"):
             f["tree"].extend(
                 {"x": np.ones(50, dtype=np.float32), "y": np.ones(30, dtype=np.int32)}
             )
@@ -331,7 +324,7 @@ def test_extend_new_fields_error_without_flag(tmp_path):
         f["tree"].extend({"x": np.ones(100, dtype=np.float32)})
 
     with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="do not correspond to any branch"):
             f["tree"].extend(
                 {
                     "x": np.ones(50, dtype=np.float32),
@@ -852,7 +845,7 @@ def test_extend_divergent_basket_counts_raises(tmp_path):
     with uproot.update(path) as f:
         tree = f["tree"]
         assert tree._cascading._has_divergent_baskets
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(NotImplementedError, match="same number of baskets"):
             tree.extend(
                 {
                     "x": np.array([999.0], dtype=np.float32),

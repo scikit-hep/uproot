@@ -2,6 +2,7 @@
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import pytest
 import threading
@@ -71,8 +72,20 @@ def fresh_graphed_default():
 
 @pytest.fixture(scope="function", autouse=False)
 def reset_classes():
+    # reset_classes reloads the model modules, which replaces their classes.
+    # Put the originals back afterward: other tests under this process compare
+    # against them or looked them up when they were collected.
+    modules = {
+        module: dict(vars(module))
+        for name, module in sys.modules.items()
+        if name == "uproot.streamers" or name.startswith("uproot.models.")
+    }
+    classes, unknown_classes = uproot.classes, uproot.unknown_classes
     uproot.model.reset_classes()
-    return
+    yield
+    for module, contents in modules.items():
+        vars(module).update(contents)
+    uproot.classes, uproot.unknown_classes = classes, unknown_classes
 
 
 @contextlib.contextmanager
@@ -191,6 +204,31 @@ def s3_server():
         server.stop()
 
 
+def _wait_for_port(proc, port, timeout=60):
+    """
+    Waits until the server process ``proc`` accepts connections on ``port``,
+    failing the test if the process dies or doesn't get there in ``timeout`` seconds.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        returncode = proc.poll()
+        if returncode is not None:
+            pytest.fail(
+                f"xrootd server exited with code {returncode} before accepting "
+                f"connections on port {port}"
+            )
+        try:
+            with socket.create_connection(("localhost", port), timeout=1):
+                return
+        except OSError:
+            if time.monotonic() > deadline:
+                pytest.fail(
+                    f"xrootd server did not accept connections on port {port} "
+                    f"within {timeout} seconds"
+                )
+            time.sleep(0.05)
+
+
 @pytest.fixture(scope="module")
 def xrootd_server(tmpdir_factory):
     pytest.importorskip("XRootD")
@@ -207,8 +245,14 @@ def xrootd_server(tmpdir_factory):
         sock.bind(("localhost", 0))
         port = sock.getsockname()[1]
     proc = subprocess.Popen([xrootd, "-p", str(port), server_dir])
-    time.sleep(2)  # give it some startup
-    yield f"root://localhost:{port}/" + str(temp_path), temp_path
-    proc.terminate()
-    proc.wait(timeout=10)
+    try:
+        _wait_for_port(proc, port)
+        yield f"root://localhost:{port}/" + str(temp_path), temp_path
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
     shutil.rmtree(server_dir)

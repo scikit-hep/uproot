@@ -2,6 +2,7 @@
 
 import json
 import sys
+from io import StringIO
 
 import numpy
 import pytest
@@ -127,7 +128,21 @@ def test_TLorentzVectors_show():
     with uproot.open(skhep_testdata.data_path("uproot-HZZ-objects.root"))[
         "events"
     ] as tree:
-        tree.show()
+        stream = StringIO()
+        tree.show(stream=stream)
+        lines = stream.getvalue().splitlines()
+        assert lines[:3] == [
+            "name                 | typename                 | interpretation                ",
+            "---------------------+--------------------------+-------------------------------",
+            "jetp4                | std::vector<TLorentzV... | AsJagged(AsStridedObjects(M...",
+        ]
+        assert lines[13] == (
+            "MET                  | TVector2                 | AsStridedObjects(Model_TVec..."
+        )
+        assert lines[-1] == (
+            "eventweight          | float                    | AsDtype('>f4')"
+        )
+        assert len(lines) == 24
 
 
 def test_TVector2():
@@ -283,29 +298,18 @@ def test_jagged_strided_awkward():
         assert result[0, 0, "fP", "fZ"] == -8.16079330444336
 
 
-def test_jagged_awkward_1():
+@pytest.mark.parametrize(
+    "name, dtype, header_bytes",
+    [("SliceU64", ">u8", 1), ("StlVecF64", ">f8", 10)],
+)
+def test_jagged_awkward(name, dtype, header_bytes):
     awkward = pytest.importorskip("awkward")
     with uproot.open(skhep_testdata.data_path("uproot-small-evnt-tree-fullsplit.root"))[
-        "tree/evt/SliceU64"
+        f"tree/evt/{name}"
     ] as branch:
-        assert branch.interpretation == AsJagged(AsDtype(">u8"), header_bytes=1)
-        result = branch.array(library="ak", entry_stop=6)
-        assert awkward.to_list(result) == [
-            [],
-            [1],
-            [2, 2],
-            [3, 3, 3],
-            [4, 4, 4, 4],
-            [5, 5, 5, 5, 5],
-        ]
-
-
-def test_jagged_awkward_2():
-    awkward = pytest.importorskip("awkward")
-    with uproot.open(skhep_testdata.data_path("uproot-small-evnt-tree-fullsplit.root"))[
-        "tree/evt/StlVecF64"
-    ] as branch:
-        assert branch.interpretation == AsJagged(AsDtype(">f8"), header_bytes=10)
+        assert branch.interpretation == AsJagged(
+            AsDtype(dtype), header_bytes=header_bytes
+        )
         result = branch.array(library="ak", entry_stop=6)
         assert awkward.to_list(result) == [
             [],
@@ -901,105 +905,14 @@ def test_jagged_awkward_3():
         ]
 
 
-def test_awkward_string():
-    awkward = pytest.importorskip("awkward")
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert awkward.to_list(tree["string"].array(library="ak")) == [
-            "one",
-            "two",
-            "three",
-            "four",
-            "five",
-        ]
-
-
-def test_awkward_tstring():
-    awkward = pytest.importorskip("awkward")
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert awkward.to_list(tree["tstring"].array(library="ak")) == [
-            "one",
-            "two",
-            "three",
-            "four",
-            "five",
-        ]
-
-
-def test_awkward_vector_int32():
-    awkward = pytest.importorskip("awkward")
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert awkward.to_list(tree["vector_int32"].array(library="ak")) == [
-            [1],
-            [1, 2],
-            [1, 2, 3],
-            [1, 2, 3, 4],
-            [1, 2, 3, 4, 5],
-        ]
-
-
-def test_awkward_vector_string():
-    awkward = pytest.importorskip("awkward")
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert awkward.to_list(tree["vector_string"].array(library="ak")) == [
-            ["one"],
-            ["one", "two"],
-            ["one", "two", "three"],
-            ["one", "two", "three", "four"],
-            ["one", "two", "three", "four", "five"],
-        ]
-
-
-def test_awkward_vector_tstring():
-    awkward = pytest.importorskip("awkward")
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert awkward.to_list(tree["vector_tstring"].array(library="ak")) == [
-            ["one"],
-            ["one", "two"],
-            ["one", "two", "three"],
-            ["one", "two", "three", "four"],
-            ["one", "two", "three", "four", "five"],
-        ]
-
-
-def test_awkward_vector_vector_int32():
-    awkward = pytest.importorskip("awkward")
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert awkward.to_list(tree["vector_vector_int32"].array(library="ak")) == [
-            [[1]],
-            [[1], [1, 2]],
-            [[1], [1, 2], [1, 2, 3]],
-            [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4]],
-            [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]],
-        ]
-
-
-def test_awkward_vector_vector_string():
-    awkward = pytest.importorskip("awkward")
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert awkward.to_list(tree["vector_vector_string"].array(library="ak")) == [
-            [["one"]],
-            [["one"], ["one", "two"]],
-            [["one"], ["one", "two"], ["one", "two", "three"]],
-            [
-                ["one"],
-                ["one", "two"],
-                ["one", "two", "three"],
-                ["one", "two", "three", "four"],
-            ],
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("string", ["one", "two", "three", "four", "five"]),
+        ("tstring", ["one", "two", "three", "four", "five"]),
+        ("vector_int32", [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]]),
+        (
+            "vector_string",
             [
                 ["one"],
                 ["one", "two"],
@@ -1007,78 +920,9 @@ def test_awkward_vector_vector_string():
                 ["one", "two", "three", "four"],
                 ["one", "two", "three", "four", "five"],
             ],
-        ]
-
-
-def test_awkward_map_int32_int16():
-    awkward = pytest.importorskip("awkward")
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        keys, values = awkward.unzip(tree["map_int32_int16"].array(library="ak"))
-        assert awkward.to_list(keys) == [
-            [1],
-            [1, 2],
-            [1, 2, 3],
-            [1, 2, 3, 4],
-            [1, 2, 3, 4, 5],
-        ]
-        assert awkward.to_list(values) == [
-            [1],
-            [1, 2],
-            [1, 2, 3],
-            [1, 2, 3, 4],
-            [1, 2, 3, 4, 5],
-        ]
-
-
-def test_awkward_map_int32_vector_int16():
-    awkward = pytest.importorskip("awkward")
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        keys, values = awkward.unzip(tree["map_int32_vector_int16"].array(library="ak"))
-        assert awkward.to_list(keys) == [
-            [1],
-            [1, 2],
-            [1, 2, 3],
-            [1, 2, 3, 4],
-            [1, 2, 3, 4, 5],
-        ]
-        assert awkward.to_list(values) == [
-            [[1]],
-            [[1], [1, 2]],
-            [[1], [1, 2], [1, 2, 3]],
-            [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4]],
-            [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]],
-        ]
-
-
-def test_awkward_map_int32_vector_string():
-    awkward = pytest.importorskip("awkward")
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        keys, values = awkward.unzip(
-            tree["map_int32_vector_string"].array(library="ak")
-        )
-        assert awkward.to_list(keys) == [
-            [1],
-            [1, 2],
-            [1, 2, 3],
-            [1, 2, 3, 4],
-            [1, 2, 3, 4, 5],
-        ]
-        assert awkward.to_list(values) == [
-            [["one"]],
-            [["one"], ["one", "two"]],
-            [["one"], ["one", "two"], ["one", "two", "three"]],
-            [
-                ["one"],
-                ["one", "two"],
-                ["one", "two", "three"],
-                ["one", "two", "three", "four"],
-            ],
+        ),
+        (
+            "vector_tstring",
             [
                 ["one"],
                 ["one", "two"],
@@ -1086,91 +930,9 @@ def test_awkward_map_int32_vector_string():
                 ["one", "two", "three", "four"],
                 ["one", "two", "three", "four", "five"],
             ],
-        ]
-
-
-def test_awkward_map_string_int16():
-    awkward = pytest.importorskip("awkward")
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        keys, values = awkward.unzip(tree["map_string_int16"].array(library="ak"))
-        assert awkward.to_list(keys) == [
-            ["one"],
-            ["one", "two"],
-            ["one", "three", "two"],
-            ["four", "one", "three", "two"],
-            ["five", "four", "one", "three", "two"],
-        ]
-        assert awkward.to_list(values) == [
-            [1],
-            [1, 2],
-            [1, 3, 2],
-            [4, 1, 3, 2],
-            [5, 4, 1, 3, 2],
-        ]
-
-
-def test_awkward_map_string_vector_string():
-    awkward = pytest.importorskip("awkward")
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        keys, values = awkward.unzip(
-            tree["map_string_vector_string"].array(library="ak")
-        )
-        assert awkward.to_list(keys) == [
-            ["one"],
-            ["one", "two"],
-            ["one", "three", "two"],
-            ["four", "one", "three", "two"],
-            ["five", "four", "one", "three", "two"],
-        ]
-        assert awkward.to_list(values) == [
-            [["one"]],
-            [["one"], ["one", "two"]],
-            [["one"], ["one", "two", "three"], ["one", "two"]],
-            [
-                ["one", "two", "three", "four"],
-                ["one"],
-                ["one", "two", "three"],
-                ["one", "two"],
-            ],
-            [
-                ["one", "two", "three", "four", "five"],
-                ["one", "two", "three", "four"],
-                ["one"],
-                ["one", "two", "three"],
-                ["one", "two"],
-            ],
-        ]
-
-
-def test_awkward_map_int32_vector_vector_int16():
-    awkward = pytest.importorskip("awkward")
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        keys, values = awkward.unzip(
-            tree["map_int32_vector_vector_int16"].array(library="ak")
-        )
-        assert awkward.to_list(keys) == [
-            [1],
-            [1, 2],
-            [1, 2, 3],
-            [1, 2, 3, 4],
-            [1, 2, 3, 4, 5],
-        ]
-        assert awkward.to_list(values) == [
-            [[[1]]],
-            [[[1]], [[1], [1, 2]]],
-            [[[1]], [[1], [1, 2]], [[1], [1, 2], [1, 2, 3]]],
-            [
-                [[1]],
-                [[1], [1, 2]],
-                [[1], [1, 2], [1, 2, 3]],
-                [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4]],
-            ],
+        ),
+        (
+            "vector_vector_int32",
             [
                 [[1]],
                 [[1], [1, 2]],
@@ -1178,51 +940,184 @@ def test_awkward_map_int32_vector_vector_int16():
                 [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4]],
                 [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]],
             ],
-        ]
-
-
-def test_awkward_map_string_string():
+        ),
+        (
+            "vector_vector_string",
+            [
+                [["one"]],
+                [["one"], ["one", "two"]],
+                [["one"], ["one", "two"], ["one", "two", "three"]],
+                [
+                    ["one"],
+                    ["one", "two"],
+                    ["one", "two", "three"],
+                    ["one", "two", "three", "four"],
+                ],
+                [
+                    ["one"],
+                    ["one", "two"],
+                    ["one", "two", "three"],
+                    ["one", "two", "three", "four"],
+                    ["one", "two", "three", "four", "five"],
+                ],
+            ],
+        ),
+    ],
+)
+def test_awkward_container(name, expected):
     awkward = pytest.importorskip("awkward")
     with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
         "tree"
     ] as tree:
-        keys, values = awkward.unzip(tree["map_string_string"].array(library="ak"))
-        assert awkward.to_list(keys) == [
-            ["one"],
-            ["one", "two"],
-            ["one", "three", "two"],
-            ["four", "one", "three", "two"],
-            ["five", "four", "one", "three", "two"],
-        ]
-        assert awkward.to_list(values) == [
-            ["ONE"],
-            ["ONE", "TWO"],
-            ["ONE", "THREE", "TWO"],
-            ["FOUR", "ONE", "THREE", "TWO"],
-            ["FIVE", "FOUR", "ONE", "THREE", "TWO"],
-        ]
+        assert awkward.to_list(tree[name].array(library="ak")) == expected
 
 
-def test_awkward_map_string_tstring():
+@pytest.mark.parametrize(
+    "name, expected_keys, expected_values",
+    [
+        (
+            "map_int32_int16",
+            [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]],
+            [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]],
+        ),
+        (
+            "map_int32_vector_int16",
+            [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]],
+            [
+                [[1]],
+                [[1], [1, 2]],
+                [[1], [1, 2], [1, 2, 3]],
+                [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4]],
+                [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]],
+            ],
+        ),
+        (
+            "map_int32_vector_string",
+            [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]],
+            [
+                [["one"]],
+                [["one"], ["one", "two"]],
+                [["one"], ["one", "two"], ["one", "two", "three"]],
+                [
+                    ["one"],
+                    ["one", "two"],
+                    ["one", "two", "three"],
+                    ["one", "two", "three", "four"],
+                ],
+                [
+                    ["one"],
+                    ["one", "two"],
+                    ["one", "two", "three"],
+                    ["one", "two", "three", "four"],
+                    ["one", "two", "three", "four", "five"],
+                ],
+            ],
+        ),
+        (
+            "map_string_int16",
+            [
+                ["one"],
+                ["one", "two"],
+                ["one", "three", "two"],
+                ["four", "one", "three", "two"],
+                ["five", "four", "one", "three", "two"],
+            ],
+            [[1], [1, 2], [1, 3, 2], [4, 1, 3, 2], [5, 4, 1, 3, 2]],
+        ),
+        (
+            "map_string_vector_string",
+            [
+                ["one"],
+                ["one", "two"],
+                ["one", "three", "two"],
+                ["four", "one", "three", "two"],
+                ["five", "four", "one", "three", "two"],
+            ],
+            [
+                [["one"]],
+                [["one"], ["one", "two"]],
+                [["one"], ["one", "two", "three"], ["one", "two"]],
+                [
+                    ["one", "two", "three", "four"],
+                    ["one"],
+                    ["one", "two", "three"],
+                    ["one", "two"],
+                ],
+                [
+                    ["one", "two", "three", "four", "five"],
+                    ["one", "two", "three", "four"],
+                    ["one"],
+                    ["one", "two", "three"],
+                    ["one", "two"],
+                ],
+            ],
+        ),
+        (
+            "map_int32_vector_vector_int16",
+            [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]],
+            [
+                [[[1]]],
+                [[[1]], [[1], [1, 2]]],
+                [[[1]], [[1], [1, 2]], [[1], [1, 2], [1, 2, 3]]],
+                [
+                    [[1]],
+                    [[1], [1, 2]],
+                    [[1], [1, 2], [1, 2, 3]],
+                    [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4]],
+                ],
+                [
+                    [[1]],
+                    [[1], [1, 2]],
+                    [[1], [1, 2], [1, 2, 3]],
+                    [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4]],
+                    [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]],
+                ],
+            ],
+        ),
+        (
+            "map_string_string",
+            [
+                ["one"],
+                ["one", "two"],
+                ["one", "three", "two"],
+                ["four", "one", "three", "two"],
+                ["five", "four", "one", "three", "two"],
+            ],
+            [
+                ["ONE"],
+                ["ONE", "TWO"],
+                ["ONE", "THREE", "TWO"],
+                ["FOUR", "ONE", "THREE", "TWO"],
+                ["FIVE", "FOUR", "ONE", "THREE", "TWO"],
+            ],
+        ),
+        (
+            "map_string_tstring",
+            [
+                ["one"],
+                ["one", "two"],
+                ["one", "three", "two"],
+                ["four", "one", "three", "two"],
+                ["five", "four", "one", "three", "two"],
+            ],
+            [
+                ["ONE"],
+                ["ONE", "TWO"],
+                ["ONE", "THREE", "TWO"],
+                ["FOUR", "ONE", "THREE", "TWO"],
+                ["FIVE", "FOUR", "ONE", "THREE", "TWO"],
+            ],
+        ),
+    ],
+)
+def test_awkward_map(name, expected_keys, expected_values):
     awkward = pytest.importorskip("awkward")
     with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
         "tree"
     ] as tree:
-        keys, values = awkward.unzip(tree["map_string_tstring"].array(library="ak"))
-        assert awkward.to_list(keys) == [
-            ["one"],
-            ["one", "two"],
-            ["one", "three", "two"],
-            ["four", "one", "three", "two"],
-            ["five", "four", "one", "three", "two"],
-        ]
-        assert awkward.to_list(values) == [
-            ["ONE"],
-            ["ONE", "TWO"],
-            ["ONE", "THREE", "TWO"],
-            ["FOUR", "ONE", "THREE", "TWO"],
-            ["FIVE", "FOUR", "ONE", "THREE", "TWO"],
-        ]
+        keys, values = awkward.unzip(tree[name].array(library="ak"))
+        assert awkward.to_list(keys) == expected_keys
+        assert awkward.to_list(values) == expected_values
 
 
 def test_awkward_map_int_struct():

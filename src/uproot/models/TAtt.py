@@ -144,7 +144,7 @@ in file {self.file.file_path}"""
 
     def _serialize(self, out, header, name, tobject_flags):
         where = len(out)
-        for x in self._bases:
+        for x in self._bases:  # pragma: no cover  (TAttLine has no base classes)
             x._serialize(out, True, None, tobject_flags)
         out.append(
             _tattline1_format1.pack(
@@ -292,7 +292,7 @@ in file {self.file.file_path}"""
 
     def _serialize(self, out, header, name, tobject_flags):
         where = len(out)
-        for x in self._bases:
+        for x in self._bases:  # pragma: no cover  (TAttFill has no base classes)
             x._serialize(out, True, None, tobject_flags)
         out.append(
             _tattfill2_format1.pack(
@@ -385,7 +385,7 @@ in file {self.file.file_path}"""
 
     def _serialize(self, out, header, name, tobject_flags):
         where = len(out)
-        for x in self._bases:
+        for x in self._bases:  # pragma: no cover  (TAttMarker has no base classes)
             x._serialize(out, True, None, tobject_flags)
         out.append(
             _tattmarker2_format1.pack(
@@ -603,7 +603,7 @@ in file {self.file.file_path}"""
 
     def _serialize(self, out, header, name, tobject_flags):
         where = len(out)
-        for x in self._bases:
+        for x in self._bases:  # pragma: no cover  (TAttAxis has no base classes)
             x._serialize(out, True, None, tobject_flags)
         out.append(
             self._format0.pack(
@@ -702,7 +702,7 @@ in file {self.file.file_path}"""
 
     def _serialize(self, out, header, name, tobject_flags):
         where = len(out)
-        for x in self._bases:
+        for x in self._bases:  # pragma: no cover  (TAtt3D has no base classes)
             x._serialize(out, True, None, tobject_flags)
         if header:
             num_bytes = sum(len(x) for x in out[where:])

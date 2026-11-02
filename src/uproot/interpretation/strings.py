@@ -81,7 +81,7 @@ class AsStrings(uproot.interpretation.Interpretation):
             0 out-offsets <- stack
 
             begin
-                stream I-> stack dup out-offsets <- stack stream #B-> out-main
+                stream !I-> stack dup out-offsets +<- stack stream #B-> out-main
             again
         """,
     }
@@ -352,7 +352,7 @@ class AsStrings(uproot.interpretation.Interpretation):
             else:
                 # Mixed StringArray/awkward baskets: concatenate after promoting
                 # to awkward so ``output`` is always bound.
-                awkward = uproot.extras.awkward()
+                awkward = uproot.interpretation.library._libraries["ak"].imported
                 output = awkward.concatenate(
                     [awkward.to_layout(x) for x in trimmed],
                     mergebool=False,

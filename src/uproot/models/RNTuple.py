@@ -216,7 +216,7 @@ in file {self.file.file_path}"""
                     ancestor_stacks.append(tmp_stack)
 
                 while all(
-                    stack[-1] == ancestor_stacks[0][-1] for stack in ancestor_stacks[1:]
+                    stack[-1] is ancestor_stacks[0][-1] for stack in ancestor_stacks[1:]
                 ):
                     for stack in ancestor_stacks:
                         stack.pop()
@@ -791,8 +791,8 @@ in file {self.file.file_path}"""
                 f"Unsplit fields are not supported. {this_record}"
             )
         else:
-            # everything should recurse above this branch
-            raise AssertionError("this should be unreachable")
+            # a role from a newer version of the format, or a corrupted file
+            raise NotImplementedError(f"Unknown field role: {this_record}")
 
     def read_page(
         self,
@@ -1349,7 +1349,9 @@ in file {self.file.file_path}"""
                 res[2::4] = content[length * 2 // 4 : length * 3 // 4]
                 res[3::4] = content[length * 3 // 4 : length * 4 // 4]
 
-            elif field_metadata.nbits == 64:
+            elif (
+                field_metadata.nbits == 64
+            ):  # pragma: no branch  (split columns of the RNTuple format are 16, 32, or 64 bits)
                 # AAAAABBBBBCCCCCDDDDDEEEEEFFFFFGGGGGHHHHH needs to become
                 # ABCDEFGHABCDEFGHABCDEFGHABCDEFGHABCDEFGH
                 res = library.empty(length, library.uint8)
@@ -1622,10 +1624,13 @@ class MetaData:
         return f"MetaData({self.name!r}, {kwargs})"
 
     def __getattr__(self, name):
-        if not name.startswith("_"):
-            return self.__dict__["_fields"][name]
-        else:
-            return self.__dict__[name]
+        try:
+            if not name.startswith("_"):
+                return self.__dict__["_fields"][name]
+            else:
+                return self.__dict__[name]
+        except KeyError:
+            raise AttributeError(name) from None
 
     def __setattr__(self, name, val):
         self.__dict__["_fields"][name] = val
@@ -1820,7 +1825,8 @@ class LinkedAttributeSetRecordReader:
             out.anchor_uncompressed_size,
         ) = cursor.fields(chunk, _rntuple_linked_attribute_set_format, context)
         out.locator = LocatorReader().read(chunk, cursor, context)
-        out.name = cursor.rntuple_string(chunk, context)
+        # not "name", which is the name of the MetaData itself
+        out.attribute_set_name = cursor.rntuple_string(chunk, context)
         return out
 
 
@@ -2009,7 +2015,9 @@ class RField(uproot.behaviors.RNTuple.HasFields):
             if field is self:
                 return i
         else:
-            raise AssertionError
+            raise ValueError(
+                f"RField {self.name!r} is anonymous, so its parent does not list it"
+            )
 
     @property
     def field_id(self):
@@ -2134,18 +2142,6 @@ class RField(uproot.behaviors.RNTuple.HasFields):
             return numpy_data
 
         return arrays
-
-
-# No cupy version of numpy.insert() provided
-def _cupy_insert0(arr):
-    cupy = uproot.extras.cupy()
-    # Intended for flat cupy arrays
-    array_len = arr.shape[0]
-    array_dtype = arr.dtype
-    out_arr = cupy.empty(array_len + 1, dtype=array_dtype)
-    cupy.copyto(out_arr[1:], arr)
-    out_arr[0] = 0
-    return out_arr
 
 
 CupyArray = Any

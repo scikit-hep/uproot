@@ -187,7 +187,7 @@ def to_writable(obj):
         except TypeError:
             # flow=True is not supported, fallback to allocate-and-fill
 
-            tmp = obj.values()
+            tmp = data_noflow = obj.values()
             s = tmp.shape
             d = tmp.dtype.newbyteorder(">")
             if ndim == 1:
@@ -196,7 +196,7 @@ def to_writable(obj):
             elif ndim == 2:
                 data = numpy.zeros((s[0] + 2, s[1] + 2), dtype=d)
                 data[1:-1, 1:-1] = tmp
-            elif ndim == 3:
+            elif ndim == 3:  # pragma: no branch  (ndim is 1, 2, or 3 by now)
                 data = numpy.zeros((s[0] + 2, s[1] + 2, s[2] + 2), dtype=d)
                 data[1:-1, 1:-1, 1:-1] = tmp
 
@@ -215,7 +215,7 @@ def to_writable(obj):
                 elif ndim == 2:
                     fSumw2 = numpy.zeros((s[0] + 2, s[1] + 2), dtype=">f8")
                     fSumw2[1:-1, 1:-1] = tmp
-                elif ndim == 3:
+                elif ndim == 3:  # pragma: no branch  (ndim is 1, 2, or 3 by now)
                     fSumw2 = numpy.zeros((s[0] + 2, s[1] + 2, s[2] + 2), dtype=">f8")
                     fSumw2[1:-1, 1:-1, 1:-1] = tmp
 
@@ -381,7 +381,7 @@ def to_writable(obj):
                     )
             else:
                 fTsumw, fTsumw2, fTsumwx, fTsumwx2 = _root_stats_1d(
-                    obj.values(flow=False), obj.axes[0].edges
+                    data_noflow, obj.axes[0].edges
                 )
                 return to_TH1x(
                     fName=None,
@@ -410,9 +410,7 @@ def to_writable(obj):
                     fTsumwy,
                     fTsumwy2,
                     fTsumwxy,
-                ) = _root_stats_2d(
-                    obj.values(flow=False), obj.axes[0].edges, obj.axes[1].edges
-                )
+                ) = _root_stats_2d(data_noflow, obj.axes[0].edges, obj.axes[1].edges)
                 return to_TH2x(
                     fName=None,
                     fTitle=title,
@@ -430,7 +428,7 @@ def to_writable(obj):
                     fYaxis=axes[1],
                 )
 
-        elif len(axes) == 3:
+        elif len(axes) == 3:  # pragma: no branch  (ndim is 1, 2, or 3 by now)
             if obj.kind == "MEAN":
                 raise NotImplementedError(
                     "3D PlottableHistogram with kind='MEAN' (i.e. 3D profile plots) not supported yet"
@@ -449,7 +447,7 @@ def to_writable(obj):
                     fTsumwxz,
                     fTsumwyz,
                 ) = _root_stats_3d(
-                    obj.values(flow=False),
+                    data_noflow,
                     obj.axes[0].edges,
                     obj.axes[1].edges,
                     obj.axes[2].edges,
@@ -481,6 +479,7 @@ def to_writable(obj):
         and 2 <= len(obj) <= 5  # might have a histogram title as the last item
         and all(isinstance(x, numpy.ndarray) for x in obj[:-1])
         and isinstance(obj[-1], (numpy.ndarray, str))
+        and 1 <= len(obj[0].shape) <= 3
         and len(obj[0].shape) == sum(int(isinstance(x, numpy.ndarray)) for x in obj[1:])
         and all(len(x.shape) == 1 for x in obj[1:] if isinstance(x, numpy.ndarray))
     ):
@@ -592,7 +591,7 @@ def to_writable(obj):
                 ),
             )
 
-        elif len(obj) == 4:
+        elif len(obj) == 4:  # pragma: no branch  (obj has one edge array per axis)
             entries, xedges, yedges, zedges = obj
 
             fEntries = entries.sum()
@@ -715,15 +714,6 @@ def _fLabels_maybe_categorical(axis, boost_histogram):
         return None
 
     labels = [str(label) for label in axis]
-    if isinstance(axis, boost_histogram.axis.IntCategory):
-        # Check labels are valid integers (this may be redundant)
-        for label in labels:
-            try:
-                int(label)
-            except ValueError:
-                raise ValueError(
-                    f"IntCategory labels must be valid integers. Found {label!r} on axis {axis!r}"
-                ) from None
 
     labels = to_THashList([to_TObjString(label) for label in labels])
     # we need to set the TObject.fUniqueID to the index of the bin as done by TAxis::SetBinLabel
@@ -1387,7 +1377,7 @@ def to_TH2x(
         cls = uproot.models.TH.Model_TH2F_v4
     elif isinstance(tarray_data, uproot.models.TArray.Model_TArrayD):
         cls = uproot.models.TH.Model_TH2D_v4
-    else:
+    else:  # pragma: no cover  (to_TH1x has already raised this)
         raise TypeError(f"no TH2* subclasses correspond to {tarray_data.classname}")
 
     th2x = cls.empty()
@@ -1565,7 +1555,7 @@ def to_TH3x(
         cls = uproot.models.TH.Model_TH3F_v4
     elif isinstance(tarray_data, uproot.models.TArray.Model_TArrayD):
         cls = uproot.models.TH.Model_TH3D_v4
-    else:
+    else:  # pragma: no cover  (to_TH1x has already raised this)
         raise TypeError(f"no TH3* subclasses correspond to {tarray_data.classname}")
 
     th3x = cls.empty()

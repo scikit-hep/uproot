@@ -89,10 +89,6 @@ def _as_TGraph(
             raise ValueError(
                 "uproot.as_TGraph requires all of the following: x_errors_low, x_errors_high, y_errors_low, y_errors_high"
             )
-        if any(sym_errors_bool):
-            raise ValueError(
-                "uproot.as_TGraph can accept symmetrical errors OR asymmetrical errors, but not both"
-            )
         tgraph_type = "TGraphAsymmErrors"
 
     tobject = uproot.models.TObject.Model_TObject.empty()
@@ -151,7 +147,7 @@ def _as_TGraph(
         new_maxY = np.max(y)
     elif not isinstance(maxY, numbers.Real):
         raise ValueError(
-            f"uproot.as_TGraph minY has to be None or a number, not {type(maxY)}"
+            f"uproot.as_TGraph maxY has to be None or a number, not {type(maxY)}"
         )
     else:
         new_maxY = maxY

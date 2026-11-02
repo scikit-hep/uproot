@@ -1,8 +1,8 @@
 # BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
 
 import numpy as np
+import pytest
 import skhep_testdata
-
 import uproot
 
 
@@ -16,6 +16,13 @@ def test_read_TMatrixTSym_from_TTree():
 
     arr_np = branch.array(library="np")
     arr_ak = branch.array(library="ak")
+
+    assert len(arr_np) == len(arr_ak) == 8
+    first = arr_ak[0][0]
+    assert (first.fNrows, first.fNcols, first.fNelems) == (6, 6, 36)
+    assert first.fElements[:3].tolist() == pytest.approx(
+        [3.421351148343585, 0.12123125081178641, -0.14486934491502979]
+    )
 
     for i in range(len(arr_np)):
         row_np = arr_np[i]
