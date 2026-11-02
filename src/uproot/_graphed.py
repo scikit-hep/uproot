@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import bisect
 import collections
+import contextlib
 import itertools
 
 import uproot
@@ -126,6 +127,16 @@ class _GraphedTTreeSource:
             directory, object_path or None, self._allow_missing
         )
 
+    @contextlib.contextmanager
+    def _opened_tree(self, file_path, object_path):
+        """The tree at ``object_path``, as :meth:`_tree_in` gives it, with its file open only
+        inside this context."""
+        directory = self._open_directory(file_path)
+        try:
+            yield self._tree_in(directory, object_path)
+        finally:
+            directory.file.close()
+
     def open_tree(self, partition, resources):
         """This partition's ``TTree``, from a file opened once per worker with the options
         ``uproot.graphed`` was given; ``None`` when ``allow_missing`` and the file lacks it.
@@ -137,16 +148,22 @@ class _GraphedTTreeSource:
     def num_entries(self, partition):
         """Entries in the whole ``TTree`` ``partition`` reads, so ``graphed`` can state a blind
         chunk's range when it reports a failure; opens the file, so call it only then.
+
+        ``None`` with ``align_baskets``: a blind chunk's range is then not a fraction of the
+        count, and which ``TBaskets`` bound it depends on the ``TBranches`` it read.
         """
-        tree = self._tree_in(self._open_directory(partition.uri), partition.tree)
-        return 0 if tree is None else tree.num_entries
+        if self._align_baskets:
+            return None
+        with self._opened_tree(partition.uri, partition.tree) as tree:
+            return 0 if tree is None else tree.num_entries
 
     def _trees(self):
-        """Every tree, opened here and now (the whole-dataset loader and ``graphed_head``)."""
+        """Every tree, opened here and now (the whole-dataset loader and ``graphed_head``). A
+        tree's file closes when the generator resumes or is closed, so read it before either."""
         for file_path, object_path, _ in self._file_tree:
-            tree = self._tree_in(self._open_directory(file_path), object_path)
-            if tree is not None:
-                yield tree
+            with self._opened_tree(file_path, object_path) as tree:
+                if tree is not None:
+                    yield tree
 
     # ---- reading -------------------------------------------------------------------------
     def read_range(self, tree, keys, start, stop):
@@ -991,22 +1008,23 @@ def graphed_head(array, n=5):
     externals = graphed.aggregate.external_evaluators(session, compiled)
     source_name = session.source_name(nid)
 
-    tree = next(source._trees(), None)
-    rows = 0 if tree is None else tree.num_entries
-    stop = min(int(n), rows)
-    while True:
-        chunk = (
-            source._empty()
-            if tree is None
-            else source.read_range(tree, columns, 0, stop)
-        )
-        (out,) = graphed.evaluate_ir(
-            compiled, session.backend, {source_name: chunk}, externals=externals
-        )
-        try:
-            n_out = len(out)
-        except TypeError:  # a scalar peek (a reduction over the prefix)
-            return out
-        if n_out >= n or stop >= rows:
-            return out[:n]
-        stop = min(rows, max(2 * stop, int(n)))
+    with contextlib.closing(source._trees()) as trees:
+        tree = next(trees, None)
+        rows = 0 if tree is None else tree.num_entries
+        stop = min(int(n), rows)
+        while True:
+            chunk = (
+                source._empty()
+                if tree is None
+                else source.read_range(tree, columns, 0, stop)
+            )
+            (out,) = graphed.evaluate_ir(
+                compiled, session.backend, {source_name: chunk}, externals=externals
+            )
+            try:
+                n_out = len(out)
+            except TypeError:  # a scalar peek (a reduction over the prefix)
+                return out
+            if n_out >= n or stop >= rows:
+                return out[:n]
+            stop = min(rows, max(2 * stop, int(n)))
