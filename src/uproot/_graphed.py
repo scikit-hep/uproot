@@ -973,8 +973,8 @@ def graphed_partitions(
       read with ``uproot.graphed(align_baskets=True)`` follows only the branches each
       partition reads. Needs ``open_files=True``; ``TTrees`` only.
 
-    ``entry_start``, ``entry_stop`` and ``allow_read_errors_with_report`` are refused by name, as
-    in :doc:`uproot._graphed.graphed`; other ``options`` are passed through to file opening.
+    ``entry_start``, ``entry_stop`` and ``allow_read_errors_with_report`` are refused by name;
+    other ``options`` are passed through to file opening.
     """
     _refuse_options("graphed_partitions", options)
     have_step_size = not isinstance(step_size, uproot._util._Unset)
