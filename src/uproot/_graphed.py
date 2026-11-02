@@ -90,12 +90,12 @@ class _GraphedTTreeSource:
         self._form_mapping = form_mapping
         self._interp_options = interp_options
         self._custom_classes = custom_classes
-        self._allow_missing = allow_missing
+        self._allow_missing = bool(allow_missing)
         self._options = options
         self._decompression_executor = decompression_executor
         self._interpretation_executor = interpretation_executor
         self._explicit_chunks = explicit_chunks  # per file: [(start, stop), ...]
-        self._align_baskets = align_baskets
+        self._align_baskets = bool(align_baskets)
         self._offsets_memo = {}  # (uri, tree, keys) -> aligned offsets, per process
 
     def __getstate__(self):
@@ -131,8 +131,8 @@ class _GraphedTTreeSource:
         read = (
             files,
             self._explicit_chunks,
-            bool(self._allow_missing),
-            bool(self._align_baskets),
+            self._allow_missing,
+            self._align_baskets,
             self._expected_form.to_json(),
         )
         return hashlib.sha256(repr(read).encode()).hexdigest()[:8]
