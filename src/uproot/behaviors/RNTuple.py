@@ -854,6 +854,7 @@ class HasFields(Mapping):
                 clusters_datas,
                 start_cluster_idx,
                 stop_cluster_idx,
+                cluster_offset=cluster_offset,
             )
 
         for key in target_cols:

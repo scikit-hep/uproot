@@ -1054,6 +1054,10 @@ in file {self.file.file_path}"""
 
         # Iterate through each cluster
         for cluster_i in cluster_range:
+            # a negative index means the range starts before the first cluster;
+            # there is nothing to read for it (same as read_cluster_range)
+            if cluster_i < 0:
+                continue
             colrefs_cluster = FieldRefsCluster(cluster_i)
             for key in fields:
                 if "column" in key:
@@ -1175,6 +1179,7 @@ in file {self.file.file_path}"""
         clusters_datas,
         start_cluster_idx,
         stop_cluster_idx,
+        cluster_offset=None,
     ):
         """
         Args:
@@ -1183,13 +1188,21 @@ in file {self.file.file_path}"""
             in the range requested.
             stop_cluster_idx (int): The last cluster index containing entries
             in the range requested.
+            cluster_offset (None or int): The first entry of ``start_cluster_idx``
+            (0 if it is negative), used to compute the padding of columns that
+            start partway through the file. If None, it is computed from the
+            cluster summaries.
 
         Returns a dictionary containing contiguous buffers of deserialized data
         across requested clusters organized by column key.
         """
         cupy = uproot.extras.cupy()
-        clusters = self.ntuple.cluster_summaries
-        cluster_starts = numpy.array([c.num_first_entry for c in clusters])
+        if cluster_offset is None:
+            cluster_offset = (
+                self.ntuple.cluster_summaries[start_cluster_idx].num_first_entry
+                if start_cluster_idx >= 0
+                else 0
+            )
         cluster_range = range(start_cluster_idx, stop_cluster_idx)
 
         col_arrays = {}  # collect content for each col
@@ -1198,15 +1211,20 @@ in file {self.file.file_path}"""
             field_metadata = self.get_field_metadata(ncol)
             # Find how many elements should be padded at the beginning
             n_padding = self.column_records[key_nr].first_element_index
-            n_padding -= cluster_starts[start_cluster_idx]
-            n_padding = max(n_padding, 0)
+            n_padding = max(n_padding - cluster_offset, 0)
             total_length, starts, _ = self._expected_array_length_starts_dtype(
                 ncol, start_cluster_idx, stop_cluster_idx, n_padding
             )
 
             res = cupy.empty(total_length, field_metadata.dtype_result)
+            if len(starts) == 0:
+                # no clusters are read, so the array is only padding (and, for
+                # offsets, the leading zero)
+                res[:] = 0
+                col_arrays[key_nr] = res
+                continue
             res[: starts[0]] = 0
-            # Get uncompressed array for key for all clusters
+            # Get uncompressed array for key for each cluster, by cluster index
             col_decompressed_buffers = clusters_datas._grab_field_output(ncol)
             # ``starts`` only contains entries for non-negative cluster indices
             # (see _expected_array_length_starts_dtype), so skip negative ones
@@ -2246,12 +2264,14 @@ class ClusterRefs:
         self.refs[Cluster.cluster_i] = Cluster
 
     def _grab_field_output(self, nCol):
-        output_list = []
-        for cluster in self.refs.values():
-            colbuffer = cluster.fieldpayloads[nCol].data
-            output_list.append(colbuffer)
-
-        return output_list
+        """
+        Returns a dict mapping each cluster index to the decompressed buffer of
+        column ``nCol`` in that cluster.
+        """
+        return {
+            cluster_i: cluster.fieldpayloads[nCol].data
+            for cluster_i, cluster in self.refs.items()
+        }
 
     def _decompress(self):
         to_decompress = {}
