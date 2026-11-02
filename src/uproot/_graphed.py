@@ -968,6 +968,12 @@ def graphed_partitions(
       read with ``uproot.graphed(align_baskets=True)`` follows only the branches each
       partition reads. Needs ``open_files=True``; ``TTrees`` only.
     """
+    for option in ("entry_start", "entry_stop"):
+        if option in options:
+            raise TypeError(
+                f"uproot.graphed_partitions() got {option}=, but it partitions whole TTrees; "
+                "to read a range, give 'steps' in the files of uproot.graphed"
+            )
     have_step_size = not isinstance(step_size, uproot._util._Unset)
     have_steps_per_file = not isinstance(steps_per_file, uproot._util._Unset)
     if align_baskets and not open_files:
