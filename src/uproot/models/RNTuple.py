@@ -1109,7 +1109,10 @@ in file {self.file.file_path}"""
             compression = linklist_col.compression_settings
             compression_level = compression % 100
             algorithm = compression // 100
-            algorithm_str = compression_settings_dict[algorithm]
+            # compression settings of 0 mean the pages are stored uncompressed
+            algorithm_str = (
+                compression_settings_dict[algorithm] if compression != 0 else None
+            )
         else:
             pagelist = []
             algorithm_str = None
