@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import bisect
 import collections
+import contextlib
 import hashlib
 import itertools
 
@@ -141,25 +142,46 @@ class _GraphedTTreeSource:
     def _open_directory(self, file_path):
         return _open_directory(file_path, self._custom_classes, self._options)
 
-    def _tree_in(self, directory, object_path):
-        return uproot._util.object_in_directory(
-            directory, object_path or None, self._allow_missing
+    def _opened_tree(self, file_path, object_path):
+        """:func:`_opened_object` with the options this source was given."""
+        return _opened_object(
+            file_path,
+            object_path,
+            self._custom_classes,
+            self._allow_missing,
+            self._options,
         )
 
     def open_tree(self, partition, resources):
         """This partition's ``TTree``, from a file opened once per worker with the options
         ``uproot.graphed`` was given; ``None`` when ``allow_missing`` and the file lacks it.
         """
-        return self._tree_in(
-            resources.open_once(partition.uri, self._open_directory), partition.tree
+        return uproot._util.object_in_directory(
+            resources.open_once(partition.uri, self._open_directory),
+            partition.tree or None,
+            self._allow_missing,
         )
 
+    def num_entries(self, partition):
+        """Entries in the whole ``TTree`` ``partition`` reads, so ``graphed`` can state a blind
+        chunk's range when it reports a failure; opens the file, so call it only then.
+
+        ``None`` with ``align_baskets``: a blind chunk's range is then not a fraction of the
+        count, and which ``TBaskets`` bound it depends on the ``TBranches`` it read.
+        """
+        if self._align_baskets:
+            return None
+        with self._opened_tree(partition.uri, partition.tree) as tree:
+            return 0 if tree is None else tree.num_entries
+
     def _trees(self):
-        """Every tree, opened here and now (the whole-dataset loader and ``graphed_head``)."""
+        """Every tree, opened here and now (the whole-dataset loader and ``graphed_head``). A
+        tree's file closes when the generator resumes or is closed, so read it before either.
+        """
         for file_path, object_path, _ in self._file_tree:
-            tree = self._tree_in(self._open_directory(file_path), object_path)
-            if tree is not None:
-                yield tree
+            with self._opened_tree(file_path, object_path) as tree:
+                if tree is not None:
+                    yield tree
 
     # ---- reading -------------------------------------------------------------------------
     def read_range(self, tree, keys, start, stop):
@@ -188,10 +210,11 @@ class _GraphedTTreeSource:
     def __call__(self):
         import awkward
 
-        parts = [
-            self.read_range(tree, self._common_keys, 0, tree.num_entries)
-            for tree in self._trees()
-        ]
+        with contextlib.closing(self._trees()) as trees:
+            parts = [
+                self.read_range(tree, self._common_keys, 0, tree.num_entries)
+                for tree in trees
+            ]
         if not parts:
             return self._empty()
         return parts[0] if len(parts) == 1 else awkward.concatenate(parts)
@@ -393,6 +416,22 @@ def _open_directory(file_path, custom_classes, options):
         custom_classes=custom_classes,
         **options,
     ).root_directory
+
+
+@contextlib.contextmanager
+def _opened_object(file_path, object_path, custom_classes, allow_missing, options):
+    """The object at ``object_path`` (None when ``allow_missing`` and absent); a file opened here
+    closes with this context whatever it found, and a given ``TTree``'s file stays open.
+    """
+    if isinstance(file_path, HasBranches):
+        yield file_path
+        return
+    with contextlib.closing(
+        _open_directory(file_path, custom_classes, options)
+    ) as directory:
+        yield uproot._util.object_in_directory(
+            directory, object_path or None, allow_missing
+        )
 
 
 def _selection(leaf):
@@ -938,45 +977,46 @@ def graphed_partitions(
                 for step in range(n_steps)
             )
             continue
-        obj = uproot._util.regularize_object_path(
+        with _opened_object(
             file_path, object_path, custom_classes, allow_missing, real_options
-        )
-        if obj is None:
-            continue
-        if align_baskets and isinstance(obj, HasFields):
-            raise NotImplementedError(
-                "align_baskets=True follows TBasket boundaries; an RNTuple has none"
-            )
-        n_entries = obj.num_entries
-        if have_step_size:
-            per = (
-                step_size
-                if uproot._util.isint(step_size)
-                else obj.num_entries_for(step_size)
-            )
-            per = max(1, int(per))
-            bounds = [*range(0, n_entries, per), n_entries]
-        else:
-            bounds = [(i * n_entries) // n_steps for i in range(n_steps + 1)]
-        if align_baskets:
-            shared = obj.common_entry_offsets(
-                filter_name=no_filter if align_baskets is True else align_baskets,
-                recursive=True,
-            )
-            if n_entries and shared == [0]:  # a non-empty tree's fold holds n_entries
-                raise ValueError(
-                    f"align_baskets={align_baskets!r} selects no TBranch with TBaskets in "
-                    f"{obj.file.file_path}:{obj.object_path}"
+        ) as obj:
+            if obj is None:
+                continue
+            if align_baskets and isinstance(obj, HasFields):
+                raise NotImplementedError(
+                    "align_baskets=True follows TBasket boundaries; an RNTuple has none"
                 )
-            offsets = _basket_offsets([shared], n_entries)
-            bounds = [_snap(bound, offsets) for bound in bounds]
-        partitions.extend(
-            graphed.core.Partition(
-                obj.file.file_path, obj.object_path, int(start), int(stop)
+            n_entries = obj.num_entries
+            if have_step_size:
+                per = (
+                    step_size
+                    if uproot._util.isint(step_size)
+                    else obj.num_entries_for(step_size)
+                )
+                per = max(1, int(per))
+                bounds = [*range(0, n_entries, per), n_entries]
+            else:
+                bounds = [(i * n_entries) // n_steps for i in range(n_steps + 1)]
+            if align_baskets:
+                shared = obj.common_entry_offsets(
+                    filter_name=no_filter if align_baskets is True else align_baskets,
+                    recursive=True,
+                )
+                # a non-empty tree's fold holds n_entries
+                if n_entries and shared == [0]:
+                    raise ValueError(
+                        f"align_baskets={align_baskets!r} selects no TBranch with TBaskets in "
+                        f"{obj.file.file_path}:{obj.object_path}"
+                    )
+                offsets = _basket_offsets([shared], n_entries)
+                bounds = [_snap(bound, offsets) for bound in bounds]
+            partitions.extend(
+                graphed.core.Partition(
+                    obj.file.file_path, obj.object_path, int(start), int(stop)
+                )
+                for start, stop in itertools.pairwise(bounds)
+                if stop > start
             )
-            for start, stop in itertools.pairwise(bounds)
-            if stop > start
-        )
     return partitions
 
 
@@ -1005,9 +1045,13 @@ def read_graphed_partition(
     (``open_files=False`` over a bare file name) reads the file's single ``TTree``. Pass an
     already-open ``tree`` to reuse a per-worker ``open_once`` handle."""
     if tree is None:
-        tree = uproot._util.object_in_directory(
-            uproot.open(partition.uri, **open_options), partition.tree or None, False
-        )
+        with uproot.open(partition.uri, **open_options) as directory:
+            tree = uproot._util.object_in_directory(
+                directory, partition.tree or None, False
+            )
+            return read_graphed_partition(
+                partition, columns, tree=tree, library=library
+            )
     start, stop = _partition_range(partition, tree.num_entries)
     return tree.arrays(
         list(columns), entry_start=start, entry_stop=stop, library=library
@@ -1037,22 +1081,23 @@ def graphed_head(array, n=5):
     externals = graphed.aggregate.external_evaluators(session, compiled)
     source_name = session.source_name(nid)
 
-    tree = next(source._trees(), None)
-    rows = 0 if tree is None else tree.num_entries
-    stop = min(int(n), rows)
-    while True:
-        chunk = (
-            source._empty()
-            if tree is None
-            else source.read_range(tree, columns, 0, stop)
-        )
-        (out,) = graphed.evaluate_ir(
-            compiled, session.backend, {source_name: chunk}, externals=externals
-        )
-        try:
-            n_out = len(out)
-        except TypeError:  # a scalar peek (a reduction over the prefix)
-            return out
-        if n_out >= n or stop >= rows:
-            return out[:n]
-        stop = min(rows, max(2 * stop, int(n)))
+    with contextlib.closing(source._trees()) as trees:
+        tree = next(trees, None)
+        rows = 0 if tree is None else tree.num_entries
+        stop = min(int(n), rows)
+        while True:
+            chunk = (
+                source._empty()
+                if tree is None
+                else source.read_range(tree, columns, 0, stop)
+            )
+            (out,) = graphed.evaluate_ir(
+                compiled, session.backend, {source_name: chunk}, externals=externals
+            )
+            try:
+                n_out = len(out)
+            except TypeError:  # a scalar peek (a reduction over the prefix)
+                return out
+            if n_out >= n or stop >= rows:
+                return out[:n]
+            stop = min(rows, max(2 * stop, int(n)))
