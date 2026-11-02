@@ -431,7 +431,13 @@ class NTuple_Header(CascadeLeaf):
             )
         elif isinstance(akform, awkward.forms.IndexedOptionForm):
             type_name = _cpp_typename(akform)
-            type_alias = "" if type_name else "std::optional"
+            # An optional of an untyped record should have the type name
+            # "std::optional<>", which is what ROOT itself writes, but ROOT
+            # (as of 6.40) can't read it back ("no type name specified for
+            # field '_0'"). Until that ROOT bug is fixed, write an empty type
+            # name and record "std::optional<>" in the type alias, where the
+            # reader looks for it.
+            type_alias = "" if type_name else "std::optional<>"
             field = NTuple_Field_Description(
                 parent_fid,
                 uproot.const.RNTupleFieldRole.COLLECTION,

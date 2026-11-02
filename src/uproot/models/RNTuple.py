@@ -728,7 +728,9 @@ in file {self.file.file_path}"""
             )
             if (
                 self._all_fields[cfid].record.type_name.startswith("std::optional")
-                or self._all_fields[cfid].record.type_alias == "std::optional"
+                # uproot writes optional untyped records with an empty type
+                # name to work around a ROOT bug; see _cascadentuple.py
+                or self._all_fields[cfid].record.type_alias == "std::optional<>"
             ):
                 keyname = keyname + "-optional"
                 return ak.forms.IndexedOptionForm(

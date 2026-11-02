@@ -22,7 +22,7 @@ def test_optional_record_round_trip(tmp_path):
         assert nt["o.a"].array().tolist() == [1.0, None]
         assert nt.arrays(filter_name="o")["o"].tolist() == arr["o"].tolist()
         assert nt["o"].typename == ""
-        assert nt["o"].record.type_alias == "std::optional"
+        assert nt["o"].record.type_alias == "std::optional<>"
         assert [field.typename for field in nt.all_fields] == ["", "", "double"]
 
 
@@ -39,7 +39,7 @@ def test_optional_record_with_multiple_fields(tmp_path):
         assert nt["o.a"].array().tolist() == [1.0, None]
         assert nt["o.b"].array().tolist() == [2, None]
         assert nt["o"].typename == ""
-        assert nt["o"].record.type_alias == "std::optional"
+        assert nt["o"].record.type_alias == "std::optional<>"
         assert [field.typename for field in nt.all_fields] == [
             "",
             "",
@@ -60,7 +60,7 @@ def test_optional_record_nested_tuple(tmp_path):
         assert nt.arrays().tolist() == arr.tolist()
         assert nt["o"].array().tolist() == arr["o"].tolist()
         assert nt["o"].typename == ""
-        assert nt["o"].record.type_alias == "std::optional"
+        assert nt["o"].record.type_alias == "std::optional<>"
         assert [field.typename for field in nt.all_fields] == [
             "",
             "",
@@ -82,7 +82,7 @@ def test_optional_record_nested_list(tmp_path):
         assert nt.arrays().tolist() == arr.tolist()
         assert nt["o"].array().tolist() == arr["o"].tolist()
         assert nt["o"].typename == ""
-        assert nt["o"].record.type_alias == "std::optional"
+        assert nt["o"].record.type_alias == "std::optional<>"
         assert [field.typename for field in nt.all_fields] == ["", "", "", "double"]
 
 
