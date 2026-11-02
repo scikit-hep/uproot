@@ -851,11 +851,16 @@ class Tree:
                     )
                 big_endian_offsets = offsets.astype(">i4", copy=True)
 
+                # keep the fixed inner dimensions (if any) so that
+                # write_jagged_basket scales the offsets by them; a RegularArray's
+                # content can be longer than it needs to be, so drop the excess
+                big_endian = big_endian.reshape(-1)[: math.prod(shape)].reshape(shape)
+
                 tofill.append(
                     (
                         branch_name,
                         datum["compression"],
-                        big_endian.reshape(-1),
+                        big_endian,
                         big_endian_offsets,
                     )
                 )
