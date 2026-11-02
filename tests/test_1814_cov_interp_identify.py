@@ -605,16 +605,16 @@ root_macro = r"""
 #include "TFile.h"
 #include "TTree.h"
 
-class Test1810CovInterpTruncated {
+class Test1814CovInterpTruncated {
 public:
     Double32_t truncated_double; // [0, 0, 12]
     Float16_t truncated_float;   // [0, 0, 10]
     Double32_t ranged;           // [0, 10, 8]
-    Test1810CovInterpTruncated() : truncated_double(1.5), truncated_float(-2.5), ranged(5) { }
-    ClassDef(Test1810CovInterpTruncated, 1)
+    Test1814CovInterpTruncated() : truncated_double(1.5), truncated_float(-2.5), ranged(5) { }
+    ClassDef(Test1814CovInterpTruncated, 1)
 };
 
-void write_test_1810_cov_interp_identify(const char* path) {
+void write_test_1814_cov_interp_identify(const char* path) {
     TFile file(path, "RECREATE");
     TTree tree("tree", "tree");
 
@@ -643,7 +643,7 @@ void write_test_1810_cov_interp_identify(const char* path) {
     tree.Branch("leaf_double", &leaf_double, "leaf_double/d");
     tree.Branch("leaf_float", &leaf_float, "leaf_float/f");
 
-    auto* truncated = new Test1810CovInterpTruncated();
+    auto* truncated = new Test1814CovInterpTruncated();
     tree.Branch("truncated", &truncated);
 
     tree.Fill();
@@ -659,7 +659,7 @@ def root_tree(tmp_path_factory):
     path = tmp_path_factory.mktemp("root") / "written_by_root.root"
 
     assert ROOT.gInterpreter.Declare(root_macro)
-    ROOT.write_test_1810_cov_interp_identify(str(path))
+    ROOT.write_test_1814_cov_interp_identify(str(path))
 
     with uproot.open(path) as file:
         yield file["tree"]

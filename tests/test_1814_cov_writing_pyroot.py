@@ -12,7 +12,7 @@ from uproot.pyroot import _GetStreamersOnce
 def test_converted_object_has_a_detached_file():
     ROOT = pytest.importorskip("ROOT")
 
-    hist = ROOT.TH1D("test_1810_detached", "the title", 3, 0.0, 3.0)
+    hist = ROOT.TH1D("test_1814_detached", "the title", 3, 0.0, 3.0)
     hist.Fill(1.5)
 
     model = uproot.from_pyroot(hist)

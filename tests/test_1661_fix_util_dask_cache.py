@@ -8,7 +8,7 @@ Covers:
 - maybe_steps leakage via uproot._util.regularize_files (finding 1)
 - damerau_levenshtein distance values (finding 2)
 - LRU cache under concurrent use (finding 7); its ordering is in
-  tests/test_1810_cov_api_cache.py
+  tests/test_1814_cov_api_cache.py
 """
 
 import threading

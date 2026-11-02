@@ -44,7 +44,7 @@ def test_rntuple_footer_parsing(filename, version_minor):
         footer = obj.footer
 
         # Neither file has attribute sets; see test_linked_attribute_set in
-        # test_1810_cov_rntuple_root.py for a file with one.
+        # test_1814_cov_rntuple_root.py for a file with one.
         assert footer.linked_attribute_sets == []
 
         # Verify checksum validation passes

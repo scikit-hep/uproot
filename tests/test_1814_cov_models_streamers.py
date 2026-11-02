@@ -192,11 +192,11 @@ def test_artificial_element(file):
     assert artificial._serialization == data
     assert artificial.typename == "TArtificial"
 
-    info = streamer_info("Cov1810Artificial", 1, [artificial])
+    info = streamer_info("Cov1814Artificial", 1, [artificial])
     cls = info.new_class(file)
     message = (
         "not implemented: class members defined by Model_TStreamerArtificial of type "
-        "TArtificial in member art of class Cov1810Artificial"
+        "TArtificial in member art of class Cov1814Artificial"
     )
 
     with pytest.raises(uproot.deserialization.DeserializationError, match=message):
@@ -217,12 +217,12 @@ def test_base_element_version_1(file):
 
 
 def test_base_dependencies_without_versions(file):
-    data = element_data("Cov1810Base", 0, "BASE") + struct.pack(">i", -1)
+    data = element_data("Cov1814Base", 0, "BASE") + struct.pack(">i", -1)
     base = read(uproot.streamers.Model_TStreamerBase, header(3, data), file)
     assert base.base_version == "max"
 
     out = []
-    base._dependencies({"Cov1810Base": {}}, out)
+    base._dependencies({"Cov1814Base": {}}, out)
     assert out == []
     base._dependencies({}, out)
     assert out == []
@@ -232,7 +232,7 @@ def test_float_types_in_a_generated_class(file):
     a = basic(file, "a", uproot.const.kDouble32, "Double32_t")
     b = basic(file, "b", uproot.const.kFloat16, "Float16_t")
     c = basic(file, "c", uproot.const.kInt, "int")
-    cls = streamer_info("Cov1810Floats", 1, [a, b, c]).new_class(file)
+    cls = streamer_info("Cov1814Floats", 1, [a, b, c]).new_class(file)
 
     data = (
         struct.pack(">f", 2.5) + struct.pack(">BH", 127, 0x800) + struct.pack(">i", 7)
@@ -264,7 +264,7 @@ def test_float_types_in_a_generated_class(file):
 
 def test_float16_alone_cannot_be_forth(file):
     b = basic(file, "b", uproot.const.kFloat16, "Float16_t")
-    cls = streamer_info("Cov1810Float16", 1, [b]).new_class(file)
+    cls = streamer_info("Cov1814Float16", 1, [b]).new_class(file)
     data = struct.pack(">BH", 127, 0x800)
     with pytest.raises(CannotBeForth):
         read(cls, header(1, data), file, forth_context())
@@ -273,7 +273,7 @@ def test_float16_alone_cannot_be_forth(file):
 def test_unknown_basic_type(file):
     element = basic(file, "x", 123, "NotAType")
     with pytest.raises(NotImplementedError, match="123"):
-        streamer_info("Cov1810Unknown", 1, [element]).class_code()
+        streamer_info("Cov1814Unknown", 1, [element]).class_code()
 
 
 def test_basic_type_sizes(file):
@@ -336,11 +336,11 @@ def test_generated_tbranch_fbasketseek_cannot_be_forth(file):
 
 
 def test_loop_dependencies(file):
-    element = loop(file, "items", "Cov1810Item*", "n")
-    assert element.typename == "Cov1810Item*"
+    element = loop(file, "items", "Cov1814Item*", "n")
+    assert element.typename == "Cov1814Item*"
 
     class Streamer:
-        name = "Cov1810Item"
+        name = "Cov1814Item"
 
         def __init__(self, class_version):
             self.class_version = class_version
@@ -348,10 +348,10 @@ def test_loop_dependencies(file):
         def _dependencies(self, streamers, out):
             out.append((self.name, self.class_version))
 
-    streamers = {"Cov1810Item": {1: Streamer(1), 2: Streamer(2)}}
-    out = [("Cov1810Item", 1)]
+    streamers = {"Cov1814Item": {1: Streamer(1), 2: Streamer(2)}}
+    out = [("Cov1814Item", 1)]
     element._dependencies(streamers, out)
-    assert out == [("Cov1810Item", 1), ("Cov1810Item", 2)]
+    assert out == [("Cov1814Item", 1), ("Cov1814Item", 2)]
 
     out = []
     element._dependencies({}, out)
@@ -376,7 +376,7 @@ def test_stl_type_from_typename(file, typename, written, expected):
 
 def test_pointer_of_unexpected_type(file):
     element = object_pointer(file, "x", 123, "TObject*")
-    cls = streamer_info("Cov1810Pointer", 1, [element]).new_class(file)
+    cls = streamer_info("Cov1814Pointer", 1, [element]).new_class(file)
     message = (
         "not implemented: class members defined by Model_TStreamerObjectPointer "
         "with fType 123"

@@ -23,7 +23,7 @@ _WRITERS = """
 #include <variant>
 #include <vector>
 
-namespace test_1810 {
+namespace test_1814 {
 
 struct Base {
    int member;
@@ -120,13 +120,13 @@ std::string show_variant(const char *path, int entry)
    return std::get<1>(value);
 }
 
-} // namespace test_1810
+} // namespace test_1814
 """
 
 _ATTRIBUTE_WRITER = """
 #include <ROOT/RNTupleAttrWriting.hxx>
 
-namespace test_1810 {
+namespace test_1814 {
 
 void write_attributes(const char *path)
 {
@@ -147,7 +147,7 @@ void write_attributes(const char *path)
    writer.reset();
 }
 
-} // namespace test_1810
+} // namespace test_1814
 """
 
 
@@ -160,11 +160,11 @@ def root():
     # classes above have no dictionaries, which ROOT warns about.
     ignore_level = ROOT.gErrorIgnoreLevel
     ROOT.gErrorIgnoreLevel = ROOT.kError
-    if not hasattr(ROOT, "test_1810"):
+    if not hasattr(ROOT, "test_1814"):
         assert ROOT.gInterpreter.Declare(_WRITERS)
         if ROOT.gROOT.GetVersionInt() >= 64000:
             assert ROOT.gInterpreter.Declare(_ATTRIBUTE_WRITER)
-    yield ROOT.test_1810
+    yield ROOT.test_1814
     ROOT.gErrorIgnoreLevel = ignore_level
 
 
@@ -212,20 +212,20 @@ def test_members_that_shadow_inherited_members(root, tmp_path):
         assert sorted(ntuple["child"].keys()) == [
             "member",
             "other",
-            "test_1810::Base::member",
+            "test_1814::Base::member",
         ]
         # members of different bases are told apart by their own prefix, and the one
         # that is not repeated in a base stays as it is
         assert sorted(ntuple["both"].keys()) == [
             "member",
-            "test_1810::Left::shared",
-            "test_1810::Right::shared",
+            "test_1814::Left::shared",
+            "test_1814::Right::shared",
         ]
         out = ntuple.arrays()
         assert out.child.member.to_list() == [0, 1, 2]
-        assert out.child["test_1810::Base::member"].to_list() == [0, 10, 20]
-        assert out.both["test_1810::Left::shared"].to_list() == [0, 200, 400]
-        assert out.both["test_1810::Right::shared"].to_list() == [0, 300, 600]
+        assert out.child["test_1814::Base::member"].to_list() == [0, 10, 20]
+        assert out.both["test_1814::Left::shared"].to_list() == [0, 200, 400]
+        assert out.both["test_1814::Right::shared"].to_list() == [0, 300, 600]
 
 
 def test_streamer_field(root, tmp_path):
