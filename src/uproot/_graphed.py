@@ -27,6 +27,7 @@ from __future__ import annotations
 import bisect
 import collections
 import contextlib
+import hashlib
 import itertools
 
 import uproot
@@ -90,12 +91,12 @@ class _GraphedTTreeSource:
         self._form_mapping = form_mapping
         self._interp_options = interp_options
         self._custom_classes = custom_classes
-        self._allow_missing = allow_missing
+        self._allow_missing = bool(allow_missing)
         self._options = options
         self._decompression_executor = decompression_executor
         self._interpretation_executor = interpretation_executor
         self._explicit_chunks = explicit_chunks  # per file: [(start, stop), ...]
-        self._align_baskets = align_baskets
+        self._align_baskets = bool(align_baskets)
         self._offsets_memo = {}  # (uri, tree, keys) -> aligned offsets, per process
 
     def __getstate__(self):
@@ -117,6 +118,25 @@ class _GraphedTTreeSource:
             _Same(self._decompression_executor),
             _Same(self._interpretation_executor),
         )
+
+    def _digest(self):
+        """A short hash of the parts of ``source_identity`` a hash can keep, so reads it cannot
+        tell apart (another cycle, ``custom_classes`` or executors, or a ``form_mapping`` with no
+        ``source_identity``) get equal digests. ``_Spellings`` stay out because their ``==`` is
+        overlap; a file opened to read it has one path, whichever spelling opened it.
+        """
+        files = [
+            (file_path, uproot._util.canonical_object_path(path))
+            for file_path, path, _ in self._file_tree
+        ]
+        read = (
+            files,
+            self._explicit_chunks,
+            self._allow_missing,
+            self._align_baskets,
+            self._expected_form.to_json(),
+        )
+        return hashlib.sha256(repr(read).encode()).hexdigest()[:8]
 
     # ---- opening -------------------------------------------------------------------------
     def _open_directory(self, file_path):
@@ -529,13 +549,45 @@ def _refuse_backend(have, wanted, *, behavior, where="session="):
     )
 
 
+def _taken(session, name):
+    return any(session.source_name(nid) == name for nid in session.source_ids())
+
+
 def _refuse_taken(session, name):
     """Refuse recording under a source name ``session`` already has."""
-    if name in {session.source_name(nid) for nid in session.source_ids()}:
+    if _taken(session, name):
         raise ValueError(
             f"uproot.graphed: this Session already has a source named {name!r}; "
             "pass name= to name this read"
         )
+
+
+def _default_names(session, tree_name, source):
+    """The names a read with no ``name=`` tries, the digest last so a first read pays nothing.
+    Every taken name has a source, so ``k`` sources leave one of ``k + 1`` names free; ``k`` is
+    read live because another thread may add sources between tries.
+    """
+    yield tree_name
+    hashed = f"{tree_name}-{source._digest()}"
+    yield hashed
+    n = 1
+    while n < len(session.source_ids()):
+        yield f"{hashed}#{n}"
+        n += 1
+
+
+def _record_under_default_name(session, tree_name, form, source):
+    """Record ``source`` under the first of its default names that ``session.source`` accepts,
+    which is its own binding on a re-read, so only a first read's name depends on read order.
+    """
+    for candidate in _default_names(session, tree_name, source):
+        source._name = candidate
+        try:
+            return session.source(candidate, form=form, data=source)
+        except ValueError:
+            if not _taken(session, candidate):
+                raise
+    raise AssertionError(f"no free source name for {tree_name!r}")
 
 
 def graphed(
@@ -604,9 +656,11 @@ def graphed(
             names a behavior, carry an equal one; any other is refused at the read. With a
             ``graphed`` that has no ``current_session``, each such read gets a new ``Session``.
         name (str or None): The ``graphed`` source's name, its slot in the recorded graph; default
-            the ``TTree``'s name. Reading the same files and branches with the same options under
-            a name the ``Session`` already has returns that source again; any other read under it
-            is refused. With a ``graphed`` that has no ``current_session``, every read under a
+            the ``TTree``'s name, or when another read already holds that, the ``TTree``'s name
+            with a hash of what this read reads, numbered (``#1``, ...) when the hash cannot tell
+            it from another read. Repeating a read, ``name=`` included, returns that source again;
+            any other read under a name given here is refused.
+            With a ``graphed`` that has no ``current_session``, every read under a
             taken name is refused, before any file is opened when the name is known from
             ``name=`` or the ``files``' object paths.
         decompression_executor, interpretation_executor: As in :doc:`uproot._dask.dask`; every
@@ -814,10 +868,8 @@ def graphed(
             graphed.awkward.AwkwardBackend(behavior=info.behavior),
             behavior=mapped,
         )
-    if name is None:
-        name = tree_name
     if current_session is None:
-        _refuse_taken(session, name)
+        _refuse_taken(session, tree_name if name is None else name)
     source = _GraphedTTreeSource(
         file_tree,
         list(base_form.fields),
@@ -834,9 +886,10 @@ def graphed(
         explicit_chunks=explicit_chunks,
         align_baskets=align_baskets,
     )
-    return session.source(
-        name, form=graphed.awkward.AwkwardForm(typetracer), data=source
-    )
+    form = graphed.awkward.AwkwardForm(typetracer)
+    if name is None:
+        return _record_under_default_name(session, tree_name, form, source)
+    return session.source(name, form=form, data=source)
 
 
 def necessary_columns(array, *, on_fail="raise"):
