@@ -663,7 +663,7 @@ def test_add_jagged_branch_empty_basket_keeps_counter(tmp_path):
     _flat_tree(path, np.array([], dtype=np.float64))
 
     with uproot.update(path) as f:
-        assert f["tree"].num_baskets == 1
+        assert f["tree"].num_baskets == 0
         f["tree"].add_branches({"j": ak.Array([[1.0]])[:0]})
 
     with uproot.update(path) as f:

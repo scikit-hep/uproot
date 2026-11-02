@@ -818,6 +818,9 @@ class Tree:
                     (branch_name, datum["compression"], big_endian, big_endian_offsets)
                 )
 
+        if num_entries == 0:
+            return
+
         # actually write baskets into the file
         uncompressed_bytes = 0
         compressed_bytes = 0

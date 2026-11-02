@@ -280,7 +280,7 @@ def test_workers_read_the_path_as_given(tmp_path, known):
 
     g = uproot.graphed({str(linkp): "events"}, known_base_form=base_form)
     _, source = _uproot_source(g, "test")
-    assert [file_path for file_path, _ in source._file_tree] == [str(linkp)]
+    assert [file_path for file_path, *_ in source._file_tree] == [str(linkp)]
 
 
 def test_none_and_name_refused_with_a_custom_source_name(tmp_path, monkeypatch):

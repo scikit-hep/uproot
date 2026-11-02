@@ -67,8 +67,8 @@ def test_rntuple_form_matches_eager(documented_rntuple, reader, ak_add_doc):
 
 @readers
 def test_rntuple_missing_doc_attribute_fails_at_build(documented_rntuple, reader):
-    with pytest.raises(AttributeError, match="title"):
-        _lazy(reader, documented_rntuple, ak_add_doc={"__doc__": "title"})
+    with pytest.raises(AttributeError, match="no_such_attribute"):
+        _lazy(reader, documented_rntuple, ak_add_doc={"__doc__": "no_such_attribute"})
 
 
 @readers

@@ -830,40 +830,44 @@ def awkward_form_of_iter(awkward, form):
         raise RuntimeError(f"unrecognized form: {type(form)}")
 
 
+def ak_add_doc_parameters(obj, ak_add_doc, top_level=False):
+    """
+    The Awkward parameters that ``ak_add_doc`` gives the form of ``obj``: a TBranch or RField, or
+    with ``top_level``, the TTree, RNTuple, TBranch or RField being read as a record.
+
+    ``True`` reads ``title`` into ``__doc__``; a dict reads each ``value`` attribute into its
+    ``key``. A top-level record takes only the ``__doc__`` key, and only from an attribute it has.
+    Empty values are kept, as a TBranch's empty ``title`` always was.
+    """
+    if isinstance(ak_add_doc, bool):
+        # a branch without a title (#1421) gets an empty __doc__
+        return {"__doc__": getattr(obj, "title", "")} if ak_add_doc else {}
+    elif not isinstance(ak_add_doc, dict):
+        return {}
+    elif top_level:
+        name = ak_add_doc.get("__doc__")
+        return {} if name is None else {"__doc__": getattr(obj, name, "")}
+    else:
+        return {key: getattr(obj, value) for key, value in ak_add_doc.items()}
+
+
 def get_ttree_form(
     ttree,
     common_keys,
     ak_add_doc,
 ):
-
     contents = []
     for key in common_keys:
         branch = ttree[key]
         content_form = branch.interpretation.awkward_form(ttree.file)
-        content_parameters = {}
-        if isinstance(ak_add_doc, bool):
-            if ak_add_doc:
-                content_parameters["__doc__"] = branch.title
-        elif isinstance(ak_add_doc, dict):
-            content_parameters.update(
-                {
-                    key: branch.__getattribute__(value)
-                    for key, value in ak_add_doc.items()
-                }
+        doc = ak_add_doc_parameters(branch, ak_add_doc)
+        if doc:
+            content_form = content_form.copy(
+                parameters={**content_form.parameters, **doc}
             )
-        if len(content_parameters.keys()) != 0:
-            content_form = content_form.copy(parameters=content_parameters)
         contents.append(content_form)
 
-    if isinstance(ak_add_doc, bool):
-        parameters = {"__doc__": ttree.title} if ak_add_doc else None
-    elif isinstance(ak_add_doc, dict):
-        parameters = (
-            {"__doc__": ttree.title} if "__doc__" in ak_add_doc.keys() else None
-        )
-    else:
-        parameters = None
-
+    parameters = ak_add_doc_parameters(ttree, ak_add_doc, top_level=True) or None
     return awkward.forms.RecordForm(contents, common_keys, parameters=parameters)
 
 

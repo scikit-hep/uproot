@@ -283,7 +283,7 @@ def graphed_write(
             "steps_per_file"
         )
     listed, seen_inodes = {}, {}  # canonical file -> {canonical tree: input as given}
-    for file_path, object_path in source._file_tree:
+    for file_path, object_path, _ in source._file_tree:
         canon = uproot._util.canonical_path(file_path, seen_inodes=seen_inodes)
         tree = uproot._util.canonical_object_path(object_path)
         in_file = listed.setdefault(canon, {})
@@ -302,7 +302,7 @@ def graphed_write(
     bases = graphed.write.file_bases(
         [
             (file_path, object_path or "")
-            for file_path, object_path in source._file_tree
+            for file_path, object_path, _ in source._file_tree
         ],
         steps_per_file,
     )

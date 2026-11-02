@@ -85,6 +85,14 @@ def _envelop_header(chunk, cursor, context):
     return {"env_type_id": env_type_id, "env_length": env_length}
 
 
+def _is_tuple_names(names):
+    """
+    Whether the field names ``names`` are those of a tuple: ``_0``, ``_1``, ... in order. Other
+    ``_N`` names would not match the indices of the tuple.
+    """
+    return len(names) > 0 and all(name == f"_{i}" for i, name in enumerate(names))
+
+
 def _key_prefixes(keys):
     """
     Returns the set of ``keys`` together with every prefix of a key that ends just
@@ -154,6 +162,8 @@ in file {self.file.file_path}"""
 
         self._field_records = None
         self._field_names = None
+        self._is_tuple = None
+        self._tuple_field_ids_ = None
         self._column_records = None
         self._alias_column_records = None
         self._related_ids_ = None
@@ -365,6 +375,40 @@ in file {self.file.file_path}"""
         if self._field_names is None:
             self._field_names = [r.field_name for r in self.field_records]
         return self._field_names
+
+    @property
+    def is_tuple(self):
+        """
+        True if the top-level fields of this RNTuple represent a tuple (i.e. they are
+        named ``_0``, ``_1``, ... in order), in which case they are renamed to ``0``,
+        ``1``, ... to match Awkward.
+        """
+        if self._is_tuple is None:
+            top_level_names = [
+                r.field_name
+                for i, r in enumerate(self.field_records)
+                if r.parent_field_id == i
+            ]
+            self._is_tuple = _is_tuple_names(top_level_names)
+        return self._is_tuple
+
+    @property
+    def _tuple_field_ids(self):
+        """
+        The IDs of the record fields that are tuples, i.e. their subfields are named ``_0``,
+        ``_1``, ... in order.
+        """
+        if self._tuple_field_ids_ is None:
+            self._tuple_field_ids_ = {
+                fid
+                for fid, child_ids in self._related_ids.items()
+                if self.field_records[fid].struct_role
+                == uproot.const.RNTupleFieldRole.RECORD
+                and _is_tuple_names(
+                    [self.field_records[i].field_name for i in child_ids]
+                )
+            }
+        return self._tuple_field_ids_
 
     @property
     def column_records(self):
@@ -591,6 +635,7 @@ in file {self.file.file_path}"""
                 to the Awkward ``__doc__`` parameter of the array.
                 if dict = {key:value}, add the RField ``value`` to the
                 Awkward ``key`` parameter of the array.
+                A ``value`` of ``"title"`` (the TBranch attribute) reads the RField ``description``.
 
         Returns an Awkward Form describing the field.
         """
@@ -606,14 +651,12 @@ in file {self.file.file_path}"""
         this_record = field_records[this_id]
         structural_role = this_record.struct_role
 
-        parameters = None
-        if isinstance(ak_add_doc, bool) and ak_add_doc and this_record.field_desc != "":
-            parameters = {"__doc__": this_record.field_desc}
-        elif isinstance(ak_add_doc, dict):
-            parameters = {
-                key: self.ntuple.all_fields[this_id].__getattribute__(value)
-                for key, value in ak_add_doc.items()
-            }
+        parameters = (
+            uproot._util.ak_add_doc_parameters(
+                self.ntuple.all_fields[this_id], ak_add_doc
+            )
+            or None
+        )
         if (
             structural_role == uproot.const.RNTupleFieldRole.LEAF
             and this_record.repetition == 0
@@ -706,7 +749,6 @@ in file {self.file.file_path}"""
             # go find N in the rest, N is the # of fields in struct
             recordlist = []
             namelist = []
-            record_names = []
             for i in newids:
                 if (
                     self.all_fields[i].path in key_prefixes
@@ -716,8 +758,12 @@ in file {self.file.file_path}"""
                         self._field_form(i, key_prefixes, ak_add_doc=ak_add_doc)
                     )
                     namelist.append(self.all_fields[i].name)
-                    record_names.append(field_records[i].field_name)
-            if all(re.fullmatch(r"_[0-9]+", name) is not None for name in record_names):
+            # A tuple is only kept when all of its fields are selected, since Awkward would
+            # renumber a subset of them and the form's fields would no longer match the RFields.
+            # Empty structs are read as empty tuples.
+            if len(recordlist) == len(newids) and (
+                len(newids) == 0 or this_id in self._tuple_field_ids
+            ):
                 namelist = None
             return ak.forms.RecordForm(
                 recordlist, namelist, form_key="whatever", parameters=parameters
@@ -881,6 +927,9 @@ in file {self.file.file_path}"""
         )
         res = numpy.empty(total_length, dtype)
         if len(starts) == 0:
+            # no clusters are read, so the array is only padding (and, for offsets,
+            # the leading zero)
+            res[:] = 0
             return res
 
         # Initialize the padding elements. Note that it might be different from missing_element_padding
@@ -1005,6 +1054,10 @@ in file {self.file.file_path}"""
 
         # Iterate through each cluster
         for cluster_i in cluster_range:
+            # a negative index means the range starts before the first cluster;
+            # there is nothing to read for it (same as read_cluster_range)
+            if cluster_i < 0:
+                continue
             colrefs_cluster = FieldRefsCluster(cluster_i)
             for key in fields:
                 if "column" in key:
@@ -1126,6 +1179,7 @@ in file {self.file.file_path}"""
         clusters_datas,
         start_cluster_idx,
         stop_cluster_idx,
+        cluster_offset=None,
     ):
         """
         Args:
@@ -1134,13 +1188,21 @@ in file {self.file.file_path}"""
             in the range requested.
             stop_cluster_idx (int): The last cluster index containing entries
             in the range requested.
+            cluster_offset (None or int): The first entry of ``start_cluster_idx``
+            (0 if it is negative), used to compute the padding of columns that
+            start partway through the file. If None, it is computed from the
+            cluster summaries.
 
         Returns a dictionary containing contiguous buffers of deserialized data
         across requested clusters organized by column key.
         """
         cupy = uproot.extras.cupy()
-        clusters = self.ntuple.cluster_summaries
-        cluster_starts = numpy.array([c.num_first_entry for c in clusters])
+        if cluster_offset is None:
+            cluster_offset = (
+                self.ntuple.cluster_summaries[start_cluster_idx].num_first_entry
+                if start_cluster_idx >= 0
+                else 0
+            )
         cluster_range = range(start_cluster_idx, stop_cluster_idx)
 
         col_arrays = {}  # collect content for each col
@@ -1149,15 +1211,20 @@ in file {self.file.file_path}"""
             field_metadata = self.get_field_metadata(ncol)
             # Find how many elements should be padded at the beginning
             n_padding = self.column_records[key_nr].first_element_index
-            n_padding -= cluster_starts[start_cluster_idx]
-            n_padding = max(n_padding, 0)
+            n_padding = max(n_padding - cluster_offset, 0)
             total_length, starts, _ = self._expected_array_length_starts_dtype(
                 ncol, start_cluster_idx, stop_cluster_idx, n_padding
             )
 
             res = cupy.empty(total_length, field_metadata.dtype_result)
+            if len(starts) == 0:
+                # no clusters are read, so the array is only padding (and, for
+                # offsets, the leading zero)
+                res[:] = 0
+                col_arrays[key_nr] = res
+                continue
             res[: starts[0]] = 0
-            # Get uncompressed array for key for all clusters
+            # Get uncompressed array for key for each cluster, by cluster index
             col_decompressed_buffers = clusters_datas._grab_field_output(ncol)
             # ``starts`` only contains entries for non-negative cluster indices
             # (see _expected_array_length_starts_dtype), so skip negative ones
@@ -1862,10 +1929,9 @@ class RField(uproot.behaviors.RNTuple.HasFields):
             # We rename subfields of tuples to match Awkward
             name = self._ntuple.field_records[self._fid].field_name
             if (
-                not self.top_level
-                and self.parent.record.struct_role
-                == uproot.const.RNTupleFieldRole.RECORD
-                and re.fullmatch(r"_[0-9]+", name) is not None
+                self._ntuple.is_tuple
+                if self.top_level
+                else self.parent.field_id in self._ntuple._tuple_field_ids
             ):
                 name = name[1:]
 
@@ -2016,6 +2082,7 @@ class RField(uproot.behaviors.RNTuple.HasFields):
                 to the Awkward ``__doc__`` parameter of the array.
                 if dict = {key:value} and ``library="ak"``, add the RField ``value`` to the
                 Awkward ``key`` parameter of the array.
+                A ``value`` of ``"title"`` (the TBranch attribute) reads the RField ``description``.
             virtual (bool): If True, return virtual Awkward arrays, meaning that the data will not be
                 loaded into memory until it is accessed.
             access_log (None or object with a ``__iadd__`` method): If an access_log is
@@ -2058,16 +2125,7 @@ class RField(uproot.behaviors.RNTuple.HasFields):
             virtual=virtual,
             access_log=access_log,
         )
-        if self.name in arrays.fields:
-            arrays = arrays[self.name]
-        # tuples are a trickier since indices no longer match
-        else:
-            if self.name.isdigit() and arrays.fields == ["0"]:
-                arrays = arrays["0"]
-            else:
-                raise AssertionError(
-                    "The array was not constructed correctly. Please report this issue."
-                )
+        arrays = arrays[self.name]
         library = uproot.interpretation.library._regularize_library(library)
 
         # TODO: The conversion would be ideally be fully handled by Awkward.
@@ -2206,12 +2264,14 @@ class ClusterRefs:
         self.refs[Cluster.cluster_i] = Cluster
 
     def _grab_field_output(self, nCol):
-        output_list = []
-        for cluster in self.refs.values():
-            colbuffer = cluster.fieldpayloads[nCol].data
-            output_list.append(colbuffer)
-
-        return output_list
+        """
+        Returns a dict mapping each cluster index to the decompressed buffer of
+        column ``nCol`` in that cluster.
+        """
+        return {
+            cluster_i: cluster.fieldpayloads[nCol].data
+            for cluster_i, cluster in self.refs.items()
+        }
 
     def _decompress(self):
         to_decompress = {}

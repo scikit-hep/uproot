@@ -481,7 +481,8 @@ class NTuple_Header(CascadeLeaf):
 
     def generate_field_col_records(self):
         akform = self._akform
-        for field_name, topakform in zip(akform.fields, akform.contents, strict=True):
+        for i, topakform in enumerate(akform.contents):
+            field_name = f"_{i}" if akform.is_tuple else akform.fields[i]
             self._build_field_col_records(
                 topakform,
                 field_name=field_name,
@@ -920,6 +921,22 @@ class NTuple(CascadeNode):
             )
 
         data = _to_packed(data.layout)
+
+        # A tuple RNTuple reads back with fields named "0", "1", ..., so a dict or record
+        # with those names can extend it too
+        akform = self._header._akform
+        if (
+            akform.is_tuple
+            and isinstance(data, awkward.contents.RecordArray)
+            and not data.is_tuple
+            and sorted(data.fields) == sorted(akform.fields)
+        ):
+            data = awkward.contents.RecordArray(
+                [data.content(field) for field in akform.fields],
+                None,
+                length=data.length,
+                parameters=data.parameters,
+            )
 
         if data.form != self._header._akform:
             msg = f"Data is not compatible with this RNTuple. Expected {self._header._akform}, got {data.form}"

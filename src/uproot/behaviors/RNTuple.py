@@ -89,6 +89,7 @@ def iterate(
             to the Awkward ``__doc__`` parameter of the array.
             if dict = {key:value} and ``library="ak"``, add the RField ``value`` to the
             Awkward ``key`` parameter of the array.
+            A ``value`` of ``"title"`` (the TBranch attribute) reads the RField ``description``.
         how (None, str, or container type): Library-dependent instructions
             for grouping. The only recognized container types are ``tuple``,
             ``list``, and ``dict``. Note that the container *type itself*
@@ -293,6 +294,7 @@ def concatenate(
             to the Awkward ``__doc__`` parameter of the array.
             if dict = {key:value} and ``library="ak"``, add the RField ``value`` to the
             Awkward ``key`` parameter of the array.
+            A ``value`` of ``"title"`` (the TBranch attribute) reads the RField ``description``.
         how (None, str, or container type): Library-dependent instructions
             for grouping. The only recognized container types are ``tuple``,
             ``list``, and ``dict``. Note that the container *type itself*
@@ -485,6 +487,14 @@ class HasFields(Mapping):
         return self._ntuple
 
     @property
+    def title(self):
+        """
+        The ``description``, under the name of the TBranch attribute it corresponds to, so that
+        ``ak_add_doc={"__doc__": "title"}`` documents a TTree or an RNTuple.
+        """
+        return self.description
+
+    @property
     def num_entries(self):
         """
         The number of entries in the ``RNTuple``.
@@ -572,6 +582,7 @@ class HasFields(Mapping):
                 to the Awkward ``__doc__`` parameter of the array.
                 if dict = {key:value}, add the RField ``value`` to the
                 Awkward ``key`` parameter of the array.
+                A ``value`` of ``"title"`` (the TBranch attribute) reads the RField ``description``.
             filter_branch (None or function of :doc:`uproot.models.RNTuple.RField` \u2192 bool): An alias for ``filter_field`` included
                 for compatibility with software that was used for :doc:`uproot.behaviors.TBranch.TBranch`. This argument should not be used
                 and will be removed in a future version.
@@ -644,14 +655,14 @@ class HasFields(Mapping):
                     )
                 )
 
-        parameters = None
-        if isinstance(ak_add_doc, bool) and ak_add_doc and self.description != "":
-            parameters = {"__doc__": self.description}
-        elif isinstance(ak_add_doc, dict) and self is not rntuple:
-            parameters = {
-                key: self.__getattribute__(value) for key, value in ak_add_doc.items()
-            }
+        parameters = (
+            uproot._util.ak_add_doc_parameters(self, ak_add_doc, top_level=True) or None
+        )
 
+        # A tuple is only kept when all of its fields are selected, since Awkward would
+        # renumber a subset of them and the form's fields would no longer match the RFields
+        if self is rntuple and rntuple.is_tuple and len(top_names) == len(self.fields):
+            top_names = None
         form = ak.forms.RecordForm(
             record_list, top_names, form_key="toplevel", parameters=parameters
         )
@@ -728,6 +739,7 @@ class HasFields(Mapping):
                 to the Awkward ``__doc__`` parameter of the array.
                 if dict = {key:value} and ``library="ak"``, add the RField ``value`` to the
                 Awkward ``key`` parameter of the array.
+                A ``value`` of ``"title"`` (the TBranch attribute) reads the RField ``description``.
             how (None, str, or container type): Library-dependent instructions
                 for grouping. The only recognized container types are ``tuple``,
                 ``list``, and ``dict``. Note that the container *type itself*
@@ -803,18 +815,12 @@ class HasFields(Mapping):
         library = uproot.interpretation.library._regularize_library(library)
 
         clusters = self.ntuple.cluster_summaries
-        cluster_starts = numpy.array([c.num_first_entry for c in clusters])
-        start_cluster_idx = (
-            numpy.searchsorted(cluster_starts, entry_start, side="right") - 1
+        start_cluster_idx, stop_cluster_idx, cluster_offset = _cluster_range(
+            clusters, entry_start, entry_stop
         )
-        stop_cluster_idx = numpy.searchsorted(cluster_starts, entry_stop, side="right")
         cluster_num_entries = numpy.sum(
             [c.num_entries for c in clusters[start_cluster_idx:stop_cluster_idx]],
             dtype=int,
-        )
-        # the buffers below start at the first cluster that is read
-        cluster_offset = (
-            cluster_starts[start_cluster_idx] if start_cluster_idx >= 0 else 0
         )
 
         array_cache = _regularize_array_cache(array_cache, self.ntuple._file)
@@ -833,8 +839,13 @@ class HasFields(Mapping):
         _recursive_find(form, target_cols)
 
         # With GPU interpretation data can be decompressed and deserialized in
-        # parallel. Read requested columns all at once
-        if interpreter == "gpu" and backend == "cuda":
+        # parallel. Read requested columns all at once (an empty range reads no
+        # clusters, so there is nothing to read)
+        if (
+            interpreter == "gpu"
+            and backend == "cuda"
+            and start_cluster_idx < stop_cluster_idx
+        ):
             clusters_datas = self.ntuple.gpu_read_cluster_range(
                 target_cols, start_cluster_idx, stop_cluster_idx
             )
@@ -843,6 +854,7 @@ class HasFields(Mapping):
                 clusters_datas,
                 start_cluster_idx,
                 stop_cluster_idx,
+                cluster_offset=cluster_offset,
             )
 
         for key in target_cols:
@@ -877,7 +889,18 @@ class HasFields(Mapping):
                     else:
                         content = content_generator()
                 elif interpreter == "gpu" and backend == "cuda":
-                    content = content_dict[key_nr]
+                    if start_cluster_idx < stop_cluster_idx:
+                        content = content_dict[key_nr]
+                    else:
+                        # no clusters are read, so the column is only its padding
+                        content = uproot.extras.cupy().asarray(
+                            self.ntuple.read_cluster_range(
+                                key_nr,
+                                start_cluster_idx,
+                                stop_cluster_idx,
+                                missing_element_padding=n_padding,
+                            )
+                        )
                 elif interpreter == "gpu":
                     raise NotImplementedError(
                         f"Backend {backend} GDS support not implemented."
@@ -901,16 +924,7 @@ class HasFields(Mapping):
         # If we constructed some parent fields, we need to get back to the requested field
         if field_path is not None:
             for field in field_path[:-1]:
-                if field in arrays.fields:
-                    arrays = arrays[field]
-                # tuples are a trickier since indices no longer match
-                else:
-                    if field.isdigit() and arrays.fields == ["0"]:
-                        arrays = arrays["0"]
-                    else:
-                        raise AssertionError(
-                            "The array was not constructed correctly. Please report this issue."
-                        )
+                arrays = arrays[field]
 
         expression_context = [(f, None) for f in arrays.fields]
 
@@ -1029,6 +1043,7 @@ class HasFields(Mapping):
                 to the Awkward ``__doc__`` parameter of the array.
                 if dict = {key:value} and ``library="ak"``, add the RField ``value`` to the
                 Awkward ``key`` parameter of the array.
+                A ``value`` of ``"title"`` (the TBranch attribute) reads the RField ``description``.
             how (None, str, or container type): Library-dependent instructions
                 for grouping. The only recognized container types are ``tuple``,
                 ``list``, and ``dict``. Note that the container *type itself*
@@ -1885,17 +1900,37 @@ def _get_recursive(hasfields, where):
         return None
 
 
+def _cluster_range(clusters, entry_start, entry_stop):
+    """
+    Returns ``(start_cluster_idx, stop_cluster_idx, cluster_offset)``: the range of
+    clusters that hold the entries from ``entry_start`` to ``entry_stop`` (exclusive),
+    and the first entry of the first of those clusters, where the buffers read from
+    that range start. An empty entry range gives an empty cluster range.
+    """
+    cluster_starts = numpy.array([c.num_first_entry for c in clusters])
+    start_cluster_idx = int(
+        numpy.searchsorted(cluster_starts, entry_start, side="right") - 1
+    )
+    if entry_stop <= entry_start:
+        stop_cluster_idx = start_cluster_idx
+    else:
+        # a cluster that starts at entry_stop has no entries in the range
+        stop_cluster_idx = int(
+            numpy.searchsorted(cluster_starts, entry_stop, side="left")
+        )
+    cluster_offset = (
+        int(cluster_starts[start_cluster_idx]) if start_cluster_idx >= 0 else 0
+    )
+    return start_cluster_idx, stop_cluster_idx, cluster_offset
+
+
 def _num_entries_for(ntuple, akform, target_num_bytes, entry_start, entry_stop):
     # a field or a set of fields has the cluster metadata on its RNTuple
     ntuple = ntuple.ntuple
     clusters = ntuple.cluster_summaries
-    cluster_starts = numpy.array([c.num_first_entry for c in clusters])
-
-    start_cluster_idx = (
-        numpy.searchsorted(cluster_starts, entry_start, side="right") - 1
+    start_cluster_idx, stop_cluster_idx, _ = _cluster_range(
+        clusters, entry_start, entry_stop
     )
-    # a cluster that starts at entry_stop has no entries in the range
-    stop_cluster_idx = numpy.searchsorted(cluster_starts, entry_stop, side="left")
 
     target_cols = []
     _recursive_find(akform, target_cols)

@@ -38,7 +38,7 @@ test-core = [
   "pytest>=6",
   "rangehttpserver",
   "requests",
-  "scikit-hep-testdata"
+  "scikit-hep-testdata>=0.6.9"
 ]
 test-gpu-cu12 = [
   "kvikio-cu12",

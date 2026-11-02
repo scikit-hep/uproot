@@ -74,7 +74,7 @@ def _reads(monkeypatch, array):
 
 
 def _keys(array):
-    return _source_of(array)._file_tree
+    return [(f, o) for f, o, _ in _source_of(array)._file_tree]
 
 
 # ---- lazy open -----------------------------------------------------------------------------

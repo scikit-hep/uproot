@@ -651,13 +651,13 @@ class WritableDirectory(MutableMapping):
 
     def __len__(self):
         return self._cascading.data.num_keys + sum(
-            len(self._subdir(x)) for x in self._cascading.data.dir_names
+            len(self._subdir(x)) for x in self._cascading.data.dir_keys
         )
 
     def __contains__(self, where):
         if self._cascading.data.haskey(where):
             return True
-        return any(where in self._subdir(x) for x in self._cascading.data.dir_names)
+        return any(where in self._subdir(x) for x in self._cascading.data.dir_keys)
 
     def __iter__(self):
         return self.iterkeys()
@@ -1390,6 +1390,24 @@ class WritableDirectory(MutableMapping):
 
     def _load_existing_ntuple(self, key):
         """
+        Loads an existing RNTuple from disk, registering a new writable
+        :doc:`uproot.writing.writable.WritableNTuple` handle to it.
+
+        Args:
+            key: The ROOT key object pointing to the RNTuple in the file.
+
+        Returns:
+            :doc:`uproot.writing.writable.WritableNTuple`
+        """
+        cascading, column_encoding_error = self._load_ntuple_cascading(key)
+        path = (*self._path, key.name.string)
+        writable_ntuple = WritableNTuple(path, self._file, cascading)
+        writable_ntuple._column_encoding_error = column_encoding_error
+        self._file._new_ntuple(writable_ntuple)
+        return writable_ntuple
+
+    def _load_ntuple_cascading(self, key):
+        """
         Loads an existing RNTuple from disk and reconstructs a writable
         :doc:`uproot.writing.writable.WritableNTuple` object from it.
 
@@ -1402,7 +1420,8 @@ class WritableDirectory(MutableMapping):
             key: The ROOT key object pointing to the RNTuple in the file.
 
         Returns:
-            :doc:`uproot.writing.writable.WritableNTuple`
+            The :doc:`uproot.writing._cascadentuple.NTuple` and the error
+            message from checking its column encodings, or None.
         """
 
         import uproot.writing._cascade as casc
@@ -1521,6 +1540,7 @@ class WritableDirectory(MutableMapping):
             [],
             anchor,
         )
+        ntuple_cascading._key = key
         ntuple_cascading._header_key = casc.Key(
             am["fSeekHeader"] - _rblob_key_size,
             am["fLenHeader"],
@@ -1573,11 +1593,7 @@ class WritableDirectory(MutableMapping):
         ntuple_cascading._existing_page_list_envelopes = existing_page_list_envelopes
         ntuple_cascading._existing_field_records = existing_field_records
 
-        path = (*self._path, name)
-        writable_ntuple = WritableNTuple(path, self._file, ntuple_cascading)
-        writable_ntuple._column_encoding_error = _column_encoding_error
-        self._file._ntuples[key.seek_location] = writable_ntuple
-        return writable_ntuple
+        return ntuple_cascading, _column_encoding_error
 
     def _del(self, name, cycle):
         key = self._cascading.data.get_key(name, cycle)
@@ -1589,6 +1605,10 @@ class WritableDirectory(MutableMapping):
                 file_path=self.file_path,
                 object_path=self.object_path,
             )
+        for handles in (self._file._trees, self._file._ntuples):
+            handle = handles.pop(key.seek_location, None)
+            if handle is not None:
+                handle._deleted = True
         start = key.seek_location
         stop = start + key.num_bytes + key.compressed_bytes
         self._cascading.freesegments.release(start, stop)
@@ -2327,11 +2347,16 @@ class WritableTree:
         self._path = path
         self._file = file
         self._cascading = cascading
+        self._deleted = False
 
     def __repr__(self):
         return "<WritableTree {} at 0x{:012x}>".format(
             repr("/" + "/".join(self._path)), id(self)
         )
+
+    def _check_not_deleted(self):
+        if self._deleted:
+            raise ValueError("this TTree was deleted")
 
     @property
     def path(self):
@@ -2562,6 +2587,7 @@ class WritableTree:
         """
         if self._file.sink.closed:
             raise ValueError("cannot modify a TTree in a closed file")
+        self._check_not_deleted()
 
         # validate all branches have same length as existing tree; self._cascading
         # is already fully flushed and current on disk by the end of every
@@ -2801,13 +2827,6 @@ class WritableTree:
             casc._needs_relocation_before_extend = False
             casc.write_updates(sink)
 
-            # update self._cascading so subsequent extend uses correct metadata
-            writable_tree = uproot.writing.writable.WritableTree(
-                self._path, self._file, casc
-            )
-            self._file._trees[casc._key.seek_location] = writable_tree
-            self._cascading = casc
-
         except Exception:
             del casc._branch_data[orig_branch_data_len:]
             casc._branch_lookup.clear()
@@ -2860,6 +2879,7 @@ class WritableTree:
             Any of these cases raises ``NotImplementedError`` rather than
             desynchronizing or corrupting the tree's branches.
         """
+        self._check_not_deleted()
         if self._cascading is None:
             raise RuntimeError(
                 "_cascading is None — this should not happen; please report this bug"
@@ -3194,32 +3214,49 @@ class WritableNTuple:
         self._file = file
         self._cascading = cascading
         self._column_encoding_error = None
+        self._deleted = False
 
     def __repr__(self):
         return "<WritableNTuple {} at 0x{:012x}>".format(
             repr("/" + "/".join(self._path)), id(self)
         )
 
+    def _check_not_deleted(self):
+        if self._deleted:
+            raise ValueError("this RNTuple was deleted")
+
     def _existing_key(self):
         """
         Resolves this RNTuple's :doc:`uproot.writing._cascade.Key` by walking
         down to its containing directory (not always the file's root
         directory — this RNTuple may live in a subdirectory) and looking up
-        its name there, at whatever is currently its latest cycle.
+        its name and cycle there.
         """
         directory = self._file.root_directory
         for part in self._path[:-1]:
             directory = directory[part]
-        key = directory._cascading.data.get_key(self._path[-1])
+        cycle = self._cascading.key.cycle
+        key = directory._cascading.data.get_key(self._path[-1], cycle)
         if key is None:
             raise uproot.KeyInFileError(
                 self._path[-1],
-                cycle="any",
+                cycle=cycle,
                 keys=directory._cascading.data.key_names,
                 file_path=self.file_path,
                 object_path=self.object_path,
             )
         return directory, key
+
+    def _reload_cascading(self):
+        """
+        Replaces this RNTuple's cascading with one read back from disk, keeping
+        this object as the file's one handle to it.
+        """
+        directory, key = self._existing_key()
+        self._cascading, self._column_encoding_error = directory._load_ntuple_cascading(
+            key
+        )
+        self._file._new_ntuple(self)
 
     @property
     def path(self):
@@ -3355,6 +3392,7 @@ class WritableNTuple:
             practice, ``extend``/``add_fields`` after reopening a file only
             work reliably on RNTuples that Uproot itself wrote.
         """
+        self._check_not_deleted()
         if self._column_encoding_error is not None:
             raise ValueError(self._column_encoding_error)
         # if _column_counts has more columns than _column_keys, reload cascading
@@ -3362,9 +3400,7 @@ class WritableNTuple:
         if len(self._cascading._column_counts) > len(
             self._cascading._header._column_keys
         ):
-            directory, key = self._existing_key()
-            reloaded = directory._load_existing_ntuple(key)
-            self._cascading = reloaded._cascading
+            self._reload_cascading()
 
         if isinstance(data, dict):
             existing_keys = set(self._cascading._header._akform.fields)
@@ -3387,9 +3423,7 @@ class WritableNTuple:
                         for k in new_field_names
                     }
                 )
-                directory, key = self._existing_key()
-                reloaded = directory._load_existing_ntuple(key)
-                self._cascading = reloaded._cascading
+                self._reload_cascading()
 
         self._cascading.extend(self._file, self._file.sink, data)
 
@@ -3433,6 +3467,7 @@ class WritableNTuple:
             reopening a file only work reliably on RNTuples that Uproot itself
             wrote.
         """
+        self._check_not_deleted()
         if self._column_encoding_error is not None:
             raise ValueError(self._column_encoding_error)
 
@@ -3446,9 +3481,7 @@ class WritableNTuple:
             # disk (mkrntuple/assignment/extend all flush immediately), so it can
             # be loaded the same way a preexisting RNTuple opened via
             # uproot.update() would be.
-            directory, key = self._existing_key()
-            reloaded = directory._load_existing_ntuple(key)
-            self._cascading = reloaded._cascading
+            self._reload_cascading()
 
         compression_code = cnt._compression_code(
             self._cascading._freesegments.fileheader.compression

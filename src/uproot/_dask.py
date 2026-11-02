@@ -93,9 +93,10 @@ def dask(
             array. ``library='pd'`` has not been implemented yet and will raise a
             ``NotImplementedError``.
         ak_add_doc (bool | dict ): If True and ``library="ak"``, add the TBranch ``title``
-            to the Awkward ``__doc__`` parameter of the array.
-            if dict = {key:value} and ``library="ak"``, add the TBranch ``value`` to the
-            Awkward ``key`` parameter of the array.
+            or RField ``description`` to the Awkward ``__doc__`` parameter of the array.
+            if dict = {key:value} and ``library="ak"``, add the TBranch or RField ``value`` to
+            the Awkward ``key`` parameter of the array. A ``value`` of ``"title"`` (the TBranch
+            attribute) reads the RField ``description``.
         custom_classes (None or dict): If a dict, override the classes from
             the :doc:`uproot.reading.ReadOnlyFile` or ``uproot.classes``.
         allow_missing (bool): If True, skip over any files that do not contain
@@ -113,7 +114,10 @@ def dask(
             catch any of those exceptions and return empty arrays for those nodes. In either of
             those cases, The return of this function becomes a two element tuple, where the
             first return is the dask-awkward collection of interest and the second return is a
-            report dask-awkward collection.
+            report dask-awkward collection. A failed read of a coalesced range keeps the
+            nearest built-in OSError type of the original error, or else is a
+            :doc:`uproot.exceptions.CoalescedReadError`. A tuple also matches against that
+            original error, and the report includes it in the message.
         known_base_form (awkward.forms.Form | None): If not none use this form instead of opening
             one file to determine the dataset's form. Only available with open_files=False.
         decompression_executor (None or Executor with a ``submit`` method): The
@@ -1044,10 +1048,9 @@ class TrivialFormMappingInfo(ImplementsFormMappingInfo):
             # by field-name tuple, so braces and glob characters in a name are literal; a
             # top-level field is selected whole, as a dot in its name (which ROOT forbids,
             # but uproot can write) is only supported there
-            names = ((k,) if self._form.has_field(k) else k.split(".") for k in keys)
-            form = self._form.select_columns(
-                [tuple(map(glob.escape, n)) for n in names]
-            )
+            form = _tuples_as_records(self._form)
+            names = ((k,) if form.has_field(k) else k.split(".") for k in keys)
+            form = form.select_columns([tuple(map(glob.escape, n)) for n in names])
             projection_subforms = {f: form.content(f) for f in form.fields}
             leaf_keys = [
                 p
@@ -1104,6 +1107,20 @@ def _contents(form):
     if form.is_list or form.is_option or form.is_indexed:
         return [form.content]
     return []
+
+
+def _tuples_as_records(form):
+    """``form`` with its tuples as records with the same field names, since Awkward renumbers a
+    subset of a tuple's fields and they would no longer match the RNTuple's fields."""
+    if form.is_record:
+        return form.copy(
+            contents=[_tuples_as_records(c) for c in form.contents], fields=form.fields
+        )
+    if form.is_union:
+        return form.copy(contents=[_tuples_as_records(c) for c in form.contents])
+    if form.is_list or form.is_option or form.is_indexed:
+        return form.copy(content=_tuples_as_records(form.content))
+    return form
 
 
 def _ancestors(keys):
@@ -1311,6 +1328,18 @@ class UprootReadMixin:
         if isinstance(self.allow_read_errors_with_report, tuple):
             return self.allow_read_errors_with_report
         return (OSError,)
+
+    @property
+    def caught_exceptions(self):
+        # coalesced read errors are OSErrors that can match on their original error
+        return (*self.allowed_exceptions, OSError)
+
+    def is_allowed_exception(self, err: BaseException) -> bool:
+        if isinstance(err, self.allowed_exceptions):
+            return True
+        return getattr(err, "coalesced_read", False) and isinstance(
+            err.__cause__, self.allowed_exceptions
+        )
 
     @property
     def return_report(self) -> bool:
@@ -1521,7 +1550,9 @@ class _UprootRead(UprootReadMixin):
                         counters=counters,
                     ),
                 )
-            except self.allowed_exceptions as err:
+            except self.caught_exceptions as err:
+                if not self.is_allowed_exception(err):
+                    raise
                 return (
                     self.mock_empty(backend="cpu"),
                     _report_failure(
@@ -1638,7 +1669,9 @@ which has {num_entries} entries"""
                         counters=counters,
                     ),
                 )
-            except self.allowed_exceptions as err:
+            except self.caught_exceptions as err:
+                if not self.is_allowed_exception(err):
+                    raise
                 return (
                     self.mock_empty(backend="cpu"),
                     _report_failure(
@@ -1671,47 +1704,6 @@ which has {num_entries} entries"""
             self.decompression_executor,
             self.interpretation_executor,
         )
-
-
-def _get_ttree_form(
-    awkward,
-    ttree,
-    common_keys,
-    ak_add_doc,
-):
-    contents = []
-    for key in common_keys:
-        branch = ttree[key]
-        content_form = branch.interpretation.awkward_form(ttree.file)
-        content_parameters = {}
-        if isinstance(ak_add_doc, bool):
-            if ak_add_doc:
-                content_parameters["__doc__"] = branch.title
-        elif isinstance(ak_add_doc, dict):
-            content_parameters.update(
-                {
-                    key: branch.__getattribute__(value)
-                    for key, value in ak_add_doc.items()
-                }
-            )
-        if len(content_parameters.keys()) != 0:
-            content_form = content_form.copy(
-                parameters={**content_form.parameters, **content_parameters}
-            )
-        contents.append(content_form)
-
-    if isinstance(ak_add_doc, bool):
-        parameters = {"__doc__": ttree.title} if ak_add_doc else None
-    elif isinstance(ak_add_doc, dict):
-        parameters = (
-            {"__doc__": ttree.__getattribute__(ak_add_doc["__doc__"])}
-            if "__doc__" in ak_add_doc.keys()
-            else None
-        )
-    else:
-        parameters = None
-
-    return awkward.forms.RecordForm(contents, common_keys, parameters=parameters)
 
 
 def _leaf_to_tree(obj):
@@ -1907,7 +1899,7 @@ def _base_form_of(ttree, common_keys, ak_add_doc, form_mapping):
             filter_field=_filter_field_by_key(ttree, common_keys),
             ak_add_doc=ak_add_doc,
         )[0]
-    base_form = _get_ttree_form(awkward, ttree, common_keys, ak_add_doc)
+    base_form = uproot._util.get_ttree_form(ttree, common_keys, ak_add_doc)
     if form_mapping is not None:
         base_form.parameters["typenames"] = ttree.typenames()
     return base_form

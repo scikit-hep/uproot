@@ -126,7 +126,10 @@ class FSSpecSource(uproot.source.chunk.Source):
         return uproot.source.chunk.Chunk(self, start, stop, future)
 
     def chunks(
-        self, ranges: list[tuple[int, int]], notifications: queue.Queue
+        self,
+        ranges: list[tuple[int, int]],
+        notifications: queue.Queue,
+        coalesce_config: CoalesceConfig | None = None,
     ) -> list[uproot.source.chunk.Chunk]:
         """
         Args:
@@ -136,6 +139,8 @@ class FSSpecSource(uproot.source.chunk.Source):
                 chunks. After each gets filled, it is ``put`` on the
                 queue; a listener should ``get`` from this queue
                 ``len(ranges)`` times.
+            coalesce_config (struct, optional): Overrides the source's
+                coalescing configuration for this call.
 
         Request a set of byte ranges from the file.
 
@@ -191,8 +196,10 @@ class FSSpecSource(uproot.source.chunk.Source):
             )
             return self._executor.submit(coroutine)
 
+        if coalesce_config is None:
+            coalesce_config = self._coalesce_config
         return coalesce_requests(
-            ranges, submit, self, notifications, config=self._coalesce_config
+            ranges, submit, self, notifications, config=coalesce_config
         )
 
     @property

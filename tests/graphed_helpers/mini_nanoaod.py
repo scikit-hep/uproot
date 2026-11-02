@@ -147,12 +147,11 @@ def eager_events(where, mapping=None, n_copies=1):
     ``awkward.from_buffers``, with every branch read — no graph, no projection, no partitions.
     """
     import uproot
-    from uproot._dask import _get_ttree_form
 
     mapping = MiniNanoMapping() if mapping is None else mapping
     tree = uproot.open(where)
     keys = tree.keys(recursive=True, filter_name=FILTER, ignore_duplicates=True)
-    form, info = mapping(_get_ttree_form(ak, tree, keys, False))
+    form, info = mapping(uproot._util.get_ttree_form(tree, keys, False))
     n = tree.num_entries
     container = info.load_buffers(
         tree, frozenset(keys), 0, n, None, None, {"ak_add_doc": False}
