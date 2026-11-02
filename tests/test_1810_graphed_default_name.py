@@ -33,22 +33,18 @@ def _executor():
     return uproot.source.futures.TrivialExecutor()
 
 
-def _file(tmp_path, stem, *trees):
+def _file(tmp_path, stem, *trees, offset=0.0):
     path = os.path.join(tmp_path, f"{stem}.root")
     with uproot.recreate(path) as f:
         for tree in trees:
             f.mktree(tree, {"x": "f8", "y": "f8"}).extend(
-                {"x": np.arange(3.0), "y": np.arange(3.0)}
+                {"x": np.arange(3.0) + offset, "y": np.arange(3.0)}
             )
     return path
 
 
 def _events(tmp_path, stem, offset=0.0):
-    path = os.path.join(tmp_path, f"{stem}.root")
-    with uproot.recreate(path) as f:
-        f.mktree("Events", {"x": "f8", "y": "f8"})
-        f["Events"].extend({"x": np.arange(3.0) + offset, "y": np.arange(3.0)})
-    return path + ":Events"
+    return _file(tmp_path, stem, "Events", offset=offset) + ":Events"
 
 
 def _ir(array):
@@ -103,6 +99,9 @@ def test_every_spelling_of_a_tree_interns(tmp_path, tree):
     assert (
         uproot.graphed(later).node_id == uproot.graphed(later, open_files=True).node_id
     )
+    for flag in ("allow_missing", "align_baskets"):
+        one = uproot.graphed(f"{path}:{tree}", **{flag: 1})
+        assert one.node_id == uproot.graphed(path, **{flag: True}).node_id
     spellings = [path, f"{path}:{tree};1", f"{path}:/{tree}", {path: f"/{tree};1"}]
     with uproot.open(path) as f:
         spellings.append(f[tree])

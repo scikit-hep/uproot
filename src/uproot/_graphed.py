@@ -131,8 +131,8 @@ class _GraphedTTreeSource:
         read = (
             files,
             self._explicit_chunks,
-            self._allow_missing,
-            self._align_baskets,
+            bool(self._allow_missing),
+            bool(self._align_baskets),
             self._expected_form.to_json(),
         )
         return hashlib.sha256(repr(read).encode()).hexdigest()[:8]
@@ -618,8 +618,9 @@ def graphed(
             ``graphed`` that has no ``current_session``, each such read gets a new ``Session``.
         name (str or None): The ``graphed`` source's name, its slot in the recorded graph; default
             the ``TTree``'s name, or when another read already holds that, the ``TTree``'s name
-            with a hash of what this read reads. Repeating a read, ``name=`` included, returns
-            that source again; any other read under a name given here is refused.
+            with a hash of what this read reads, numbered (``#1``, ...) when the hash cannot tell
+            it from another read. Repeating a read, ``name=`` included, returns that source again;
+            any other read under a name given here is refused.
             With a ``graphed`` that has no ``current_session``, every read under a
             taken name is refused, before any file is opened when the name is known from
             ``name=`` or the ``files``' object paths.
