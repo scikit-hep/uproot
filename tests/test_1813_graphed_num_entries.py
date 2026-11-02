@@ -16,8 +16,8 @@ pytest.importorskip("graphed.awkward")
 import graphed  # noqa: E402
 
 
-def _make_tree(path, name="events"):
-    with uproot.recreate(path) as f:
+def _make_tree(path, name="events", **options):
+    with uproot.recreate(path, **options) as f:
         f.mktree(name, {"x": "f8"})
         f[name].extend({"x": np.arange(10.0)})
     return path
@@ -167,11 +167,7 @@ def test_graphed_partitions_leaves_a_given_tree_open(tmp_path):
 def test_read_graphed_partition_closes_the_file_it_opens(
     tmp_path, opened, library, handler
 ):
-    path = os.path.join(tmp_path, "t.root")
-    with uproot.recreate(path, compression=None) as f:
-        f.mktree("events", {"x": "f8"})
-        f["events"].extend({"x": np.arange(10.0)})
-    opened.clear()
+    path = _make_tree(os.path.join(tmp_path, "t.root"), compression=None)
     partition = graphed.core.Partition.blind(path, "events", 1, 2)
     chunk = uproot._graphed.read_graphed_partition(
         partition, ["x"], library=library, handler=handler

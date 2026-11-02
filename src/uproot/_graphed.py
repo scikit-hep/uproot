@@ -122,14 +122,8 @@ class _GraphedTTreeSource:
     def _open_directory(self, file_path):
         return _open_directory(file_path, self._custom_classes, self._options)
 
-    def _tree_in(self, directory, object_path):
-        return uproot._util.object_in_directory(
-            directory, object_path or None, self._allow_missing
-        )
-
     def _opened_tree(self, file_path, object_path):
-        """The tree at ``object_path``, as :meth:`_tree_in` gives it, with its file open only
-        inside this context."""
+        """:func:`_opened_object` with the options this source was given."""
         return _opened_object(
             file_path,
             object_path,
@@ -142,8 +136,10 @@ class _GraphedTTreeSource:
         """This partition's ``TTree``, from a file opened once per worker with the options
         ``uproot.graphed`` was given; ``None`` when ``allow_missing`` and the file lacks it.
         """
-        return self._tree_in(
-            resources.open_once(partition.uri, self._open_directory), partition.tree
+        return uproot._util.object_in_directory(
+            resources.open_once(partition.uri, self._open_directory),
+            partition.tree or None,
+            self._allow_missing,
         )
 
     def num_entries(self, partition):
