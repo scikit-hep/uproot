@@ -908,45 +908,48 @@ def graphed_partitions(
                 for step in range(n_steps)
             )
             continue
-        obj = uproot._util.regularize_object_path(
+        context = uproot._util.regularize_object_path(
             file_path, object_path, custom_classes, allow_missing, real_options
         )
-        if obj is None:
+        if context is None:
             continue
-        if align_baskets and isinstance(obj, HasFields):
-            raise NotImplementedError(
-                "align_baskets=True follows TBasket boundaries; an RNTuple has none"
-            )
-        n_entries = obj.num_entries
-        if have_step_size:
-            per = (
-                step_size
-                if uproot._util.isint(step_size)
-                else obj.num_entries_for(step_size)
-            )
-            per = max(1, int(per))
-            bounds = [*range(0, n_entries, per), n_entries]
-        else:
-            bounds = [(i * n_entries) // n_steps for i in range(n_steps + 1)]
-        if align_baskets:
-            shared = obj.common_entry_offsets(
-                filter_name=no_filter if align_baskets is True else align_baskets,
-                recursive=True,
-            )
-            if n_entries and shared == [0]:  # a non-empty tree's fold holds n_entries
-                raise ValueError(
-                    f"align_baskets={align_baskets!r} selects no TBranch with TBaskets in "
-                    f"{obj.file.file_path}:{obj.object_path}"
+        with context as obj:
+            if align_baskets and isinstance(obj, HasFields):
+                raise NotImplementedError(
+                    "align_baskets=True follows TBasket boundaries; an RNTuple has none"
                 )
-            offsets = _basket_offsets([shared], n_entries)
-            bounds = [_snap(bound, offsets) for bound in bounds]
-        partitions.extend(
-            graphed.core.Partition(
-                obj.file.file_path, obj.object_path, int(start), int(stop)
+            n_entries = obj.num_entries
+            if have_step_size:
+                per = (
+                    step_size
+                    if uproot._util.isint(step_size)
+                    else obj.num_entries_for(step_size)
+                )
+                per = max(1, int(per))
+                bounds = [*range(0, n_entries, per), n_entries]
+            else:
+                bounds = [(i * n_entries) // n_steps for i in range(n_steps + 1)]
+            if align_baskets:
+                shared = obj.common_entry_offsets(
+                    filter_name=no_filter if align_baskets is True else align_baskets,
+                    recursive=True,
+                )
+                if n_entries and shared == [
+                    0
+                ]:  # a non-empty tree's fold holds n_entries
+                    raise ValueError(
+                        f"align_baskets={align_baskets!r} selects no TBranch with TBaskets in "
+                        f"{obj.file.file_path}:{obj.object_path}"
+                    )
+                offsets = _basket_offsets([shared], n_entries)
+                bounds = [_snap(bound, offsets) for bound in bounds]
+            partitions.extend(
+                graphed.core.Partition(
+                    obj.file.file_path, obj.object_path, int(start), int(stop)
+                )
+                for start, stop in itertools.pairwise(bounds)
+                if stop > start
             )
-            for start, stop in itertools.pairwise(bounds)
-            if stop > start
-        )
     return partitions
 
 
@@ -975,9 +978,13 @@ def read_graphed_partition(
     (``open_files=False`` over a bare file name) reads the file's single ``TTree``. Pass an
     already-open ``tree`` to reuse a per-worker ``open_once`` handle."""
     if tree is None:
-        tree = uproot._util.object_in_directory(
-            uproot.open(partition.uri, **open_options), partition.tree or None, False
-        )
+        with uproot.open(partition.uri, **open_options) as directory:
+            tree = uproot._util.object_in_directory(
+                directory, partition.tree or None, False
+            )
+            return read_graphed_partition(
+                partition, columns, tree=tree, library=library
+            )
     start, stop = _partition_range(partition, tree.num_entries)
     return tree.arrays(
         list(columns), entry_start=start, entry_stop=stop, library=library
