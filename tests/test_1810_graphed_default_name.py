@@ -29,6 +29,20 @@ def _names(session):
     return [session.source_name(nid) for nid in session.source_ids()]
 
 
+def _executor():
+    return uproot.source.futures.TrivialExecutor()
+
+
+def _file(tmp_path, stem, *trees):
+    path = os.path.join(tmp_path, f"{stem}.root")
+    with uproot.recreate(path) as f:
+        for tree in trees:
+            f.mktree(tree, {"x": "f8", "y": "f8"}).extend(
+                {"x": np.arange(3.0), "y": np.arange(3.0)}
+            )
+    return path
+
+
 def _events(tmp_path, stem, offset=0.0):
     path = os.path.join(tmp_path, f"{stem}.root")
     with uproot.recreate(path) as f:
@@ -41,44 +55,58 @@ def _ir(array):
     return bytes(graphed.compile_ir(array.session, array).ir)
 
 
-def test_a_default_read_of_other_files_gets_its_own_source(tmp_path):
-    dy = uproot.graphed(_events(tmp_path, "dy"))
-    tt = uproot.graphed(_events(tmp_path, "tt", 100.0))
-    assert dy.session is tt.session
-    first, second = _names(dy.session)
+def _base(p, o, w):
+    return {p: "Events", o: "A"}
+
+
+def _steps(p, o, w):
+    return {
+        p: {"object_path": "Events", "steps": [[0, 1]]},
+        o: {"object_path": "A", "steps": [[0, 1]]},
+    }
+
+
+def test_default_reads_of_different_data_get_sources_a_reread_interns(tmp_path):
+    dy = _events(tmp_path, "dy")
+    reads = [
+        (dy, {}),
+        (_events(tmp_path, "tt", 100.0), {}),
+        (dy, {"filter_name": "x"}),
+    ]
+    whole, other, only_x = arrays = [
+        uproot.graphed(path, **options) for path, options in reads
+    ]
+    session = whole.session
+    assert all(array.session is session for array in arrays)
+    again = [uproot.graphed(path, **options) for path, options in reads]
+    assert [a.node_id for a in again] == [a.node_id for a in arrays]
+    assert session.node_count() == 3
+    first, *rest = _names(session)
     assert first == "Events"
-    assert second.startswith("Events-")
-    assert uproot._graphed.necessary_columns(tt.x) == {second: frozenset({"x"})}
-    assert graphed.materialize(tt.x).tolist() == [100.0, 101.0, 102.0]
-    assert graphed.materialize(dy.y).tolist() == [0.0, 1.0, 2.0]
-
-
-def test_a_default_read_of_another_selection_gets_its_own_source(tmp_path):
-    path = _events(tmp_path, "dy")
-    whole = uproot.graphed(path)
-    only_x = uproot.graphed(path, filter_name="x")
-    assert only_x.node_id != whole.node_id
+    assert len(rest) == 2
+    assert all(name.startswith("Events-") for name in rest)
+    assert uproot._graphed.necessary_columns(other.x) == {rest[0]: frozenset({"x"})}
     assert only_x.fields == ["x"]
+    assert graphed.materialize(other.x).tolist() == [100.0, 101.0, 102.0]
+    assert graphed.materialize(whole.y).tolist() == [0.0, 1.0, 2.0]
     assert graphed.materialize(only_x.x).tolist() == [0.0, 1.0, 2.0]
 
 
-def test_every_default_read_interns_on_a_reread(tmp_path):
-    dy = _events(tmp_path, "dy")
-    reads = [(dy, {}), (_events(tmp_path, "tt"), {}), (dy, {"filter_name": "x"})]
-    arrays = [uproot.graphed(path, **options) for path, options in reads]
-    session = arrays[0].session
-    count = session.node_count()
-    again = [uproot.graphed(path, **options) for path, options in reads]
-    assert [a.node_id for a in again] == [a.node_id for a in arrays]
-    assert session.node_count() == count == 3
-
-
-def test_a_second_spelling_of_a_tree_interns(tmp_path):
-    path = _events(tmp_path, "dy")
-    other = uproot.graphed(_events(tmp_path, "tt"))
-    first = uproot.graphed(path)
-    assert first.node_id != other.node_id
-    assert uproot.graphed(path + ";1").node_id == first.node_id
+@pytest.mark.parametrize("tree", ["Events", "a/Events"])
+def test_every_spelling_of_a_tree_interns(tmp_path, tree):
+    path = _file(tmp_path, "dy", tree)
+    tt = _events(tmp_path, "tt")
+    uproot.graphed(tt)
+    first = uproot.graphed(f"{path}:{tree}")
+    assert "#" not in _names(first.session)[-1]
+    later = {tt.rpartition(":")[0]: "Events", path: f"{tree};1"}
+    assert (
+        uproot.graphed(later).node_id == uproot.graphed(later, open_files=True).node_id
+    )
+    spellings = [path, f"{path}:{tree};1", f"{path}:/{tree}", {path: f"/{tree};1"}]
+    with uproot.open(path) as f:
+        spellings.append(f[tree])
+        assert {uproot.graphed(s).node_id for s in spellings} == {first.node_id}
 
 
 def test_a_read_between_two_others_shifts_no_name(tmp_path):
@@ -102,15 +130,16 @@ def test_a_first_read_keeps_the_ir_of_a_read_alone(tmp_path):
 
 
 def test_reads_the_digest_cannot_tell_apart_are_numbered():
-    executors = [uproot.source.futures.TrivialExecutor() for _ in range(3)]
+    executors = [_executor() for _ in range(3)]
     arrays = [
         uproot.graphed(_zmumu(), decompression_executor=executor)
         for executor in executors
     ]
-    first, hashed, numbered = _names(arrays[0].session)
+    last = uproot.graphed(_zmumu(), custom_classes=dict(uproot.classes))
+    first, hashed, *numbered = _names(last.session)
     assert first == "events"
     assert hashed.startswith("events-")
-    assert numbered == f"{hashed}#1"
+    assert numbered == [f"{hashed}#1", f"{hashed}#2"]
     assert (
         uproot.graphed(_zmumu(), decompression_executor=executors[2]).node_id
         == arrays[2].node_id
@@ -121,34 +150,64 @@ def test_a_refusal_of_a_free_name_is_not_retried(monkeypatch):
     def refuse(self, name, *, form, data):
         raise ValueError(f"no {name}")
 
+    uproot.graphed(_zmumu())
     monkeypatch.setattr(graphed.Session, "source", refuse)
-    with pytest.raises(ValueError, match="no events"):
-        uproot.graphed(_zmumu())
+    with pytest.raises(ValueError, match="no events-"):
+        uproot.graphed(_zmumu(), decompression_executor=_executor())
 
 
-def test_equal_trees_in_two_directories_are_told_apart(tmp_path):
-    path = os.path.join(tmp_path, "dirs.root")
-    with uproot.recreate(path) as f:
-        for directory in "abc":
-            f.mktree(f"{directory}/Events", {"x": "f8"}).extend({"x": np.arange(3.0)})
-    reads = [uproot.graphed(f"{path}:{directory}/Events") for directory in "abc"]
-    names = _names(reads[0].session)
+def test_names_lost_to_another_thread_move_on(monkeypatch):
+    source = graphed.Session.source
+    rivals = [_executor(), _executor()]
+
+    def racing(self, name, *, form, data):
+        while rivals:
+            uproot.graphed(_zmumu(), decompression_executor=rivals.pop())
+        return source(self, name, form=form, data=data)
+
+    monkeypatch.setattr(graphed.Session, "source", racing)
+    array = uproot.graphed(_zmumu())
+    first, hashed, numbered = _names(array.session)
+    assert numbered == f"{hashed}#1"
+    assert array.session.source_name(array.node_id) == numbered
+
+
+def test_candidates_stop_at_one_more_than_the_sources(monkeypatch):
+    session = uproot.graphed(_zmumu()).session
+    uproot.graphed(_zmumu(), decompression_executor=_executor())
+    first, hashed = _names(session)
+    tried = []
+
+    def refuse(self, name, *, form, data):
+        tried.append(name)
+        raise ValueError(name)
+
+    monkeypatch.setattr(graphed.Session, "source", refuse)
+    monkeypatch.setattr(uproot._graphed, "_taken", lambda session, name: True)
+    with pytest.raises(AssertionError, match="no free source name"):
+        uproot.graphed(_zmumu(), decompression_executor=_executor())
+    assert tried == [first, hashed, f"{hashed}#1"]
+
+
+@pytest.mark.parametrize(
+    ("files", "options"),
+    [
+        pytest.param(lambda p, o, w: {p: "Events", w: "A"}, {}, id="file"),
+        pytest.param(lambda p, o, w: {p: "a/Events", o: "A"}, {}, id="directory"),
+        pytest.param(lambda p, o, w: {p: "Events", o: "a/A"}, {}, id="later-directory"),
+        pytest.param(lambda p, o, w: {p: "Events", o: "B"}, {}, id="later-tree"),
+        pytest.param(_steps, {}, id="steps"),
+        pytest.param(_base, {"allow_missing": True}, id="allow_missing"),
+        pytest.param(_base, {"align_baskets": True}, id="align_baskets"),
+        pytest.param(_base, {"filter_name": "x"}, id="form"),
+    ],
+)
+def test_each_digest_part_tells_reads_apart(tmp_path, files, options):
+    p = _file(tmp_path, "p", "Events", "a/Events")
+    o = _file(tmp_path, "o", "A", "B", "a/A")
+    w = _file(tmp_path, "w", "A")
+    uproot.graphed(_events(tmp_path, "bare"))
+    uproot.graphed(_base(p, o, w))
+    names = _names(uproot.graphed(files(p, o, w), **options).session)
     assert len(names) == 3
-    assert not any("#" in name for name in names)
-    assert uproot.graphed(f"{path}:/c/Events;1").node_id == reads[2].node_id
-
-
-def test_each_digest_part_tells_reads_apart(tmp_path):
-    path = _events(tmp_path, "dy")
-    steps = {path.rpartition(":")[0]: {"object_path": "Events", "steps": [[0, 1]]}}
-    uproot.graphed(path)
-    # the digest cannot see these, so this read takes the digest of the one above
-    session = uproot.graphed(path, custom_classes=dict(uproot.classes)).session
-    uproot.graphed(path, allow_missing=True)
-    uproot.graphed(path, align_baskets=True)
-    uproot.graphed(path, filter_name="x")
-    uproot.graphed(steps)
-    uproot.graphed(_events(tmp_path, "tt"))
-    names = _names(session)
-    assert len(names) == 7
     assert not any("#" in name for name in names)

@@ -122,10 +122,10 @@ class _GraphedTTreeSource:
         """A short hash of the parts of ``source_identity`` a hash can keep, so reads it cannot
         tell apart (another cycle, ``custom_classes`` or executors, or a ``form_mapping`` with no
         ``source_identity``) get equal digests. ``_Spellings`` stay out because their ``==`` is
-        overlap; every spelling of a tree has its directory.
+        overlap; a file opened to read it has one path, whichever spelling opened it.
         """
         files = [
-            (file_path, uproot._util.canonical_object_path(path).rpartition("/")[0])
+            (file_path, uproot._util.canonical_object_path(path))
             for file_path, path, _ in self._file_tree
         ]
         read = (
@@ -511,7 +511,7 @@ def _refuse_backend(have, wanted, *, behavior, where="session="):
 
 
 def _taken(session, name):
-    return name in {session.source_name(nid) for nid in session.source_ids()}
+    return any(session.source_name(nid) == name for nid in session.source_ids())
 
 
 def _refuse_taken(session, name):
@@ -523,26 +523,32 @@ def _refuse_taken(session, name):
         )
 
 
-def _default_names(tree_name, source):
-    """The names a read with no ``name=`` tries, the digest last so a first read pays nothing."""
+def _default_names(session, tree_name, source):
+    """The names a read with no ``name=`` tries, the digest last so a first read pays nothing.
+    Every taken name has a source, so ``k`` sources leave one of ``k + 1`` names free; ``k`` is
+    read live because another thread may add sources between tries.
+    """
     yield tree_name
     hashed = f"{tree_name}-{source._digest()}"
     yield hashed
-    for n in itertools.count(1):
+    n = 1
+    while n < len(session.source_ids()):
         yield f"{hashed}#{n}"
+        n += 1
 
 
 def _record_under_default_name(session, tree_name, form, source):
     """Record ``source`` under the first of its default names that ``session.source`` accepts,
     which is its own binding on a re-read, so only a first read's name depends on read order.
     """
-    for candidate in _default_names(tree_name, source):
+    for candidate in _default_names(session, tree_name, source):
         source._name = candidate
         try:
             return session.source(candidate, form=form, data=source)
         except ValueError:
             if not _taken(session, candidate):
                 raise
+    raise AssertionError(f"no free source name for {tree_name!r}")
 
 
 def graphed(
