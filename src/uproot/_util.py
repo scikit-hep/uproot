@@ -424,10 +424,13 @@ def _edit_distance(a: str, b: str) -> int:
     return rows[len(a)][len(b)]
 
 
-def _check_unknown_options(options: dict, file_path=None, stacklevel: int = 3) -> None:
+def _check_unknown_options(
+    options: dict, file_path=None, stacklevel: int = 3, all_local: bool = False
+) -> None:
     """
     Raise on unrecognized options for uproot's own sources and warn about likely
-    misspellings of uproot options for fsspec, whose storage options are open-ended.
+    misspellings of uproot options for fsspec, whose storage options are open-ended,
+    unless the caller knows ``all_local``: nothing then reads a storage option.
     Handlers that are not uproot Sources are skipped here and rejected later by
     ``file_path_to_source_class``.
 
@@ -453,7 +456,7 @@ def _check_unknown_options(options: dict, file_path=None, stacklevel: int = 3) -
     ):
         return
 
-    if issubclass(source_cls, uproot.source.fsspec.FSSpecSource):
+    if issubclass(source_cls, uproot.source.fsspec.FSSpecSource) and not all_local:
         for key in unknown:
             matches = [k for k in sorted(known) if _edit_distance(key, k) <= 2]
             if matches:

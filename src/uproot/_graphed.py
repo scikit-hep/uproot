@@ -46,15 +46,22 @@ from uproot._util import no_filter, unset
 from uproot.behaviors.RNTuple import HasFields
 from uproot.behaviors.TBranch import HasBranches, TBranch
 
-#: ``uproot.dask`` parameters ``uproot.graphed`` has no counterpart for, and where that concern
-#: lives instead; ``**options`` would otherwise swallow them silently.
-_DASK_ONLY = {
-    "step_size": "partition with uproot._graphed.graphed_partitions(step_size=...) and pass the "
-    "result to graphed.aggregate_plan(partitions=...)",
-    "steps_per_file": "pass steps_per_file= where the plan is built: graphed.aggregate_plan, "
-    "graphed.awkward.to_parquet or uproot.graphed_write",
-    "allow_read_errors_with_report": "a failed partition is dead-lettered and retried by "
-    "graphed.checkpoint.run_resumable",
+_ENTRY_RANGE = (
+    "but it reads whole TTrees; give a range as 'steps' in files: "
+    "{path: {'object_path': tree, 'steps': [[start, stop]]}}"
+)
+#: Keywords of other ``uproot`` readers that ``uproot.graphed`` has no counterpart for, and where
+#: that concern lives instead; ``**options`` would otherwise swallow them silently.
+_REFUSED = {
+    "step_size": "which belongs to uproot.dask; partition with "
+    "uproot.graphed_partitions(step_size=...) and pass the result to "
+    "graphed.aggregate_plan(partitions=...)",
+    "steps_per_file": "which belongs to uproot.dask; pass steps_per_file= where the plan is "
+    "built: graphed.aggregate_plan, graphed.awkward.to_parquet or uproot.graphed_write",
+    "allow_read_errors_with_report": "which belongs to uproot.dask; a failed partition is "
+    "dead-lettered and retried by graphed.checkpoint.run_resumable",
+    "entry_start": _ENTRY_RANGE,
+    "entry_stop": _ENTRY_RANGE,
 }
 
 
@@ -408,6 +415,15 @@ def _file_and_path(file_path, object_path):
     return file_path, object_path
 
 
+def _all_local(files):
+    """Whether every entry of regularized ``files`` is a local file, which needs no fsspec
+    storage option."""
+    return not any(
+        uproot._util.is_remote_url(_file_and_path(file_path, None)[0])
+        for file_path, *_ in files
+    )
+
+
 def _open_directory(file_path, custom_classes, options):
     return uproot.reading.ReadOnlyFile(
         file_path,
@@ -686,7 +702,8 @@ def graphed(
             the ``TBranches`` are those every file has, a file without the ``TTree`` is
             dropped (or refused without ``allow_missing``), and an RNTuple is refused with
             ``align_baskets``.
-        options: Passed through to file opening.
+        options: Passed through to file opening. A key :doc:`uproot.reading.open` does not take
+            is an fsspec storage option, refused when every file is local.
 
     Returns a deferred ``graphed`` ``Array`` for the selected ``TTree``(s). Construction reads only
     metadata; running the recorded analysis (``graphed.aggregate_plan``,
@@ -696,19 +713,16 @@ def graphed(
     Partitioning is decided where a plan is built (``steps_per_file=`` there), not here, so
     ``step_size`` and ``steps_per_file`` are refused by name; ``align_baskets=``
     decides that the boundaries follow ``TBaskets``. For one task per ``TBasket``-sparse file,
-    pass ``partitions=uproot._graphed.graphed_partitions(..., align_baskets=True)`` where the
+    pass ``partitions=uproot.graphed_partitions(..., align_baskets=True)`` where the
     plan is built.
 
     **Experimental**: tracks a pre-1.0 ``graphed``; the API may change without a deprecation cycle.
 
     This is the ``graphed`` analogue of :doc:`uproot._dask.dask`.
     """
-    for option, instead in _DASK_ONLY.items():
+    for option, instead in _REFUSED.items():
         if option in options:
-            raise TypeError(
-                f"uproot.graphed() got {option}=, which belongs to uproot.dask; {instead}"
-            )
-    uproot._util._check_unknown_options(options)
+            raise TypeError(f"uproot.graphed() got {option}=, {instead}")
     library = uproot.interpretation.library._regularize_library(library)
     if library.name != "ak":
         raise NotImplementedError(
@@ -750,6 +764,7 @@ def graphed(
     interp_options = {"ak_add_doc": ak_add_doc}
 
     files = uproot._util.regularize_files(files, steps_allowed=True, **options)
+    uproot._util._check_unknown_options(options, all_local=_all_local(files))
     is_3arg = [len(x) == 3 for x in files]
     if any(is_3arg) and not all(is_3arg):
         raise TypeError(
@@ -941,7 +956,6 @@ def graphed_partitions(
       read with ``uproot.graphed(align_baskets=True)`` follows only the branches each
       partition reads. Needs ``open_files=True``; ``TTrees`` only.
     """
-    uproot._util._check_unknown_options(options)
     graphed = uproot.extras.graphed()
 
     have_step_size = not isinstance(step_size, uproot._util._Unset)
@@ -966,6 +980,7 @@ def graphed_partitions(
     real_options = options.copy()
     real_options.setdefault("num_workers", 1)
     resolved = uproot._util.regularize_files(files, steps_allowed=False, **options)
+    uproot._util._check_unknown_options(options, all_local=_all_local(resolved))
 
     partitions = []
     for file_path, object_path, *_ in resolved:
