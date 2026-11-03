@@ -503,9 +503,7 @@ input stream
                     else:
                         trimmed.append(to_append)
 
-                elif isinstance(  # pragma: no branch  (no other libraries)
-                    library, uproot.interpretation.library.Pandas
-                ):
+                elif isinstance(library, uproot.interpretation.library.Pandas):
                     if isinstance(to_append, numpy.ndarray):
                         trimmed.append(
                             uproot.interpretation.library._process_array_for_pandas(
@@ -517,6 +515,9 @@ input stream
                         )
                     else:
                         trimmed.append(to_append)
+
+                else:
+                    raise AssertionError(f"there are no other libraries, not {library}")
 
             elif to_append is not None:
                 trimmed.append(to_append)

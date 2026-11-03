@@ -119,9 +119,10 @@ def _cpp_typename(akform, subcall=False):
         typename = f"std::variant<{','.join(field_typenames)}>"
     elif isinstance(akform, awkward.forms.UnmaskedForm):
         return _cpp_typename(akform.content, subcall=subcall)
-    else:  # pragma: no cover  (_to_packed_form only returns the forms above)
-        msg = "This should not have happened. Please report this issue to the Uproot developers."
-        raise AssertionError(msg)
+    else:
+        raise AssertionError(
+            f"_to_packed_form only returns the forms above, not {akform}"
+        )
     return typename
 
 
@@ -486,9 +487,10 @@ class NTuple_Header(CascadeLeaf):
                 field_name=field_name,
                 description=description,
             )
-        else:  # pragma: no cover  (_to_packed_form only returns the forms above)
-            msg = "This should not have happened. Please report this issue to the Uproot developers."
-            raise AssertionError(msg)
+        else:
+            raise AssertionError(
+                f"_to_packed_form only returns the forms above, not {akform}"
+            )
 
     def generate_field_col_records(self):
         akform = self._akform

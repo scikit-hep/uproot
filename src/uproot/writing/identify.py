@@ -196,9 +196,13 @@ def to_writable(obj):
             elif ndim == 2:
                 data = numpy.zeros((s[0] + 2, s[1] + 2), dtype=d)
                 data[1:-1, 1:-1] = tmp
-            elif ndim == 3:  # pragma: no branch  (ndim is 1, 2, or 3 by now)
+            elif ndim == 3:
                 data = numpy.zeros((s[0] + 2, s[1] + 2, s[2] + 2), dtype=d)
                 data[1:-1, 1:-1, 1:-1] = tmp
+            else:
+                raise AssertionError(
+                    f"ndim is 1, 2, or 3 by now, but it is {ndim}"
+                ) from None
 
             tmp = (
                 obj.variances()
@@ -215,9 +219,13 @@ def to_writable(obj):
                 elif ndim == 2:
                     fSumw2 = numpy.zeros((s[0] + 2, s[1] + 2), dtype=">f8")
                     fSumw2[1:-1, 1:-1] = tmp
-                elif ndim == 3:  # pragma: no branch  (ndim is 1, 2, or 3 by now)
+                elif ndim == 3:
                     fSumw2 = numpy.zeros((s[0] + 2, s[1] + 2, s[2] + 2), dtype=">f8")
                     fSumw2[1:-1, 1:-1, 1:-1] = tmp
+                else:
+                    raise AssertionError(
+                        f"ndim is 1, 2, or 3 by now, but it is {ndim}"
+                    ) from None
 
         else:
             # continuing to use flow=True, because it is supported
@@ -428,7 +436,7 @@ def to_writable(obj):
                     fYaxis=axes[1],
                 )
 
-        elif len(axes) == 3:  # pragma: no branch  (ndim is 1, 2, or 3 by now)
+        elif len(axes) == 3:
             if obj.kind == "MEAN":
                 raise NotImplementedError(
                     "3D PlottableHistogram with kind='MEAN' (i.e. 3D profile plots) not supported yet"
@@ -473,6 +481,9 @@ def to_writable(obj):
                     fYaxis=axes[1],
                     fZaxis=axes[2],
                 )
+
+        else:
+            raise AssertionError(f"ndim is 1, 2, or 3 by now, but it is {len(axes)}")
 
     elif (
         isinstance(obj, (tuple, list))
@@ -591,7 +602,7 @@ def to_writable(obj):
                 ),
             )
 
-        elif len(obj) == 4:  # pragma: no branch  (obj has one edge array per axis)
+        elif len(obj) == 4:
             entries, xedges, yedges, zedges = obj
 
             fEntries = entries.sum()
@@ -679,6 +690,9 @@ def to_writable(obj):
                     fXbins=zedges,
                 ),
             )
+
+        else:
+            raise AssertionError(f"obj has 2 to 4 arrays by now, but it has {len(obj)}")
 
     else:
         raise TypeError(
@@ -1377,8 +1391,8 @@ def to_TH2x(
         cls = uproot.models.TH.Model_TH2F_v4
     elif isinstance(tarray_data, uproot.models.TArray.Model_TArrayD):
         cls = uproot.models.TH.Model_TH2D_v4
-    else:  # pragma: no cover  (to_TH1x has already raised this)
-        raise TypeError(f"no TH2* subclasses correspond to {tarray_data.classname}")
+    else:
+        raise AssertionError(f"to_TH1x has already rejected {tarray_data.classname}")
 
     th2x = cls.empty()
     th2x._bases.append(th2)
@@ -1555,8 +1569,8 @@ def to_TH3x(
         cls = uproot.models.TH.Model_TH3F_v4
     elif isinstance(tarray_data, uproot.models.TArray.Model_TArrayD):
         cls = uproot.models.TH.Model_TH3D_v4
-    else:  # pragma: no cover  (to_TH1x has already raised this)
-        raise TypeError(f"no TH3* subclasses correspond to {tarray_data.classname}")
+    else:
+        raise AssertionError(f"to_TH1x has already rejected {tarray_data.classname}")
 
     th3x = cls.empty()
     th3x._bases.append(th3)

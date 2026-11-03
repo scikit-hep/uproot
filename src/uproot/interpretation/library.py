@@ -263,8 +263,10 @@ class NumPy(Library):
             return tuple(concatenated[k] for k in keys)
         elif isinstance(all_arrays[0], list):
             return [concatenated[k] for k in keys]
-        elif isinstance(all_arrays[0], dict):  # pragma: no branch  (checked above)
+        elif isinstance(all_arrays[0], dict):
             return concatenated
+        else:
+            raise AssertionError(f"checked above, but it is {type(all_arrays[0])}")
 
 
 def _strided_to_awkward(awkward, path, interpretation, data):
@@ -737,8 +739,10 @@ class Awkward(Library):
             return tuple(concatenated[k] for k in keys)
         elif isinstance(all_arrays[0], list):
             return [concatenated[k] for k in keys]
-        elif isinstance(all_arrays[0], dict):  # pragma: no branch  (checked above)
+        elif isinstance(all_arrays[0], dict):
             return concatenated
+        else:
+            raise AssertionError(f"checked above, but it is {type(all_arrays[0])}")
 
 
 def _is_pandas_rangeindex(pandas, index):
@@ -938,8 +942,10 @@ class Pandas(Library):
             return tuple(concatenated[k] for k in keys)
         elif isinstance(all_arrays[0], list):
             return [concatenated[k] for k in keys]
-        elif isinstance(all_arrays[0], dict):  # pragma: no branch  (checked above)
+        elif isinstance(all_arrays[0], dict):
             return concatenated
+        else:
+            raise AssertionError(f"checked above, but it is {type(all_arrays[0])}")
 
 
 _libraries = {

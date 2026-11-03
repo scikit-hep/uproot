@@ -362,8 +362,10 @@ def dask(
                 decompression_executor,
                 interpretation_executor,
             )
-    else:  # pragma: no cover  (_regularize_library only gives np, ak and pd, and pd raised above)
-        raise NotImplementedError()
+    else:
+        raise AssertionError(
+            f"_regularize_library only gives np, ak and pd, and pd raised above, not {library}"
+        )
 
 
 class _PackedArgCallable:

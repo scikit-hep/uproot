@@ -1075,16 +1075,16 @@ class Tree:
                 special_struct = uproot.models.TLeaf._tleafs1_format1
             elif letter_upper == "I":
                 special_struct = uproot.models.TLeaf._tleafi1_format1
-            elif letter_upper == "G":  # pragma: no cover  (not in _dtype_to_char)
-                special_struct = uproot.models.TLeaf._tleafl1_format0
             elif letter_upper == "L":
                 special_struct = uproot.models.TLeaf._tleafl1_format0
             elif letter_upper == "F":
                 special_struct = uproot.models.TLeaf._tleaff1_format1
             elif letter_upper == "D":
                 special_struct = uproot.models.TLeaf._tleafd1_format1
-            elif letter_upper == "C":  # pragma: no branch  (all of _dtype_to_char)
+            elif letter_upper == "C":
                 special_struct = uproot.models.TLeaf._tleafc1_format1
+            else:
+                raise AssertionError(f"not in _dtype_to_char: {letter_upper!r}")
 
             fLenType = datum["dtype"].itemsize
             fIsUnsigned = letter != letter_upper
