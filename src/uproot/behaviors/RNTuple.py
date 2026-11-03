@@ -1990,8 +1990,7 @@ def _cupy_insert(arr, obj, value):
             src_i += n
         out[dst_i] = value
         dst_i += 1
-    if src_i < arr.size:  # pragma: no branch  (the caller inserts before arr's end)
-        out[dst_i:] = arr[src_i:]
+    out[dst_i:] = arr[src_i:]
     return out
 
 

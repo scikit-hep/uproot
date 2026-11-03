@@ -32,8 +32,10 @@ class TGraphAsymmErrors:
             return (
                 self._normalize_array(highkey) + self._normalize_array(lowkey)
             ) / 2.0
-        elif which == "diff":  # pragma: no branch  (errors has validated which)
+        elif which == "diff":
             return self._normalize_array(highkey) - self._normalize_array(lowkey)
+        else:
+            raise AssertionError(f"errors has validated which, but it is {which!r}")
 
     def values(self, axis="both"):
         """
