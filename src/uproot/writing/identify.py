@@ -892,19 +892,17 @@ def to_TArray(data):
     if data.ndim != 1:
         raise ValueError("data to convert to TArray must be one-dimensional")
 
-    if issubclass(data.dtype.type, numpy.int8):
-        cls = uproot.models.TArray.Model_TArrayC
-    elif issubclass(data.dtype.type, numpy.int16):
-        cls = uproot.models.TArray.Model_TArrayS
-    elif issubclass(data.dtype.type, numpy.int32):
-        cls = uproot.models.TArray.Model_TArrayI
-    elif issubclass(data.dtype.type, numpy.int64):
-        cls = uproot.models.TArray.Model_TArrayL
-    elif issubclass(data.dtype.type, numpy.float32):
-        cls = uproot.models.TArray.Model_TArrayF
-    elif issubclass(data.dtype.type, numpy.float64):
-        cls = uproot.models.TArray.Model_TArrayD
-    else:
+    # dispatch on kind and size, since distinct C types of the same size (such as
+    # long and long long) are distinct numpy scalar types
+    cls = {
+        ("i", 1): uproot.models.TArray.Model_TArrayC,
+        ("i", 2): uproot.models.TArray.Model_TArrayS,
+        ("i", 4): uproot.models.TArray.Model_TArrayI,
+        ("i", 8): uproot.models.TArray.Model_TArrayL,
+        ("f", 4): uproot.models.TArray.Model_TArrayF,
+        ("f", 8): uproot.models.TArray.Model_TArrayD,
+    }.get((data.dtype.kind, data.dtype.itemsize))
+    if cls is None:
         raise ValueError(
             f"data to convert to TArray must have signed integer or floating-point type, not {data.dtype!r}"
         )

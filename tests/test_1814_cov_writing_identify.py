@@ -311,6 +311,14 @@ def test_mapping_becomes_rntuple(tmp_path):
         (np.int64, "TArrayL"),
         (np.float32, "TArrayF"),
         (np.float64, "TArrayD"),
+        # distinct C types that have the same size as one of the above
+        (np.intc, "TArrayI"),
+        (np.longlong, "TArrayL"),
+        (np.int_, f"TArray{'I' if np.dtype(np.int_).itemsize == 4 else 'L'}"),
+        (np.double, "TArrayD"),
+        # already big-endian
+        (">i4", "TArrayI"),
+        (">f8", "TArrayD"),
     ],
 )
 def test_to_TArray(dtype, classname):
@@ -326,6 +334,10 @@ def test_to_TArray_invalid():
         to_TArray(np.zeros((2, 2)))
     with pytest.raises(ValueError, match="signed integer or floating-point type"):
         to_TArray(np.zeros(2, dtype=np.uint8))
+    with pytest.raises(ValueError, match="signed integer or floating-point type"):
+        to_TArray(np.zeros(2, dtype=np.float16))
+    with pytest.raises(ValueError, match="signed integer or floating-point type"):
+        to_TArray(np.zeros(2, dtype=np.bool_))
 
 
 @pytest.mark.parametrize(
