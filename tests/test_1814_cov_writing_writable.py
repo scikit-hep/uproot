@@ -620,3 +620,35 @@ def test_reading_a_class_that_needs_the_streamers_of_the_file(tmp_path):
         assert vector.classname == "TVector2"
         assert vector.member("fX") == 1.5
         assert vector.member("fY") == 2.5
+
+
+def test_jagged_branch_counted_by_another_branch_type(tmp_path):
+    ROOT = pytest.importorskip("ROOT")
+    ROOT.gInterpreter.Declare("struct Cov1814CountHolder { int n; };")
+
+    path = tmp_path / "out.root"
+    root_file = ROOT.TFile.Open(str(path), "RECREATE")
+    tree = ROOT.TTree("tree", "from ROOT")
+    holder = ROOT.Cov1814CountHolder()
+    tree.Branch("holder", holder)
+    # the counter of this TBranch is a TLeafElement in a TBranchElement
+    x = np.zeros(3, dtype=np.float32)
+    tree.Branch("x", x, "x[n]/F")
+    for n in [1, 2, 3]:
+        holder.n = n
+        tree.Fill()
+    tree.Write()
+    root_file.Close()
+
+    with uproot.update(path) as file:
+        tree = file["tree"]
+        assert [bd["fName"] for bd in tree._cascading._branch_data] == ["x"]
+        assert tree._cascading._branch_data[0]["counter"] is None
+        assert tree._cascading._rewrite_blockers == (
+            "jagged branches with a counter in another branch type",
+        )
+        # the TBranchElement already stops both, before the blocker is checked
+        with pytest.raises(NotImplementedError, match="TBranchElement"):
+            tree.add_branches({"y": np.arange(3)})
+        with pytest.raises(NotImplementedError, match="TBranchElement"):
+            tree.extend({"x": ak.Array([[1.5]])})

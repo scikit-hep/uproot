@@ -1215,7 +1215,7 @@ class WritableDirectory(MutableMapping):
                 ),
                 "tleaf_special_struct": _struct.Struct(">" + sc + sc),
             }
-            if _leaves:
+            if _leaves:  # pragma: no branch  (leafless TBranches are skipped above)
                 bd["leaf_name"] = _leaves[0].member("fName")
                 bd["leaf_title"] = _leaves[0].member("fTitle")
             if dtype == ">U0":
