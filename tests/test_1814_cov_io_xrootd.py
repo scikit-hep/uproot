@@ -43,8 +43,24 @@ def read(source, ranges):
     notifications = queue.Queue()
     chunks = source.chunks(ranges, notifications)
     out = [x.raw_data.tobytes() for x in chunks]
-    assert notifications.qsize() == len(ranges)
+    # a chunk's data is ready before its notification is sent, so wait for them
+    notified = [notifications.get(timeout=TIMEOUT) for _ in ranges]
+    assert sorted(map(id, notified)) == sorted(map(id, chunks))
+    assert notifications.empty()
     return out
+
+
+class RecordVectorReads:
+    def __init__(self, file):
+        self._file = file
+        self.sizes = []
+
+    def vector_read(self, chunks, **kwargs):
+        self.sizes.append(len(chunks))
+        return self._file.vector_read(chunks=chunks, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._file, name)
 
 
 @pytest.mark.parametrize("use_threads", [True, False])
@@ -76,7 +92,11 @@ def test_vector_read_requests_are_limited(remote, expected):
         remote, timeout=TIMEOUT, use_threads=False, max_num_elements=2
     ) as source:
         assert source._max_num_elements == 2
+        recorder = RecordVectorReads(source._resource._file)
+        source._resource._file = recorder
         assert read(source, ranges) == [expected[a:b] for a, b in ranges]
+        assert recorder.sizes == [2, 2, 1]
+        source._resource._file = recorder._file
 
 
 @pytest.mark.parametrize("multiple", [1, 3])

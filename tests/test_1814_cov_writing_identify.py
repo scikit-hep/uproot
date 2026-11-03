@@ -101,8 +101,6 @@ EDGES = {
 @pytest.mark.parametrize("weighted", [False, True])
 @pytest.mark.parametrize("cls", [Plottable, PlottableIgnoringFlow, PlottableWithFlow])
 def test_plottable_round_trip(tmp_path, ndim, edges, weighted, cls):
-    ROOT = pytest.importorskip("ROOT")
-
     axes = tuple(Axis(x) for x in EDGES[edges][:ndim])
     shape = tuple(len(axis) for axis in axes)
     values = np.arange(1.0, 1.0 + np.prod(shape)).reshape(shape)
@@ -134,6 +132,8 @@ def test_plottable_round_trip(tmp_path, ndim, edges, weighted, cls):
             assert uproot_axis.edges().tolist() == axis.edges.tolist()
             assert uproot_axis.member("fTitle") == "axis label"
 
+    # the checks above don't need ROOT, so they run without it
+    ROOT = pytest.importorskip("ROOT")
     root_file = ROOT.TFile.Open(str(path))
     hist = root_file.Get("h")
     assert hist.ClassName() == f"TH{ndim}D"
