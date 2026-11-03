@@ -1200,9 +1200,7 @@ class WritableDirectory(MutableMapping):
                 "fFirstEntry": b.member("fFirstEntry"),
                 "fTotBytes": b.member("fTotBytes"),
                 "fZipBytes": b.member("fZipBytes"),
-                "fBasketBytes": b.member("fBasketBytes").copy(),
-                "fBasketEntry": b.member("fBasketEntry").copy(),
-                "fBasketSeek": b.member("fBasketSeek").copy(),
+                **_basket_tables(b),
                 "arrays_write_start": b.member("fWriteBasket"),
                 "arrays_write_stop": b.member("fWriteBasket"),
                 # filled in by write_anew(), before anything uses them
@@ -1318,7 +1316,7 @@ class WritableDirectory(MutableMapping):
         # so it clears this flag itself once it does.
         casc._needs_relocation_before_extend = True
         casc._basket_capacity = (
-            _supported_branches[0].member("fMaxBaskets") if _supported_branches else 10
+            len(branch_data[0]["fBasketBytes"]) if branch_data else 10
         )
         casc._resize_factor = 10.0
         casc._counter_name = lambda counted: "n" + counted
@@ -2184,6 +2182,26 @@ def _is_jagged(data):
     return False
 
 
+def _basket_tables(branch):
+    """
+    Returns a branch's fBasketBytes, fBasketEntry and fBasketSeek with the same
+    capacity: if its baskets fill its tables, TBranch.postprocess has added the
+    end of the last one to fBasketEntry, which then has one more item.
+    """
+    tables = {
+        "fBasketBytes": uproot.models.TBranch._tbranch13_dtype1,
+        "fBasketEntry": uproot.models.TBranch._tbranch13_dtype2,
+        "fBasketSeek": uproot.models.TBranch._tbranch13_dtype3,
+    }
+    capacity = max(len(branch.member(name)) for name in tables)
+    out = {}
+    for name, dtype in tables.items():
+        values = branch.member(name)
+        out[name] = numpy.zeros(capacity, dtype=dtype)
+        out[name][: len(values)] = values
+    return out
+
+
 def _jagged_content_dtype(cascading, data):
     branch_type = data.type.content
 
@@ -2193,6 +2211,10 @@ def _jagged_content_dtype(cascading, data):
     if dtype is None:
         raise TypeError(
             f"cannot write Awkward Array type to ROOT file:\n\n    {data.type!s}"
+        )
+    if 0 in dtype.shape:
+        raise ValueError(
+            f"cannot write a jagged array with an empty fixed-size dimension: {data.type!s}"
         )
     return dtype
 

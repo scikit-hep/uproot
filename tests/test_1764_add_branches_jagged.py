@@ -298,6 +298,22 @@ def test_add_branches(tmp_path, branches, counter_name, expected, titles):
             "empty fixed-size dimension",
             id="nested-empty-lists",
         ),
+        pytest.param(
+            {
+                "j": ak.Array(
+                    ak.contents.ListOffsetArray(
+                        ak.index.Index64(np.array([0, 1, 1, 3])),
+                        ak.contents.RegularArray(
+                            ak.contents.NumpyArray(np.zeros(0)), 0, zeros_length=3
+                        ),
+                    )
+                )
+            },
+            None,
+            ValueError,
+            "empty fixed-size dimension",
+            id="jagged-of-empty-dimension",
+        ),
     ],
 )
 def test_add_branches_raises(tmp_path, branches, counter_name, error, match):
@@ -411,6 +427,12 @@ def test_extend_accept_new_fields_shares_existing_counter(tmp_path):
             TypeError,
             "cannot write Awkward Array type",
             id="nested-jagged",
+        ),
+        pytest.param(
+            {"j": ak.to_regular(ak.Array([[[], []], []]), axis=2)},
+            ValueError,
+            "empty fixed-size dimension",
+            id="jagged-of-empty-dimension",
         ),
         pytest.param(
             {"b": ak.Array([[1.0], []])},
@@ -803,6 +825,37 @@ def test_add_jagged_branch_of_fixed_size_lists(tmp_path):
 
     with uproot.open(path) as f:
         assert _values(f["tree"], "j") == [*expected, [[7.0, 8.0], [9.0, 10.0]]]
+
+
+@pytest.mark.parametrize("full", [["a"], ["c"], ["a", "c"]])
+def test_branches_whose_basket_tables_are_full(tmp_path, full):
+    """Writers other than ROOT and Uproot can leave no room after the last basket."""
+    path = str(tmp_path / "full.root")
+    with uproot.recreate(path) as f:
+        f.mktree("tree", {"a": np.float64, "c": np.float64})
+        f["tree"].extend({"a": np.arange(3.0), "c": np.arange(3.0) * 10})
+        casc = f["tree"]._cascading
+        for name in full:
+            datum = casc._branch_data[casc._branch_lookup[name]]
+            for table in ("fBasketBytes", "fBasketEntry", "fBasketSeek"):
+                datum[table] = datum[table][:1].copy()
+        casc._relocate(f._file, f._file.sink)
+
+    with uproot.open(path) as f:
+        for name in full:
+            assert f["tree"][name].member("fMaxBaskets") == 1
+            assert len(f["tree"][name].member("fBasketEntry")) == 2
+
+    with uproot.update(path) as f:
+        f["tree"].add_branches({"b": np.arange(3)})
+    expected = {"a": [0.0, 1.0, 2.0], "c": [0.0, 10.0, 20.0], "b": [0, 1, 2]}
+    if len(full) == 2:
+        with uproot.update(path) as f:
+            f["tree"].extend({"a": [3.0], "c": [30.0], "b": [3]})
+        expected = {k: [*v, 3 * v[1]] for k, v in expected.items()}
+
+    with uproot.open(path) as f:
+        assert {name: _values(f["tree"], name) for name in f["tree"].keys()} == expected
 
 
 @pytest.mark.parametrize("data", [[[], [], []], ([], [], []), ak.Array([[], [], []])])
