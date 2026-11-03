@@ -347,12 +347,10 @@ class AsStrings(uproot.interpretation.Interpretation):
                 uproot._util.from_module(x, "awkward") for x in basket_arrays.values()
             ):
                 assert isinstance(library, uproot.interpretation.library.Awkward)
-                awkward = library.imported
                 output = awkward.concatenate(trimmed, mergebool=False, highlevel=False)
             else:
                 # Mixed StringArray/awkward baskets: concatenate after promoting
                 # to awkward so ``output`` is always bound.
-                awkward = uproot.interpretation.library._libraries["ak"].imported
                 output = awkward.concatenate(
                     [awkward.to_layout(x) for x in trimmed],
                     mergebool=False,
