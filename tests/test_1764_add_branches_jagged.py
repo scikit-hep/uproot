@@ -1026,3 +1026,514 @@ def test_add_branches_preserves_leaf_names(tmp_path):
         assert f["tree"]["nx"].member("fLeaves")[0].member("fName") == "cx"
         assert f["tree"]["x"].member("fLeaves")[0].member("fLeafCount") is not None
         assert f["tree"]["x"].array().tolist() == [[1.0, 2.0], [], [3.0]]
+
+
+@pytest.mark.parametrize(
+    "new_field",
+    [np.arange(2), ak.Array([[1.0], [2.0, 3.0]])],
+)
+def test_rejected_accept_new_fields_checks_existing_fields_first(tmp_path, new_field):
+    path = str(tmp_path / "rejected_shape.root")
+    with uproot.recreate(path) as f:
+        f.mktree("tree", {"a": np.float32})
+        f["tree"].extend({"a": np.arange(3, dtype=np.float32)})
+
+    with uproot.update(path) as f:
+        with pytest.raises(ValueError, match="consistent shape"):
+            f["tree"].extend(
+                {"a": np.ones((2, 3), dtype=np.float32), "b": new_field},
+                accept_new_fields=True,
+            )
+        assert list(f["tree"]._cascading._branch_lookup) == ["a"]
+
+    with uproot.open(path) as f:
+        assert f["tree"].keys() == ["a"]
+        assert f["tree"]["a"].array(library="np").tolist() == [0.0, 1.0, 2.0]
+
+
+def test_add_branches_failure_while_rewriting_keeps_new_branches(tmp_path, monkeypatch):
+    path = str(tmp_path / "rewrite_failure.root")
+    _flat_tree(path, np.arange(2.0))
+
+    original = uproot.writing._cascadetree.Tree.write_updates
+    with uproot.update(path) as f:
+        tree = f["tree"]
+        with monkeypatch.context() as m:
+
+            def fail(self, sink):
+                raise OSError("disk full")
+
+            m.setattr(uproot.writing._cascadetree.Tree, "write_updates", fail)
+            with pytest.raises(OSError, match="disk full"):
+                tree.add_branches({"j": ak.Array([[1.0], [2.0, 3.0]])})
+
+        # the TTree metadata on disk lists the new branches by now, and so does
+        # the tree here, so that the next write agrees with it
+        assert list(tree._cascading._branch_lookup) == ["a", "nj", "j"]
+        assert uproot.writing._cascadetree.Tree.write_updates is original
+        tree.extend({"a": np.array([2.0]), "j": ak.Array([[4.0]]), "nj": np.array([1])})
+
+    with uproot.open(path) as f:
+        assert f["tree"]["a"].array(library="np").tolist() == [0.0, 1.0, 2.0]
+        assert f["tree"]["j"].array().tolist() == [[1.0], [2.0, 3.0], [4.0]]
+
+
+def test_reading_a_tree_doesnt_lay_it_out(tmp_path, monkeypatch):
+    path = str(tmp_path / "lazy.root")
+    _flat_tree(path, np.arange(2.0))
+
+    calls = []
+    original = uproot.writing._cascadetree.Tree._build_out
+
+    def counting(self):
+        calls.append(self)
+        return original(self)
+
+    monkeypatch.setattr(uproot.writing._cascadetree.Tree, "_build_out", counting)
+    with uproot.update(path) as f:
+        assert f["tree"].num_entries == 2
+        assert calls == []
+        f["tree"].add_branches({"b": np.arange(2)})
+        assert len(calls) == 1
+
+    with uproot.open(path) as f:
+        assert f["tree"]["b"].array(library="np").tolist() == [0, 1]
+
+
+def test_extend_accept_new_fields_shares_existing_counter(tmp_path):
+    path = str(tmp_path / "shared_counter.root")
+    with uproot.recreate(path) as f:
+        f.mktree("tree", {"x": "var * float64"}, counter_name=lambda counted: "n")
+        f["tree"].extend({"x": ak.Array([[1.0], [2.0, 3.0]])})
+        f["tree"].extend(
+            {
+                "x": ak.Array([[4.0], []]),
+                "k": ak.Array([[5], []]),
+                "m": ak.Array([[6.0], []]),
+            },
+            accept_new_fields=True,
+        )
+
+    with uproot.open(path) as f:
+        assert f["tree"].keys() == ["n", "x", "k", "m"]
+        assert f["tree"]["n"].array(library="np").tolist() == [1, 2, 1, 0]
+        assert f["tree"]["k"].array().tolist() == [[0], [0, 0], [5], []]
+        assert f["tree"]["m"].array().tolist() == [[0.0], [0.0, 0.0], [6.0], []]
+
+
+def test_add_jagged_branch_with_existing_counter_to_empty_tree(tmp_path):
+    path = str(tmp_path / "empty_existing_counter.root")
+    with uproot.recreate(path) as f:
+        f.mktree("tree", {"x": "var * float64"})
+
+    with uproot.update(path) as f:
+        f["tree"].add_branches(
+            {"y": ak.Array([[1]])[:0]}, counter_name=lambda counted: "nx"
+        )
+        f["tree"].extend({"x": ak.Array([[1.0, 2.0]]), "y": ak.Array([[3, 4]])})
+
+    with uproot.open(path) as f:
+        assert f["tree"].keys() == ["nx", "x", "y"]
+        assert f["tree"]["y"].array().tolist() == [[3, 4]]
+
+
+def test_add_jagged_branches_sharing_an_explicit_counter(tmp_path):
+    path = str(tmp_path / "explicit_shared_counter.root")
+    _flat_tree(path, np.arange(2.0))
+
+    with uproot.update(path) as f:
+        f["tree"].add_branches(
+            {
+                "p": ak.Array([[1.0], [2.0, 3.0]]),
+                "q": ak.Array([[4], [5, 6]]),
+                "n": np.array([1, 2]),
+            },
+            counter_name=lambda counted: "n",
+        )
+
+    with uproot.open(path) as f:
+        assert f["tree"]["p"].array().tolist() == [[1.0], [2.0, 3.0]]
+        assert f["tree"]["q"].array().tolist() == [[4], [5, 6]]
+        assert f["tree"]["n"].array(library="np").tolist() == [1, 2]
+
+
+@pytest.mark.parametrize(
+    "data", [[[[], []], [[], []]], np.zeros((2, 2, 0)), np.zeros((2, 0))]
+)
+def test_add_nested_empty_lists_raises_like_numpy(tmp_path, data):
+    path = str(tmp_path / "nested_empty.root")
+    _flat_tree(path, np.arange(2.0))
+
+    with uproot.update(path) as f:
+        with pytest.raises(ValueError, match="empty fixed-size dimension"):
+            f["tree"].add_branches({"b": data})
+
+
+def test_add_jagged_branch_names_the_counters_leaf(tmp_path):
+    ROOT = pytest.importorskip("ROOT")
+    path = str(tmp_path / "counter_leaf_name.root")
+
+    rf = ROOT.TFile(path, "RECREATE")
+    rt = ROOT.TTree("tree", "")
+    n = np.zeros(1, dtype=np.int32)
+    x = np.zeros(10, dtype=np.float64)
+    rt.Branch("nx", n, "cx/I")
+    rt.Branch("x", x, "x[cx]/D")
+    for row in ([1.0, 2.0], [], [3.0]):
+        n[0] = len(row)
+        x[: len(row)] = row
+        rt.Fill()
+    rt.Write()
+    rf.Close()
+
+    with uproot.update(path) as f:
+        f["tree"].add_branches(
+            {"y": ak.Array([[4.0, 5.0], [], [6.0]])},
+            counter_name=lambda counted: "nx",
+        )
+
+    with uproot.open(path) as f:
+        assert f["tree"]["y"].title == "y[cx]/D"
+        assert f["tree"]["y"].member("fLeaves")[0].member("fTitle") == "y[cx]"
+
+    rf = ROOT.TFile(path)
+    rt = rf.Get("tree")
+    assert rt.GetLeaf("y").GetLeafCount().GetName() == "cx"
+    assert rt.Draw("y", "", "goff") == 3
+    assert [rt.GetV1()[i] for i in range(3)] == [4.0, 5.0, 6.0]
+    rf.Close()
+
+
+@pytest.mark.parametrize(
+    "setup, reason",
+    [
+        ("tree.SetAlias('twice', 'x * 2')", "aliases"),
+        ("tree.BuildIndex('x')", "index"),
+        ("tree.AddFriend(friend)", "friends"),
+        ("tree.GetUserInfo().Add(info)", "user info"),
+        ("tree.BranchRef()", "TRefs"),
+    ],
+)
+def test_root_tree_metadata_that_cannot_be_rewritten_is_refused(
+    tmp_path, setup, reason
+):
+    ROOT = pytest.importorskip("ROOT")
+    path = str(tmp_path / "metadata.root")
+
+    rf = ROOT.TFile(path, "RECREATE")
+    tree = ROOT.TTree("tree", "")
+    friend = ROOT.TTree("friend", "")
+    x = np.zeros(1, dtype=np.int32)
+    tree.Branch("x", x, "x/I")
+    friend.Branch("x", x, "x/I")
+    for i in range(3):
+        x[0] = i
+        tree.Fill()
+        friend.Fill()
+    # the tree deletes its user info
+    info = ROOT.TNamed("info", "value")
+    ROOT.SetOwnership(info, False)
+    exec(setup, {"tree": tree, "friend": friend, "info": info})
+    tree.Write()
+    friend.Write()
+    rf.Close()
+
+    with uproot.update(path) as f:
+        with pytest.raises(NotImplementedError, match=reason):
+            f["tree"].add_branches({"y": np.arange(3)})
+        with pytest.raises(NotImplementedError, match=reason):
+            f["tree"].extend({"x": np.arange(3, dtype=np.int32)})
+
+    with uproot.open(path) as f:
+        assert f["tree"]["x"].array(library="np").tolist() == [0, 1, 2]
+
+
+def test_update_skips_schema_rules_in_the_list_of_streamers(tmp_path):
+    path = str(tmp_path / "event.root")
+    shutil.copyfile(skhep_testdata.data_path("uproot-Event.root"), path)
+
+    with uproot.update(path) as f:
+        tree = f["T"]
+        assert tree.num_entries == 1000
+        with pytest.raises(NotImplementedError, match="TBranchElement"):
+            tree.add_branches({"y": np.zeros(1000)})
+
+
+def test_add_existing_branch_raises(tmp_path):
+    path = str(tmp_path / "existing.root")
+    _flat_tree(path, np.arange(2.0))
+
+    with uproot.update(path) as f:
+        with pytest.raises(ValueError, match="already exists"):
+            f["tree"].add_branches({"a": np.arange(2.0)})
+
+
+def test_add_jagged_branch_of_unsupported_type_raises(tmp_path):
+    path = str(tmp_path / "option.root")
+    _flat_tree(path, np.arange(2.0))
+
+    with uproot.update(path) as f:
+        with pytest.raises(TypeError, match="cannot write Awkward Array type"):
+            f["tree"].add_branches({"j": ak.Array([[1.0], None])})
+
+
+def test_extend_accept_new_fields_counter_collides_with_branch_raises(tmp_path):
+    path = str(tmp_path / "collides.root")
+    with uproot.recreate(path) as f:
+        f.mktree("tree", {"a": np.float64, "nb": np.int32})
+        f["tree"].extend({"a": np.arange(2.0), "nb": np.arange(2, dtype=np.int32)})
+
+    with uproot.update(path) as f:
+        with pytest.raises(ValueError, match="collides"):
+            f["tree"].extend(
+                {
+                    "a": np.array([2.0]),
+                    "nb": np.array([1], dtype=np.int32),
+                    "b": ak.Array([[1.0]]),
+                },
+                accept_new_fields=True,
+            )
+
+
+def test_add_jagged_branches_with_indexed_layouts(tmp_path):
+    path = str(tmp_path / "indexed.root")
+    _flat_tree(path, np.arange(2.0))
+
+    lists = ak.contents.ListOffsetArray(
+        ak.index.Index64(np.array([0, 1, 3])),
+        ak.contents.NumpyArray(np.array([1.0, 2.0, 3.0])),
+    )
+    outer = ak.Array(
+        ak.contents.IndexedArray(ak.index.Index64(np.array([1, 0])), lists)
+    )
+    inner = ak.Array(
+        ak.contents.ListOffsetArray(
+            ak.index.Index64(np.array([0, 1, 3])),
+            ak.contents.IndexedArray(
+                ak.index.Index64(np.array([2, 1, 0])),
+                ak.contents.NumpyArray(np.array([1.0, 2.0, 3.0])),
+            ),
+        )
+    )
+    with uproot.update(path) as f:
+        f["tree"].add_branches({"p": outer, "q": inner})
+
+    with uproot.open(path) as f:
+        assert f["tree"]["p"].array().tolist() == [[2.0, 3.0], [1.0]]
+        assert f["tree"]["q"].array().tolist() == [[3.0], [2.0, 1.0]]
+
+
+def test_read_other_objects_while_updating(tmp_path):
+    path = str(tmp_path / "histogram.root")
+    with uproot.recreate(path) as f:
+        f["h"] = np.histogram([1.0, 2.0, 2.0], bins=2, range=(0.0, 4.0))
+
+    with uproot.update(path) as f:
+        assert f["h"].values().tolist() == [1.0, 2.0]
+
+
+def test_add_branches_to_tree_with_entries_but_no_baskets_raises(tmp_path):
+    ROOT = pytest.importorskip("ROOT")
+    path = str(tmp_path / "no_baskets.root")
+
+    rf = ROOT.TFile(path, "RECREATE")
+    tree = ROOT.TTree("tree", "")
+    tree.SetEntries(3)
+    tree.Write()
+    rf.Close()
+
+    with uproot.update(path) as f:
+        with pytest.raises(NotImplementedError, match="entries but no baskets"):
+            f["tree"].add_branches({"y": np.arange(3)})
+
+
+def test_extend_existing_jagged_branch_with_all_empty_lists(tmp_path):
+    path = str(tmp_path / "all_empty_existing.root")
+    _jagged_tree(path, ak.Array([[1.0]]))
+
+    with uproot.update(path) as f:
+        f["tree"].extend({"x": [[], [], []]})
+
+    with uproot.open(path) as f:
+        assert f["tree"]["x"].array().tolist() == [[1.0], [], [], []]
+
+
+def test_add_branch_named_like_a_counter_explains_the_clash(tmp_path):
+    path = str(tmp_path / "clash.root")
+    _flat_tree(path, np.arange(2.0))
+
+    with uproot.update(path) as f:
+        with pytest.raises(ValueError, match="counter of jagged branch 'j'"):
+            f["tree"].add_branches(
+                {"j": ak.Array([[1.0], [2.0, 3.0]]), "nj": np.array([5.0, 6.0])}
+            )
+
+
+def test_existing_counters_are_read_with_one_read_of_the_tree(tmp_path, monkeypatch):
+    path = str(tmp_path / "two_counters.root")
+    with uproot.recreate(path) as f:
+        f.mktree("tree", {"x": "var * float64", "y": "var * float64"})
+        f["tree"].extend({"x": ak.Array([[1.0], []]), "y": ak.Array([[], [2.0, 3.0]])})
+
+    reads = []
+    original = uproot.writing.writable.WritableFile._read_key
+
+    def counting(self, key, parent=None):
+        reads.append(key)
+        return original(self, key, parent)
+
+    with uproot.update(path) as f:
+        tree = f["tree"]
+        monkeypatch.setattr(uproot.writing.writable.WritableFile, "_read_key", counting)
+        tree.add_branches(
+            {"p": ak.Array([[4], []]), "q": ak.Array([[], [5, 6]])},
+            counter_name={"p": "nx", "q": "ny"}.get,
+        )
+        assert len(reads) == 1
+
+    with uproot.open(path) as f:
+        assert f["tree"]["p"].array().tolist() == [[4], []]
+        assert f["tree"]["q"].array().tolist() == [[], [5, 6]]
+
+
+def test_extend_accept_new_fields_errors_name_extend(tmp_path):
+    path = str(tmp_path / "two_baskets.root")
+    _flat_tree(path, np.arange(2.0))
+    with uproot.update(path) as f:
+        f["tree"].extend({"a": np.array([2.0])})
+
+    with uproot.update(path) as f:
+        with pytest.raises(
+            NotImplementedError, match="^extend with accept_new_fields=True for a"
+        ):
+            f["tree"].extend(
+                {"a": np.array([3.0]), "b": np.array([1])}, accept_new_fields=True
+            )
+
+
+def test_counter_after_the_branch_it_counts_is_refused(tmp_path):
+    ROOT = pytest.importorskip("ROOT")
+    path = str(tmp_path / "counter_after.root")
+
+    rf = ROOT.TFile(path, "RECREATE")
+    rt = ROOT.TTree("tree", "")
+    n = np.zeros(1, dtype=np.int32)
+    x = np.zeros(10, dtype=np.float64)
+    counter = rt.Branch("n", n, "n/I")
+    rt.Branch("x", x, "x[n]/D")
+    for row in ([1.0, 2.0], [], [3.0]):
+        n[0] = len(row)
+        x[: len(row)] = row
+        rt.Fill()
+    branches = rt.GetListOfBranches()
+    branches.Remove(counter)
+    branches.Compress()
+    branches.Add(counter)
+    rt.Write()
+    rf.Close()
+
+    with uproot.update(path) as f:
+        with pytest.raises(NotImplementedError, match="counters after the branches"):
+            f["tree"].add_branches({"y": np.arange(3.0)})
+
+    with uproot.open(path) as f:
+        assert f["tree"].keys() == ["x", "n"]
+        assert f["tree"]["x"].array().tolist() == [[1.0, 2.0], [], [3.0]]
+
+
+@pytest.mark.parametrize("rows", [[[7.0]], [[1.0, 2.0], [3.0, 4.0]]])
+def test_extend_jagged_branch_with_lists_of_equal_lengths(tmp_path, rows):
+    path = str(tmp_path / "equal_lengths.root")
+    _jagged_tree(path, ak.Array([[1.0], []]))
+
+    with uproot.update(path) as f:
+        f["tree"].extend({"x": rows})
+
+    with uproot.open(path) as f:
+        assert f["tree"]["x"].array().tolist() == [[1.0], [], *rows]
+
+
+def test_extend_jagged_branch_of_fixed_size_lists_with_lists(tmp_path):
+    path = str(tmp_path / "fixed_size_lists.root")
+    with uproot.recreate(path) as f:
+        f.mktree("tree", {"x": "var * 2 * float64"})
+        f["tree"].extend({"x": [[[1.0, 2.0]], [[3.0, 4.0], [5.0, 6.0]]]})
+
+    with uproot.open(path) as f:
+        assert f["tree"]["x"].array().tolist() == [
+            [[1.0, 2.0]],
+            [[3.0, 4.0], [5.0, 6.0]],
+        ]
+
+
+def test_counter_named_like_another_new_jagged_branch_raises(tmp_path):
+    path = str(tmp_path / "jagged_clash.root")
+    _flat_tree(path, np.arange(2.0))
+
+    with uproot.update(path) as f:
+        with pytest.raises(ValueError, match="another new jagged branch"):
+            f["tree"].add_branches(
+                {"x": ak.Array([[1], [2, 3]]), "nx": ak.Array([[1.0], []])}
+            )
+
+
+def test_extend_accept_new_fields_counter_collision_suggests_add_branches(tmp_path):
+    path = str(tmp_path / "hint.root")
+    with uproot.recreate(path) as f:
+        f.mktree("tree", {"a": np.float64, "nb": np.int32})
+        f["tree"].extend({"a": np.arange(2.0), "nb": np.arange(2, dtype=np.int32)})
+
+    with uproot.update(path) as f:
+        with pytest.raises(ValueError, match="add_branches with a counter_name"):
+            f["tree"].extend(
+                {
+                    "a": np.array([2.0]),
+                    "nb": np.array([1], dtype=np.int32),
+                    "b": ak.Array([[1.0]]),
+                },
+                accept_new_fields=True,
+            )
+
+
+def test_empty_extend_of_reopened_tree_keeps_counter_maximum(tmp_path):
+    path = str(tmp_path / "empty_extend_maximum.root")
+    _jagged_tree(path, ak.Array([[1.0, 2.0, 3.0], []]))
+
+    with uproot.update(path) as f:
+        f["tree"].extend({"x": ak.Array([[1.0]])[:0]})
+
+    with uproot.open(path) as f:
+        assert f["tree"]["nx"].member("fLeaves")[0].member("fMaximum") == 3
+        assert f["tree"]["x"].array().tolist() == [[1.0, 2.0, 3.0], []]
+
+
+def test_extend_jagged_branch_of_fixed_size_lists_with_empty_lists(tmp_path):
+    path = str(tmp_path / "fixed_size_empty.root")
+    with uproot.recreate(path) as f:
+        f.mktree("tree", {"v": "var * 3 * float64"})
+        f["tree"].extend({"v": [[], []]})
+        f["tree"].extend({"v": [[[1.0, 2.0, 3.0]], []]})
+
+    with uproot.open(path) as f:
+        assert f["tree"]["v"].array().tolist() == [[], [], [[1.0, 2.0, 3.0]], []]
+
+
+def test_extend_jagged_branch_with_no_lists_is_a_no_op(tmp_path):
+    path = str(tmp_path / "no_lists.root")
+    _flat_tree(path, np.arange(2.0))
+    with uproot.update(path) as f:
+        f["tree"].add_branches({"j": [[1.0], [2.0, 3.0]]})
+        f["tree"].extend({"a": [], "j": []})
+        assert f["tree"].num_entries == 2
+
+    with uproot.open(path) as f:
+        assert f["tree"]["j"].array().tolist() == [[1.0], [2.0, 3.0]]
+
+
+@pytest.mark.parametrize("rows", [[[[1.0, 2.0], [3.0]]], [[1.0, 2.0]]])
+def test_extend_jagged_branch_of_fixed_size_lists_checks_items(tmp_path, rows):
+    path = str(tmp_path / "wrong_items.root")
+    with uproot.recreate(path) as f:
+        f.mktree("tree", {"v": "var * 2 * float64"})
+        with pytest.raises(ValueError, match="consistent shape"):
+            f["tree"].extend({"v": rows})
