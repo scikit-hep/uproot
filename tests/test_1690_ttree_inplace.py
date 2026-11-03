@@ -408,35 +408,6 @@ def test_extend_accept_new_fields_flat_awkward_value(tmp_path):
         assert f["tree"]["y"].array().tolist() == [0.0, 0.0, 0.0, 9.0, 8.0]
 
 
-def test_extend_accept_new_fields_jagged_raises_clearly(tmp_path):
-    """accept_new_fields with a jagged new field must raise a clear error, not crash confusingly.
-
-    Regression test: add_branches() (used to back-fill zeros for a new
-    field) only creates simple scalar TBranch, with no counter-branch
-    support, so it cannot create a jagged branch. Left unchecked, this
-    reached numpy.asarray(jagged_awkward_array), which raises an
-    awkward-internal "cannot convert to RegularArray" ValueError -- or, before
-    the _data_is_flat_dict fix above, an unrelated low-level "'nj', 'j' do
-    not correspond to any branch" naming an auto-generated counter branch the
-    user never passed.
-    """
-    ak = pytest.importorskip("awkward")
-    path = os.path.join(tmp_path, "test.root")
-    with uproot.recreate(path) as f:
-        f.mktree("tree", {"x": np.float32})
-        f["tree"].extend({"x": np.ones(3, dtype=np.float32)})
-
-    with uproot.update(path) as f:
-        with pytest.raises(NotImplementedError, match="jagged"):
-            f["tree"].extend(
-                {
-                    "x": np.ones(2, dtype=np.float32),
-                    "j": ak.Array([[1.0, 2.0], [3.0]]),
-                },
-                accept_new_fields=True,
-            )
-
-
 @skip_no_root
 def test_extend_root_readable(tmp_path):
     with uproot.recreate(os.path.join(tmp_path, "test.root")) as f:

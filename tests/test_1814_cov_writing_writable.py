@@ -583,7 +583,7 @@ def test_extending_a_tree_written_by_root(tmp_path):
     root_file.Close()
 
 
-def test_counter_of_a_jagged_branch_is_missing(tmp_path):
+def test_counter_leaf_named_differently_from_its_branch(tmp_path):
     path = tmp_path / "out.root"
     with uproot.recreate(path) as file:
         file.mktree("tree", {"x": "var * int32"})
@@ -598,8 +598,12 @@ def test_counter_of_a_jagged_branch_is_missing(tmp_path):
     with uproot.update(path) as file:
         branch_data = file["tree"]._cascading._branch_data
         assert [x["fName"] for x in branch_data] == ["nx", "x"]
-        assert branch_data[1]["fEntryOffsetLen"] > 0
-        assert branch_data[1]["counter"] is None
+        # the counter is found through the leaf itself, not through its name
+        assert branch_data[1]["counter"] is branch_data[0]
+        file["tree"].extend({"x": ak.Array([[1, 2], [3]])})
+
+    with uproot.open(path) as file:
+        assert file["tree"]["x"].array().tolist() == [[1, 2], [3]]
 
 
 def test_reading_a_class_that_needs_the_streamers_of_the_file(tmp_path):

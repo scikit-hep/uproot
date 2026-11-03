@@ -237,10 +237,20 @@ def test_file_header_round_trip(big):
     assert read.uuid == UUID1
 
 
+def streamer_info(name, version):
+    out = uproot.streamers.Model_TStreamerInfo.empty()
+    out._members["fName"] = name
+    out._members["fClassVersion"] = version
+    return out
+
+
 def test_read_for_update_finds_streamers_by_version():
-    streamers = [
-        types.SimpleNamespace(name="A", class_version=version) for version in (2, 3, 1)
-    ] + [types.SimpleNamespace(name="B", class_version=7)]
+    streamers = [streamer_info("A", version) for version in (2, 3, 1)] + [
+        streamer_info("B", 7),
+        # the list of streamers can hold other things, such as schema evolution
+        # rules, which aren't streamers even if they have a matching name
+        types.SimpleNamespace(name="A", class_version=9),
+    ]
 
     reader = cascade._ReadForUpdate("path", UUID1, tlist_of_streamers=streamers)
     assert [x.class_version for x in reader.streamers_named("A")] == [2, 3, 1]
