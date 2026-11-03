@@ -1286,7 +1286,9 @@ class DirectoryData(CascadeLeaf):
 
             for key in self._dirty_keys:
                 copied = key.copy_to(self._dirty_keys_start)
-                copied.location = self._dirty_keys_start
+                # not through the setter: the copy in this list of keys must have
+                # the same size as the key itself, which isn't moving
+                copied._location = self._dirty_keys_start
                 copied.write(sink)
                 self._dirty_keys_start += copied.num_bytes
 

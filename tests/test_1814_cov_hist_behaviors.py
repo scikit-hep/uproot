@@ -272,9 +272,10 @@ def test_counts_of_a_histogram_are_its_values():
 
 
 def test_th1_variances_without_and_with_sumw2():
+    # without fSumw2, ROOT's errors are sqrt(|content|), also for negative bins
     hist = th1(data=(0, 1, -2, 3, 0))
-    assert hist.variances().tolist() == [1.0, 0.0, 3.0]
-    assert hist.variances(flow=True).tolist() == [0.0, 1.0, 0.0, 3.0, 0.0]  # cached
+    assert hist.variances().tolist() == [1.0, 2.0, 3.0]
+    assert hist.variances(flow=True).tolist() == [0.0, 1.0, 2.0, 3.0, 0.0]  # cached
     assert th1(sumw2=(0, 7, 8, 9, 0)).variances().tolist() == [7.0, 8.0, 9.0]
 
 
@@ -290,8 +291,8 @@ def test_th3_values_and_variances():
     assert numpy.array_equal(hist.values(flow=True), expected)
     assert numpy.array_equal(hist.values(), expected[1:-1, 1:-1, 1:-1])
 
-    # without fSumw2, the variances are the positive values
-    variances = numpy.where(expected > 0, expected, 0.0)
+    # without fSumw2, the variances are |values|, as ROOT's errors are
+    variances = numpy.abs(expected)
     assert numpy.array_equal(hist.variances(flow=True), variances)
     assert numpy.array_equal(hist.variances(), variances[1:-1, 1:-1, 1:-1])
 
@@ -377,7 +378,7 @@ def test_profile_counts_flow_and_no_flow():
 
 
 def test_profile_error_mode_integer_uses_sqrt12_for_zero_spread():
-    # bin 1 has no spread: one entry of 3
+    # bin 1 has no spread: two entries of 1.5
     profile = tprofile(fSumw2=(0.0, 4.5, 20.0, 0.0, 0.0))
     assert profile.errors(error_mode="i")[0] == pytest.approx(1.0 / numpy.sqrt(24.0))
 
@@ -657,3 +658,23 @@ def test_th2poly(tmp_path):
         assert hist.axis(-1) is hist.member("fYaxis")
         with pytest.raises(ValueError, match="axis must be 0"):
             hist.axis("z")
+
+
+@pytest.mark.parametrize("ndim", [1, 2, 3])
+def test_errors_without_sumw2_match_root(tmp_path, ndim):
+    ROOT = pytest.importorskip("ROOT")
+
+    path = tmp_path / "negative.root"
+    root_file = ROOT.TFile.Open(str(path), "RECREATE")
+    hist = getattr(ROOT, f"TH{ndim}D")("h", "", *([2, 0.0, 2.0] * ndim))
+    for cell in range(hist.GetNcells()):
+        hist.SetBinContent(cell, (cell % 5) - 2.0)  # negative, zero and positive
+    assert hist.GetSumw2N() == 0
+    expected = [hist.GetBinError(cell) ** 2 for cell in range(hist.GetNcells())]
+    hist.Write()
+    root_file.Close()
+
+    with uproot.open(path) as file:
+        variances = file["h"].variances(flow=True)
+    # uproot's axes are x, y, z; ROOT's cells run over x fastest
+    assert numpy.transpose(variances).reshape(-1).tolist() == pytest.approx(expected)

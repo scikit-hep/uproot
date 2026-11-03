@@ -211,7 +211,9 @@ def test_update_leaves_out_an_uninterpretable_branch(tmp_path):
 
     with uproot.update(path) as file:
         tree = file["orange"]
-        with pytest.raises(NotImplementedError, match=r"extend"):
+        with pytest.raises(
+            NotImplementedError, match="TBranches that it can't interpret"
+        ):
             tree.extend({"orange": np.array([1], dtype="i4")})
 
 

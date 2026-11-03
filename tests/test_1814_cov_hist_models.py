@@ -893,6 +893,8 @@ def test_old_histogram_round_trip(tmp_path):
 
 
 def test_th1_serialize_passes_its_header_flag_to_its_members(samples):
+    # This pins what the generated code does: no writer serializes a TH1 without
+    # its header, and the TH1 reader always expects the members' headers.
     writable = samples[uproot.models.TH.Model_TH1_v8].obj.to_writable()
     with_header, without_header = [], []
     writable._serialize(with_header, True, None, numpy.uint32(0))

@@ -627,7 +627,7 @@ class Awkward(Library):
             return [arrays[name] for name, _ in expression_context]
         elif how is dict:
             return {_rename(name, c): arrays[name] for name, c in expression_context}
-        elif how is None:
+        elif how is None or (how == "zip" and len(expression_context) == 0):
             if len(expression_context) == 0:
                 return awkward.Array(
                     awkward.contents.RecordArray([], fields=[], length=0)
@@ -894,7 +894,7 @@ class Pandas(Library):
         else:
             raise TypeError(
                 f"for library {self.name}, how must be tuple, list, dict, str (for "
-                "pandas.merge's 'how' parameter, or None (for one or more"
+                "pandas.merge's 'how' parameter), or None (for one or more "
                 "DataFrames without merging)"
             )
 

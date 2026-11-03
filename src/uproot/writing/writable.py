@@ -848,26 +848,35 @@ class WritableDirectory(MutableMapping):
         """
         filter_name = uproot._util.regularize_filter(filter_name)
         filter_classname = uproot._util.regularize_filter(filter_classname)
-        for keyname, cyclenum, classname in self._cascading.data.key_triples:
-            if (filter_name is no_filter or filter_name(keyname)) and (
-                filter_classname is no_filter or filter_classname(classname)
-            ):
-                if cycle:
-                    yield f"{keyname};{cyclenum}"
-                else:
-                    yield keyname
 
-            if recursive and classname in ("TDirectory", "TDirectoryFile"):
-                for k1 in self._get(keyname, cyclenum).iterkeys(
-                    recursive=recursive,
-                    cycle=cycle,
-                    filter_name=filter_name,
-                    filter_classname=filter_classname,
+        def names():
+            for keyname, cyclenum, classname in self._cascading.data.key_triples:
+                if (filter_name is no_filter or filter_name(keyname)) and (
+                    filter_classname is no_filter or filter_classname(classname)
                 ):
-                    k2 = f"{keyname}/{k1}"
-                    k3 = k2[: k2.index(";")] if ";" in k2 else k2
-                    if filter_name is no_filter or filter_name(k3):
-                        yield k2
+                    if cycle:
+                        yield f"{keyname};{cyclenum}"
+                    else:
+                        yield keyname
+
+                if recursive and classname in ("TDirectory", "TDirectoryFile"):
+                    for k1 in self._get(keyname, cyclenum).iterkeys(
+                        recursive=recursive,
+                        cycle=cycle,
+                        filter_name=filter_name,
+                        filter_classname=filter_classname,
+                    ):
+                        k2 = f"{keyname}/{k1}"
+                        k3 = k2[: k2.index(";")] if ";" in k2 else k2
+                        if filter_name is no_filter or filter_name(k3):
+                            yield k2
+
+        # without cycle numbers, each name once (as ReadOnlyDirectory does)
+        seen = set()
+        for name in names():
+            if name not in seen:
+                seen.add(name)
+                yield name
 
     def itervalues(
         self,
@@ -925,15 +934,13 @@ class WritableDirectory(MutableMapping):
         Note that this reads all objects that are selected by ``filter_name``
         and ``filter_classname``.
         """
+        # without a cycle number, a name is its highest cycle, as in self[name]
         for keyname in self.iterkeys(
             recursive=recursive,
-            cycle=True,
+            cycle=cycle,
             filter_name=filter_name,
             filter_classname=filter_classname,
         ):
-            if not cycle:
-                at = keyname.index(";")
-                keyname = keyname[:at]  # noqa: PLW2901 (overwriting keyname)
             yield keyname, self[keyname]
 
     def iterclassnames(
@@ -1215,7 +1222,9 @@ class WritableDirectory(MutableMapping):
                 ),
                 "tleaf_special_struct": _struct.Struct(">" + sc + sc),
             }
-            if _leaves:  # pragma: no branch  (leafless TBranches are skipped above)
+            # only a registered custom interpretation could make a leafless TBranch
+            # interpretable; everything else skips it above
+            if _leaves:  # pragma: no branch  (see above)
                 bd["leaf_name"] = _leaves[0].member("fName")
                 bd["leaf_title"] = _leaves[0].member("fTitle")
             if dtype == ">U0":
@@ -2643,8 +2652,9 @@ class WritableTree:
         # silently drop them from the file
         if casc._has_unsupported_branches:
             raise NotImplementedError(
-                f"{operation} for files with TBranchElement (or other non-TBranch) "
-                "branches is not yet supported via the cascade approach"
+                f"{operation} for TTrees with branches that Uproot can't write "
+                "(TBranchElements and other non-TBranch branches, or TBranches that "
+                "it can't interpret) is not yet supported via the cascade approach"
             )
 
         self._check_rewritable(operation)
@@ -2941,8 +2951,9 @@ class WritableTree:
             # entries to the branches it knows about, desynchronizing entry
             # counts across the tree's branches
             raise NotImplementedError(
-                "extend for files with TBranchElement (or other non-TBranch) "
-                "branches is not yet supported via the cascade approach"
+                "extend for TTrees with branches that Uproot can't write "
+                "(TBranchElements and other non-TBranch branches, or TBranches that "
+                "it can't interpret) is not yet supported via the cascade approach"
             )
         # the first extend() on a tree loaded from a file rewrites its metadata
         self._check_rewritable("extend")

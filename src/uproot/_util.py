@@ -705,6 +705,8 @@ def awkward_form(model, file, context):
         return model.awkward_form(file, context)
 
 
+# Uproot itself no longer calls this (AwkwardForth reads these branches with their
+# own dtypes), but coffea's UprootSourceMapping does, with _fix_awkward_form_of_iter
 def recursively_fix_awkward_form_of_iter(awkward, interpretation, form):
     """
     Given an interpretation of a TBranch, fixup any form corresponding to

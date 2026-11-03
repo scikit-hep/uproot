@@ -1142,6 +1142,8 @@ class ObjectArray:
 
     def __getitem__(self, where):
         if uproot._util.isint(where):
+            # negative and out-of-range indexes, like a list's
+            where = range(len(self))[where]
             byte_start = self._byte_offsets[where]
             byte_stop = self._byte_offsets[where + 1]
             data = self._byte_content[byte_start:byte_stop]

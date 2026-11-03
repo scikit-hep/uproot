@@ -261,10 +261,7 @@ def test_new_class_for_unknown_version_with_custom_classes():
     assert issubclass(cls, uproot.model.UnknownClassVersion)
 
 
-unknown_cases = [
-    pytest.param(None, "uproot.model.UnknownClass", id="class"),
-    pytest.param(7, "uproot.model.UnknownClassVersion", id="version"),
-]
+unknown_cases = [pytest.param(None, id="class"), pytest.param(7, id="version")]
 
 
 def read_unknown(file, version, chunk):
@@ -273,8 +270,8 @@ def read_unknown(file, version, chunk):
     )
 
 
-@pytest.mark.parametrize("version, base", unknown_cases)
-def test_unknown_is_skipped(file, version, base):
+@pytest.mark.parametrize("version", unknown_cases)
+def test_unknown_is_skipped(file, version):
     payload = struct.pack(">ii", 1, 2)
     chunk = wrap(file, with_header(version or 0, payload) + b"tail")
     cursor = uproot.source.cursor.Cursor(0)
@@ -294,8 +291,8 @@ def test_unknown_is_skipped(file, version, base):
         assert isinstance(obj, uproot.model.UnknownClassVersion)
 
 
-@pytest.mark.parametrize("version, base", unknown_cases)
-def test_unknown_debug(file, version, base):
+@pytest.mark.parametrize("version", unknown_cases)
+def test_unknown_debug(file, version):
     payload = struct.pack(">ii", 1, 2)
     chunk = wrap(file, with_header(version or 0, payload))
     obj = read_unknown(file, version, chunk)
@@ -312,8 +309,8 @@ def test_unknown_debug(file, version, base):
     assert lines[3].split() == ["1", "2"]
 
 
-@pytest.mark.parametrize("version, base", unknown_cases)
-def test_unknown_chunk_was_deleted(file, version, base):
+@pytest.mark.parametrize("version", unknown_cases)
+def test_unknown_chunk_was_deleted(file, version):
     chunk = wrap(file, with_header(version or 0))
     obj = read_unknown(file, version, chunk)
     del chunk

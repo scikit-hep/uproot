@@ -80,6 +80,16 @@ def test_source_properties(remote, expected, use_threads):
     assert source.closed is True
 
 
+def test_no_ranges_send_no_vector_read(remote):
+    with XRootDSource(remote, timeout=TIMEOUT, use_threads=False) as source:
+        recorder = RecordVectorReads(source._resource._file)
+        source._resource._file = recorder
+        assert source.chunks([], queue.Queue()) == []
+        assert source.num_requests == 0
+        assert recorder.sizes == []
+        source._resource._file = recorder._file
+
+
 def test_short_url_repr(remote):
     with XRootDSource(remote, timeout=TIMEOUT, use_threads=False) as source:
         source._file_path = "short"

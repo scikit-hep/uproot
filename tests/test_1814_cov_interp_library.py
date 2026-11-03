@@ -151,7 +151,7 @@ def test_arrays_dataframe(tree):
             "pd",
             5,
             r"^for library pd, how must be tuple, list, dict, str \(for pandas\.merge's "
-            r"'how' parameter, or None \(for one or moreDataFrames without merging\)$",
+            r"'how' parameter\), or None \(for one or more DataFrames without merging\)$",
         ),
     ],
 )
@@ -270,6 +270,13 @@ def test_zip_end_to_end(tree):
     arrays = tree.arrays(["x", "z"], how="zip")
     assert arrays.x.tolist() == [1, 2, 3]
     assert arrays.jagged0.z.tolist() == [[1], [], [2, 3]]
+
+
+def test_zip_of_no_arrays_is_an_empty_record_array(tree):
+    for how in ["zip", None]:
+        arrays = tree.arrays([], how=how)
+        assert isinstance(arrays, awkward.Array)
+        assert str(arrays.type) == "0 * {}"
 
 
 def test_global_index_does_nothing_for_unindexed_libraries():

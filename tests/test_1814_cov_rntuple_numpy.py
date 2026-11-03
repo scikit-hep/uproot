@@ -40,7 +40,7 @@ def test_record_with_optional_arrays_to_numpy(jagged_record_path):
     assert out.dtype["j"] == np.dtype(object)
     assert out.dtype["o"] == np.dtype(object)
     assert [row.tolist() for row in out["j"]] == [[1], [1, 2], []]
-    # entirely missing, partly missing, and complete
+    # partly missing, complete, and entirely missing
     assert out["o"][0].tolist() == [1, None]
     assert out["o"][1].tolist() == [3, 4]
     assert out["o"][2] is None

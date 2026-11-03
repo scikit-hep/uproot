@@ -276,3 +276,5 @@ def test_cut_with_a_multiindex(tree):
     )
 
     assert output["x"].index.tolist() == [(0, 0), (1, 0)]
+    # entries 0 and 1 pass the cut, each with its own flat x
+    assert output["x"].tolist() == [1.0, 2.0]

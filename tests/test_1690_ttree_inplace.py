@@ -97,7 +97,8 @@ def test_add_branch_tbranchelement(tmp_path):
 
     with uproot.update(os.path.join(tmp_path, "HZZ.root")) as f:
         with pytest.raises(
-            NotImplementedError, match="add_branches for files with TBranchElement"
+            NotImplementedError,
+            match="add_branches for TTrees with branches that Uproot can't write",
         ):
             f["events"].add_branches({"new_branch": np.ones(2421, dtype=np.float32)})
 

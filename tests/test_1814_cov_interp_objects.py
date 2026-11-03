@@ -282,6 +282,19 @@ def read_both_ways(branch, model):
             ],
             [[["a", "b"], ["c", "d"]], [["e", "f"]]],
         ),
+        (
+            # not at the top level, an array with a header ends where its header
+            # says, not at the end of the entry
+            AsVector(False, AsArray(True, False, AsString(False))),
+            [
+                size(3)
+                + header(string(b"a") + string(b"bc"))
+                + header(b"")
+                + header(string(b"d")),
+                size(0),
+            ],
+            [[["a", "bc"], [], ["d"]], []],
+        ),
     ],
     ids=lambda x: x.cache_key if hasattr(x, "cache_key") else "",
 )
@@ -441,6 +454,20 @@ def test_header_check_of_array_of_objects(raw_branch):
         )
     assert excinfo.value.message == (
         "expected 8 bytes but cursor moved by 10 bytes (through std::string[])"
+    )
+
+
+@pytest.mark.parametrize("values", [i4, AsString(False)])
+def test_array_header_without_a_byte_count(raw_branch, values):
+    # only a version: the array's length is unknown
+    branch = raw_branch([struct.pack(">H", 9) + ints(1, 2)])
+    with pytest.raises(uproot.deserialization.DeserializationError) as excinfo:
+        branch.array(
+            interpretation=AsObjects(AsArray(True, False, values), branch),
+            library="np",
+        )
+    assert excinfo.value.message.endswith(
+        "has a header without a byte count, so its length is unknown"
     )
 
 
@@ -695,6 +722,11 @@ def test_object_array(raw_branch):
     assert len(array) == 3
     assert array[0].tolist() == [1]
     assert array[2].tolist() == [2, 3]
+    assert array[-1].tolist() == [2, 3]
+    assert array[-3].tolist() == [1]
+    for where in 3, -4:
+        with pytest.raises(IndexError):
+            array[where]
     assert [x.tolist() for x in array] == [[1], [], [2, 3]]
     assert [x.tolist() for x in array.to_numpy()] == [[1], [], [2, 3]]
 
@@ -914,6 +946,8 @@ def test_strided_objects_from_a_file():
         everything = branch.array(library="np")
         assert len(everything) == 2
         assert all(isinstance(x, interpretation.model) for x in everything)
+        assert [x.member("fDatime") for x in everything] == [1749155840] * 2
+        assert branch.array(library="ak").fDatime.tolist() == [1749155840] * 2
 
         for library in "np", "ak":
             nothing = branch.array(library=library, entry_start=1, entry_stop=1)

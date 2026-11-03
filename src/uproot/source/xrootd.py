@@ -330,6 +330,9 @@ class XRootDSource(uproot.source.chunk.Source):
     def chunks(
         self, ranges: list[tuple[int, int]], notifications: queue.Queue
     ) -> list[uproot.source.chunk.Chunk]:
+        if len(ranges) == 0:
+            # nothing to request: don't send an empty vector read
+            return []
         self._num_requests += 1
         self._num_requested_chunks += len(ranges)
         self._num_requested_bytes += sum(stop - start for start, stop in ranges)

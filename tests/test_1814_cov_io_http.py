@@ -220,6 +220,14 @@ def test_credentials_and_query_reach_the_server():
     assert all(x[2]["Authorization"] == f"Basic {token}" for x in server.requests)
 
 
+def test_no_ranges_send_no_request():
+    with serve() as server:
+        with HTTPSource(server.url, use_threads=False) as source:
+            assert source.chunks([], queue.Queue()) == []
+            assert source.num_requests == 0
+    assert server.requests == []
+
+
 @pytest.mark.parametrize("cls", [HTTPSource, MultithreadedHTTPSource])
 def test_num_bytes_is_asked_only_once(cls):
     options = {} if cls is HTTPSource else {"num_workers": 1}
@@ -787,6 +795,7 @@ class Stream:
         return out
 
 
+@pytest.mark.timeout(60)  # a bug in readline can make it spin forever
 def test_response_buffer_read_and_readline():
     buffer = _ResponseBuffer(Stream(b"first\nsecond\n" + b"x" * 2000))
     assert buffer.readline() == b"first\n"

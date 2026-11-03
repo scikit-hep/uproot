@@ -562,8 +562,8 @@ def test_fsspec_globbing_http(handler):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
 
-    # Globbing does not work with http filesystems and will return an empty list of files
-    # We leave this test here to be notified when this feature is added
+    # Globbing does not work with http filesystems: a pattern is looked up as a
+    # file name, and a server without that file makes it a FileNotFoundError
     try:
         iterator = uproot.iterate(
             {

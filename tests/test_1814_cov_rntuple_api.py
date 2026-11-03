@@ -498,10 +498,18 @@ def test_member_that_shadows_an_inherited_member(tmp_path):
         assert ntuple.arrays().c.to_list() == [{"member": 1, "::member": 2}] * 2
 
 
-def test_duplicates_that_cannot_be_told_apart(tmp_path):
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"member": 1, ":_0": {"member": 2}, ":_1": {"member": 3}},
+        # only in base classes, whose (empty) leaf fields are equal Mappings
+        {":_0": {"member": 2}, ":_1": {"member": 3}},
+    ],
+)
+def test_duplicates_that_cannot_be_told_apart(tmp_path, record):
     # uproot writes records without a type name, which is what prefixes are made of
     path = tmp_path / "file.root"
-    data = ak.Array([{"member": 1, ":_0": {"member": 2}, ":_1": {"member": 3}}] * 2)
+    data = ak.Array([record] * 2)
     with uproot.recreate(path) as file:
         file.mkrntuple("ntuple", {"c": data})
     with uproot.open(path) as file:

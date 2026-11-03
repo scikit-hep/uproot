@@ -50,7 +50,8 @@ def test(do_hack):
             == "100 * var * var * float32"
         )
 
-        # three different branches, not one branch read three times
-        assert jetinfo[vv_branches[0]][0, 0, 0] == 0.0
-        assert jetinfo[vv_branches[1]][0, 0, 0] == 0
-        assert jetinfo[vv_branches[2]][0, 0, 0] == -1.0
+        # three different branches, not one branch read three times: each has
+        # its own data, the same as when it's read alone
+        together = [jetinfo[name].tolist() for name in vv_branches]
+        assert together == [t[name].array().tolist() for name in vv_branches]
+        assert together[0] != together[1] != together[2] != together[0]

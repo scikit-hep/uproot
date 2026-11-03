@@ -553,9 +553,28 @@ skip_without_sparse_files = pytest.mark.skipif(
 
 
 @skip_without_sparse_files
-def test_objects_past_the_big_file_boundary(tmp_path):
-    ROOT = pytest.importorskip("ROOT")
+@pytest.mark.parametrize("data", [None, {"x": np.array([1.5, 2.5])}])
+def test_rntuple_past_the_big_file_boundary(tmp_path, data):
+    path = tmp_path / "big.root"
+    with uproot.recreate(path, compression=None) as file:
+        file["small"] = "before the boundary"
+        make_big(file)
+        # the anchor's key is written small, and so must be its copy in the
+        # directory's list of keys, which readers take fKeylen from
+        if data is None:
+            file.mkrntuple("ntuple", {"x": "float64"})
+        else:
+            file.mkrntuple("ntuple", data)
 
+    with uproot.open(path) as file:
+        assert file["small"] == "before the boundary"
+        ntuple = file["ntuple"]
+        assert ntuple.num_entries == (0 if data is None else 2)
+        assert ntuple.arrays()["x"].tolist() == ([] if data is None else [1.5, 2.5])
+
+
+@skip_without_sparse_files
+def test_objects_past_the_big_file_boundary(tmp_path):
     path = tmp_path / "big.root"
     entries = np.array([1.0, 2.0, 3.0])
     edges = np.array([0.0, 1.0, 2.0, 3.0])
@@ -615,6 +634,8 @@ def test_objects_past_the_big_file_boundary(tmp_path):
         assert file["tree/x"].array().tolist() == [1.5, 2.5, 3.5]
         assert file["tree/y"].array().tolist() == [[1], [2, 3], [4, 5]]
 
+    # the checks above don't need ROOT, so they run without it
+    ROOT = pytest.importorskip("ROOT")
     root_file = ROOT.TFile.Open(str(path))
     assert not root_file.IsZombie()
     assert not root_file.TestBit(ROOT.TFile.kRecovered)
@@ -668,8 +689,6 @@ def test_streamers_moving_past_the_boundary_get_a_big_key(tmp_path):
 
 @skip_without_sparse_files
 def test_keys_read_from_a_small_file_become_big(tmp_path):
-    ROOT = pytest.importorskip("ROOT")
-
     path = tmp_path / "big.root"
     with uproot.recreate(path) as file:
         file["small"] = "small"
@@ -691,6 +710,8 @@ def test_keys_read_from_a_small_file_become_big(tmp_path):
         assert file["sub/inner"] == "inner"
         assert file["sub2/inner"] == "inner"
 
+    # the checks above don't need ROOT, so they run without it
+    ROOT = pytest.importorskip("ROOT")
     root_file = ROOT.TFile.Open(str(path))
     assert not root_file.TestBit(ROOT.TFile.kRecovered)
     assert str(root_file.Get("large")) == "large"

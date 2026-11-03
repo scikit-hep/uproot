@@ -57,6 +57,22 @@ def test_direct_reads_from_before_the_first_cluster(tmp_path):
         assert read(-1, 0) == {}
 
 
+def test_narrower_representation_is_converted_by_value():
+    # column 1 is a float16 representation of a field whose result is float32
+    filename = skhep_testdata.data_path(
+        "test_multiple_representations_rntuple_v1-0-0-0.root"
+    )
+    with uproot.open(filename) as file:
+        ntuple = file["ntuple"]
+        assert ntuple.get_field_metadata(1).dtype == numpy.dtype("float16")
+        assert ntuple.get_field_metadata(1).dtype_result == numpy.dtype("float32")
+        datas = ntuple.gpu_read_cluster_range(["column-1"], 0, 3)
+        datas._decompress()
+        arrays = ntuple.gpu_deserialize_decompressed_content(datas, 0, 3)
+        expected = ntuple.read_cluster_range(1, 0, 3)
+    assert cupy.asnumpy(arrays[1]).tolist() == expected.tolist() == [1.0, 2.0, 3.0]
+
+
 def test_uncompressed_pages_and_cufile_counters():
     filename = skhep_testdata.data_path(UNCOMPRESSED)
     with uproot.open(filename) as file:

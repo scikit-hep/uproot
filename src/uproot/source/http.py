@@ -679,6 +679,9 @@ class HTTPSource(uproot.source.chunk.Source):
         ranges: list[tuple[int, int]],
         notifications: queue.Queue,
     ) -> list[uproot.source.chunk.Chunk]:
+        if len(ranges) == 0:
+            # nothing to request (and a Range header needs at least one range)
+            return []
         if self._fallback is None:
             self._num_requests += 1
             self._num_requested_chunks += len(ranges)

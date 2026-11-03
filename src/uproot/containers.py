@@ -744,10 +744,15 @@ class AsArray(AsContainer):
 in file {selffile.file_path}"""
                 )
 
-            if forth_obj is not None:
-                temp_jump = cursor._index - start_cursor._index
-                if temp_jump != 0:  # pragma: no branch  (cursor always moves)
-                    forth_stash.pre_code.append(f"{temp_jump} stream skip\n")
+            if num_bytes is None:
+                raise uproot.deserialization.DeserializationError(
+                    f"{self.typename} has a header without a byte count, so its "
+                    "length is unknown",
+                    chunk,
+                    cursor,
+                    context,
+                    selffile.file_path,
+                )
 
             if isinstance(self._values, numpy.dtype):
                 if forth_obj is not None:
@@ -765,8 +770,13 @@ in file {selffile.file_path}"""
                     forth_stash.init_code.append(
                         f"0 node{offsets_num}-offsets <- stack\n"
                     )
+                    # the array ends where its header says (not at the end of the
+                    # entry, if it's in another container): at its start plus
+                    # the byte count without kByteCountMask plus the count itself
                     forth_stash.pre_code.append(
-                        "0 bytestops I-> stack \nbegin\ndup stream pos <>\nwhile\nswap 1 + swap\n"
+                        f"0 stream pos stream !I-> stack {uproot.const.kByteCountMask} - + 4 +\n"
+                        f"{cursor.index - start_cursor.index - 4} stream skip\n"
+                        "begin\ndup stream pos <>\nwhile\nswap 1 + swap\n"
                     )
                     if len(self.inner_shape) > 0:
                         forth_stash.post_code.append(

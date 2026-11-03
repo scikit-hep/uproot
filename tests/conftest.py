@@ -77,15 +77,17 @@ def reset_classes():
     # against them or looked them up when they were collected.
     modules = {
         module: dict(vars(module))
-        for name, module in sys.modules.items()
+        for name, module in list(sys.modules.items())
         if name == "uproot.streamers" or name.startswith("uproot.models.")
     }
     classes, unknown_classes = uproot.classes, uproot.unknown_classes
-    uproot.model.reset_classes()
-    yield
-    for module, contents in modules.items():
-        vars(module).update(contents)
-    uproot.classes, uproot.unknown_classes = classes, unknown_classes
+    try:
+        uproot.model.reset_classes()
+        yield
+    finally:
+        for module, contents in modules.items():
+            vars(module).update(contents)
+        uproot.classes, uproot.unknown_classes = classes, unknown_classes
 
 
 @contextlib.contextmanager
@@ -255,4 +257,4 @@ def xrootd_server(tmpdir_factory):
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
-    shutil.rmtree(server_dir)
+        shutil.rmtree(server_dir)

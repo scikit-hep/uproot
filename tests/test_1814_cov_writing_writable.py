@@ -117,13 +117,18 @@ def test_listing_names(tmp_path):
         assert list(file) == everything
         assert list(file._ipython_key_completions_()) == everything
         assert file.keys(recursive=False) == ["a;1", "a;2", "sub;1", "d;1"]
-        assert file.keys(cycle=False, recursive=False) == ["a", "a", "sub", "d"]
+        # without cycle numbers, each name once
+        assert file.keys(cycle=False, recursive=False) == ["a", "sub", "d"]
 
         # as when reading, both the name in the subdirectory and the path must match
         assert file.keys(filter_name="*b") == ["sub;1", "sub/b;1"]
         assert file.keys(filter_name="*c", cycle=False) == ["sub/deeper/c"]
         assert file.keys(filter_name="b") == []
         assert file.keys(filter_classname="TH1D") == ["sub/b;1", "d;1"]
+        written = [file.keys(cycle=cycle) for cycle in (True, False)]
+
+    with uproot.open(tmp_path / "out.root") as file:
+        assert [file.keys(cycle=cycle) for cycle in (True, False)] == written
 
 
 def test_listing_classnames(tmp_path):
@@ -155,8 +160,12 @@ def test_values_and_items(tmp_path):
 
         assert file.values(filter_name="nothing") == []
 
+        # each name once, as its highest cycle
+        assert file.keys(filter_classname="TObjString", cycle=False) == [
+            "a",
+            "sub/deeper/c",
+        ]
         assert file.items(filter_classname="TObjString", cycle=False) == [
-            ("a", "two"),
             ("a", "two"),
             ("sub/deeper/c", "three"),
         ]
@@ -273,8 +282,6 @@ def test_copy_from_invalid_sources(tmp_path):
 
 
 def test_copy_from_directories(tmp_path):
-    ROOT = pytest.importorskip("ROOT")
-
     source = tmp_path / "source.root"
     with uproot.recreate(source) as file:
         file["top"] = "one"
@@ -297,6 +304,8 @@ def test_copy_from_directories(tmp_path):
         ]
         assert file["sub/first"] == "two"
 
+    # the checks above don't need ROOT, so they run without it
+    ROOT = pytest.importorskip("ROOT")
     root_file = ROOT.TFile.Open(str(path))
     assert str(root_file.Get("sub/first")) == "two"
     assert root_file.Get("sub/second").GetBinContent(2) == 2
