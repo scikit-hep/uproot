@@ -13,9 +13,11 @@ awkward = pytest.importorskip("awkward")
 
 def test_unequal_baskets(tmp_path):
     path = str(tmp_path / "hzz.root")
-    with open(skhep_testdata.data_path("uproot-HZZ.root"), "rb") as src:
-        with open(path, "wb") as dst:
-            dst.write(src.read())
+    with (
+        open(skhep_testdata.data_path("uproot-HZZ.root"), "rb") as src,
+        open(path, "wb") as dst,
+    ):
+        dst.write(src.read())
 
     with uproot.open(path) as f:
         before = f["events"].arrays()
@@ -62,11 +64,14 @@ def test_accept_new_fields_then_extend(tmp_path):
         [[1.0], [], [2.0, 3.0]],
     ],
 )
-def test_jagged_clear_error(tmp_path, jagged):
+def test_jagged_add_branches(tmp_path, jagged):
     path = str(tmp_path / "x.root")
     with uproot.recreate(path) as f:
         f.mktree("t", {"a": np.int64})
         f["t"].extend({"a": np.arange(3)})
     with uproot.update(path) as f:
-        with pytest.raises(NotImplementedError, match="jagged"):
-            f["t"].add_branches({"j": jagged})
+        f["t"].add_branches({"j": jagged})
+    with uproot.open(path) as f:
+        assert f["t"]["a"].array(library="np").tolist() == [0, 1, 2]
+        assert f["t"]["nj"].array(library="np").tolist() == [1, 0, 2]
+        assert awkward.to_list(f["t"]["j"].array()) == [[1.0], [], [2.0, 3.0]]
