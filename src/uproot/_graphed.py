@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import bisect
 import collections
+import contextlib
+import hashlib
 import itertools
 
 import uproot
@@ -89,12 +91,12 @@ class _GraphedTTreeSource:
         self._form_mapping = form_mapping
         self._interp_options = interp_options
         self._custom_classes = custom_classes
-        self._allow_missing = allow_missing
+        self._allow_missing = bool(allow_missing)
         self._options = options
         self._decompression_executor = decompression_executor
         self._interpretation_executor = interpretation_executor
         self._explicit_chunks = explicit_chunks  # per file: [(start, stop), ...]
-        self._align_baskets = align_baskets
+        self._align_baskets = bool(align_baskets)
         self._offsets_memo = {}  # (uri, tree, keys) -> aligned offsets, per process
 
     def __getstate__(self):
@@ -117,29 +119,69 @@ class _GraphedTTreeSource:
             _Same(self._interpretation_executor),
         )
 
+    def _digest(self):
+        """A short hash of the parts of ``source_identity`` a hash can keep, so reads it cannot
+        tell apart (another cycle, ``custom_classes`` or executors, or a ``form_mapping`` with no
+        ``source_identity``) get equal digests. ``_Spellings`` stay out because their ``==`` is
+        overlap; a file opened to read it has one path, whichever spelling opened it.
+        """
+        files = [
+            (file_path, uproot._util.canonical_object_path(path))
+            for file_path, path, _ in self._file_tree
+        ]
+        read = (
+            files,
+            self._explicit_chunks,
+            self._allow_missing,
+            self._align_baskets,
+            self._expected_form.to_json(),
+        )
+        return hashlib.sha256(repr(read).encode()).hexdigest()[:8]
+
     # ---- opening -------------------------------------------------------------------------
     def _open_directory(self, file_path):
         return _open_directory(file_path, self._custom_classes, self._options)
 
-    def _tree_in(self, directory, object_path):
-        return uproot._util.object_in_directory(
-            directory, object_path or None, self._allow_missing
+    def _opened_tree(self, file_path, object_path):
+        """:func:`_opened_object` with the options this source was given."""
+        return _opened_object(
+            file_path,
+            object_path,
+            self._custom_classes,
+            self._allow_missing,
+            self._options,
         )
 
     def open_tree(self, partition, resources):
         """This partition's ``TTree``, from a file opened once per worker with the options
         ``uproot.graphed`` was given; ``None`` when ``allow_missing`` and the file lacks it.
         """
-        return self._tree_in(
-            resources.open_once(partition.uri, self._open_directory), partition.tree
+        return uproot._util.object_in_directory(
+            resources.open_once(partition.uri, self._open_directory),
+            partition.tree or None,
+            self._allow_missing,
         )
 
+    def num_entries(self, partition):
+        """Entries in the whole ``TTree`` ``partition`` reads, so ``graphed`` can state a blind
+        chunk's range when it reports a failure; opens the file, so call it only then.
+
+        ``None`` with ``align_baskets``: a blind chunk's range is then not a fraction of the
+        count, and which ``TBaskets`` bound it depends on the ``TBranches`` it read.
+        """
+        if self._align_baskets:
+            return None
+        with self._opened_tree(partition.uri, partition.tree) as tree:
+            return 0 if tree is None else tree.num_entries
+
     def _trees(self):
-        """Every tree, opened here and now (the whole-dataset loader and ``graphed_head``)."""
+        """Every tree, opened here and now (the whole-dataset loader and ``graphed_head``). A
+        tree's file closes when the generator resumes or is closed, so read it before either.
+        """
         for file_path, object_path, _ in self._file_tree:
-            tree = self._tree_in(self._open_directory(file_path), object_path)
-            if tree is not None:
-                yield tree
+            with self._opened_tree(file_path, object_path) as tree:
+                if tree is not None:
+                    yield tree
 
     # ---- reading -------------------------------------------------------------------------
     def read_range(self, tree, keys, start, stop):
@@ -168,10 +210,11 @@ class _GraphedTTreeSource:
     def __call__(self):
         import awkward
 
-        parts = [
-            self.read_range(tree, self._common_keys, 0, tree.num_entries)
-            for tree in self._trees()
-        ]
+        with contextlib.closing(self._trees()) as trees:
+            parts = [
+                self.read_range(tree, self._common_keys, 0, tree.num_entries)
+                for tree in trees
+            ]
         if not parts:
             return self._empty()
         return parts[0] if len(parts) == 1 else awkward.concatenate(parts)
@@ -375,6 +418,22 @@ def _open_directory(file_path, custom_classes, options):
     ).root_directory
 
 
+@contextlib.contextmanager
+def _opened_object(file_path, object_path, custom_classes, allow_missing, options):
+    """The object at ``object_path`` (None when ``allow_missing`` and absent); a file opened here
+    closes with this context whatever it found, and a given ``TTree``'s file stays open.
+    """
+    if isinstance(file_path, HasBranches):
+        yield file_path
+        return
+    with contextlib.closing(
+        _open_directory(file_path, custom_classes, options)
+    ) as directory:
+        yield uproot._util.object_in_directory(
+            directory, object_path or None, allow_missing
+        )
+
+
 def _selection(leaf):
     return "the whole TTree" if leaf is None else f"the TBranch {leaf!r}"
 
@@ -490,13 +549,45 @@ def _refuse_backend(have, wanted, *, behavior, where="session="):
     )
 
 
+def _taken(session, name):
+    return any(session.source_name(nid) == name for nid in session.source_ids())
+
+
 def _refuse_taken(session, name):
     """Refuse recording under a source name ``session`` already has."""
-    if name in {session.source_name(nid) for nid in session.source_ids()}:
+    if _taken(session, name):
         raise ValueError(
             f"uproot.graphed: this Session already has a source named {name!r}; "
             "pass name= to name this read"
         )
+
+
+def _default_names(session, tree_name, source):
+    """The names a read with no ``name=`` tries, the digest last so a first read pays nothing.
+    Every taken name has a source, so ``k`` sources leave one of ``k + 1`` names free; ``k`` is
+    read live because another thread may add sources between tries.
+    """
+    yield tree_name
+    hashed = f"{tree_name}-{source._digest()}"
+    yield hashed
+    n = 1
+    while n < len(session.source_ids()):
+        yield f"{hashed}#{n}"
+        n += 1
+
+
+def _record_under_default_name(session, tree_name, form, source):
+    """Record ``source`` under the first of its default names that ``session.source`` accepts,
+    which is its own binding on a re-read, so only a first read's name depends on read order.
+    """
+    for candidate in _default_names(session, tree_name, source):
+        source._name = candidate
+        try:
+            return session.source(candidate, form=form, data=source)
+        except ValueError:
+            if not _taken(session, candidate):
+                raise
+    raise AssertionError(f"no free source name for {tree_name!r}")
 
 
 def graphed(
@@ -565,9 +656,11 @@ def graphed(
             names a behavior, carry an equal one; any other is refused at the read. With a
             ``graphed`` that has no ``current_session``, each such read gets a new ``Session``.
         name (str or None): The ``graphed`` source's name, its slot in the recorded graph; default
-            the ``TTree``'s name. Reading the same files and branches with the same options under
-            a name the ``Session`` already has returns that source again; any other read under it
-            is refused. With a ``graphed`` that has no ``current_session``, every read under a
+            the ``TTree``'s name, or when another read already holds that, the ``TTree``'s name
+            with a hash of what this read reads, numbered (``#1``, ...) when the hash cannot tell
+            it from another read. Repeating a read, ``name=`` included, returns that source again;
+            any other read under a name given here is refused.
+            With a ``graphed`` that has no ``current_session``, every read under a
             taken name is refused, before any file is opened when the name is known from
             ``name=`` or the ``files``' object paths.
         decompression_executor, interpretation_executor: As in :doc:`uproot._dask.dask`; every
@@ -775,10 +868,8 @@ def graphed(
             graphed.awkward.AwkwardBackend(behavior=info.behavior),
             behavior=mapped,
         )
-    if name is None:
-        name = tree_name
     if current_session is None:
-        _refuse_taken(session, name)
+        _refuse_taken(session, tree_name if name is None else name)
     source = _GraphedTTreeSource(
         file_tree,
         list(base_form.fields),
@@ -795,9 +886,10 @@ def graphed(
         explicit_chunks=explicit_chunks,
         align_baskets=align_baskets,
     )
-    return session.source(
-        name, form=graphed.awkward.AwkwardForm(typetracer), data=source
-    )
+    form = graphed.awkward.AwkwardForm(typetracer)
+    if name is None:
+        return _record_under_default_name(session, tree_name, form, source)
+    return session.source(name, form=form, data=source)
 
 
 def necessary_columns(array, *, on_fail="raise"):
@@ -885,45 +977,46 @@ def graphed_partitions(
                 for step in range(n_steps)
             )
             continue
-        obj = uproot._util.regularize_object_path(
+        with _opened_object(
             file_path, object_path, custom_classes, allow_missing, real_options
-        )
-        if obj is None:
-            continue
-        if align_baskets and isinstance(obj, HasFields):
-            raise NotImplementedError(
-                "align_baskets=True follows TBasket boundaries; an RNTuple has none"
-            )
-        n_entries = obj.num_entries
-        if have_step_size:
-            per = (
-                step_size
-                if uproot._util.isint(step_size)
-                else obj.num_entries_for(step_size)
-            )
-            per = max(1, int(per))
-            bounds = [*range(0, n_entries, per), n_entries]
-        else:
-            bounds = [(i * n_entries) // n_steps for i in range(n_steps + 1)]
-        if align_baskets:
-            shared = obj.common_entry_offsets(
-                filter_name=no_filter if align_baskets is True else align_baskets,
-                recursive=True,
-            )
-            if n_entries and shared == [0]:  # a non-empty tree's fold holds n_entries
-                raise ValueError(
-                    f"align_baskets={align_baskets!r} selects no TBranch with TBaskets in "
-                    f"{obj.file.file_path}:{obj.object_path}"
+        ) as obj:
+            if obj is None:
+                continue
+            if align_baskets and isinstance(obj, HasFields):
+                raise NotImplementedError(
+                    "align_baskets=True follows TBasket boundaries; an RNTuple has none"
                 )
-            offsets = _basket_offsets([shared], n_entries)
-            bounds = [_snap(bound, offsets) for bound in bounds]
-        partitions.extend(
-            graphed.core.Partition(
-                obj.file.file_path, obj.object_path, int(start), int(stop)
+            n_entries = obj.num_entries
+            if have_step_size:
+                per = (
+                    step_size
+                    if uproot._util.isint(step_size)
+                    else obj.num_entries_for(step_size)
+                )
+                per = max(1, int(per))
+                bounds = [*range(0, n_entries, per), n_entries]
+            else:
+                bounds = [(i * n_entries) // n_steps for i in range(n_steps + 1)]
+            if align_baskets:
+                shared = obj.common_entry_offsets(
+                    filter_name=no_filter if align_baskets is True else align_baskets,
+                    recursive=True,
+                )
+                # a non-empty tree's fold holds n_entries
+                if n_entries and shared == [0]:
+                    raise ValueError(
+                        f"align_baskets={align_baskets!r} selects no TBranch with TBaskets in "
+                        f"{obj.file.file_path}:{obj.object_path}"
+                    )
+                offsets = _basket_offsets([shared], n_entries)
+                bounds = [_snap(bound, offsets) for bound in bounds]
+            partitions.extend(
+                graphed.core.Partition(
+                    obj.file.file_path, obj.object_path, int(start), int(stop)
+                )
+                for start, stop in itertools.pairwise(bounds)
+                if stop > start
             )
-            for start, stop in itertools.pairwise(bounds)
-            if stop > start
-        )
     return partitions
 
 
@@ -952,9 +1045,13 @@ def read_graphed_partition(
     (``open_files=False`` over a bare file name) reads the file's single ``TTree``. Pass an
     already-open ``tree`` to reuse a per-worker ``open_once`` handle."""
     if tree is None:
-        tree = uproot._util.object_in_directory(
-            uproot.open(partition.uri, **open_options), partition.tree or None, False
-        )
+        with uproot.open(partition.uri, **open_options) as directory:
+            tree = uproot._util.object_in_directory(
+                directory, partition.tree or None, False
+            )
+            return read_graphed_partition(
+                partition, columns, tree=tree, library=library
+            )
     start, stop = _partition_range(partition, tree.num_entries)
     return tree.arrays(
         list(columns), entry_start=start, entry_stop=stop, library=library
@@ -984,22 +1081,23 @@ def graphed_head(array, n=5):
     externals = graphed.aggregate.external_evaluators(session, compiled)
     source_name = session.source_name(nid)
 
-    tree = next(source._trees(), None)
-    rows = 0 if tree is None else tree.num_entries
-    stop = min(int(n), rows)
-    while True:
-        chunk = (
-            source._empty()
-            if tree is None
-            else source.read_range(tree, columns, 0, stop)
-        )
-        (out,) = graphed.evaluate_ir(
-            compiled, session.backend, {source_name: chunk}, externals=externals
-        )
-        try:
-            n_out = len(out)
-        except TypeError:  # a scalar peek (a reduction over the prefix)
-            return out
-        if n_out >= n or stop >= rows:
-            return out[:n]
-        stop = min(rows, max(2 * stop, int(n)))
+    with contextlib.closing(source._trees()) as trees:
+        tree = next(trees, None)
+        rows = 0 if tree is None else tree.num_entries
+        stop = min(int(n), rows)
+        while True:
+            chunk = (
+                source._empty()
+                if tree is None
+                else source.read_range(tree, columns, 0, stop)
+            )
+            (out,) = graphed.evaluate_ir(
+                compiled, session.backend, {source_name: chunk}, externals=externals
+            )
+            try:
+                n_out = len(out)
+            except TypeError:  # a scalar peek (a reduction over the prefix)
+                return out
+            if n_out >= n or stop >= rows:
+                return out[:n]
+            stop = min(rows, max(2 * stop, int(n)))

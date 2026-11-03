@@ -1,6 +1,7 @@
 # BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
 from __future__ import annotations
 
+import numpy
 import pytest
 import skhep_testdata
 
@@ -33,6 +34,27 @@ def test_optional_fields(tmp_path):
         arrays = file["ntuple"].arrays(backend="cuda", interpreter="gpu")
     assert ak.backend(arrays) == "cuda"
     assert ak.to_backend(arrays, "cpu").to_list() == data.to_list()
+
+
+def test_direct_reads_from_before_the_first_cluster(tmp_path):
+    path = tmp_path / "flat.root"
+    with uproot.recreate(path, compression=uproot.ZSTD(1)) as file:
+        file.mkrntuple("ntuple", {"x": numpy.array([1, 2, 3], numpy.int64)})
+
+    with uproot.open(path) as file:
+        ntuple = file["ntuple"]
+
+        def read(start, stop):
+            # without cluster_offset, which is then taken from the clusters
+            datas = ntuple.gpu_read_cluster_range(["column-0"], start, stop)
+            datas._decompress()
+            arrays = ntuple.gpu_deserialize_decompressed_content(datas, start, stop)
+            return {key: cupy.asnumpy(value).tolist() for key, value in arrays.items()}
+
+        # index -1 is before the first cluster, so it adds nothing
+        assert read(0, 1) == {0: [1, 2, 3]}
+        assert read(-1, 1) == {0: [1, 2, 3]}
+        assert read(-1, 0) == {}
 
 
 def test_uncompressed_pages_and_cufile_counters():

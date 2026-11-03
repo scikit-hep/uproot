@@ -306,7 +306,7 @@ def _float16_or_double32(branch, context, leaf, is_float16, dims):
             transformed = ast.Expression(
                 _float16_double32_walk_ast(parsed, branch, source)
             )
-            spec = eval(compile(transformed, repr(title), "eval"))
+            spec = eval(compile(transformed, "<dynamic>", "eval"))
         except (UnknownInterpretation, SyntaxError):
             spec = ()
 

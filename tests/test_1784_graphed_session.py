@@ -387,13 +387,15 @@ def test_a_name_reread_with_anything_else_is_refused(tmp_path, changed):
             }
         }
     with pytest.raises(ValueError, match="'events' is already bound to other data"):
-        uproot.graphed(files, **kwargs)
+        uproot.graphed(files, name="events", **kwargs)
 
 
 @needs_current_session
 def test_a_mapping_is_its_own_identity_unless_it_defines_one():
     def read(mapping):
-        return uproot.graphed(_nano(), filter_name=mini.FILTER, form_mapping=mapping)
+        return uproot.graphed(
+            _nano(), filter_name=mini.FILTER, form_mapping=mapping, name="Events"
+        )
 
     mapping = mini.MiniNanoMapping()
     assert read(mapping).node_id == read(mapping).node_id
@@ -411,9 +413,11 @@ def test_executors_are_compared_by_identity():
         first.node_id
     )
     with pytest.raises(ValueError, match="'events' is already bound to other data"):
-        uproot.graphed(_zmumu(), decompression_executor=_EqualExecutor())
+        uproot.graphed(_zmumu(), decompression_executor=_EqualExecutor(), name="events")
     with pytest.raises(ValueError, match="'events' is already bound to other data"):
-        uproot.graphed(_zmumu(), interpretation_executor=_EqualExecutor())
+        uproot.graphed(
+            _zmumu(), interpretation_executor=_EqualExecutor(), name="events"
+        )
 
 
 @needs_current_session
