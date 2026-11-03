@@ -681,8 +681,6 @@ class Tree:
                 )
 
             datum = branch_data[branch_lookup[branch_name]]
-            if datum["kind"] == "record":  # pragma: no cover  (these are leaf branches)
-                continue
 
             if datum["counter"] is None:
                 if datum["dtype"] == ">U0":
@@ -1602,11 +1600,7 @@ class Tree:
             + 1
         )
 
-        itemsize = array.dtype.itemsize
-        for item in array.shape[1:]:  # pragma: no cover  (strings are flat bytes)
-            itemsize *= item
-
-        offsets *= itemsize
+        offsets *= array.dtype.itemsize
         offsets += fKeylen
 
         raw_array = array.tobytes()

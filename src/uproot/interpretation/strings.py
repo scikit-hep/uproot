@@ -340,22 +340,19 @@ class AsStrings(uproot.interpretation.Interpretation):
         )
 
         if any(not isinstance(x, StringArray) for x in basket_arrays.values()):
+            # basket_array only returns awkward arrays for library="ak" and
+            # baskets without entry offsets; since the presence of entry offsets
+            # is a property of each TBasket, the other baskets of the same
+            # branch may still be StringArrays, which are converted here.
+            assert isinstance(library, uproot.interpretation.library.Awkward)
+            awkward_arrays = {
+                k: (_string_array_to_awkward(v) if isinstance(v, StringArray) else v)
+                for k, v in basket_arrays.items()
+            }
             trimmed = uproot._util.trim_final(
-                basket_arrays, entry_start, entry_stop, entry_offsets, library, branch
+                awkward_arrays, entry_start, entry_stop, entry_offsets, library, branch
             )
-            if all(
-                uproot._util.from_module(x, "awkward") for x in basket_arrays.values()
-            ):
-                assert isinstance(library, uproot.interpretation.library.Awkward)
-                output = awkward.concatenate(trimmed, mergebool=False, highlevel=False)
-            else:
-                # Mixed StringArray/awkward baskets: concatenate after promoting
-                # to awkward so ``output`` is always bound.
-                output = awkward.concatenate(
-                    [awkward.to_layout(x) for x in trimmed],
-                    mergebool=False,
-                    highlevel=False,
-                )
+            output = awkward.concatenate(trimmed, mergebool=False, highlevel=False)
 
             self.hook_before_library_finalize(
                 basket_arrays=basket_arrays,
@@ -486,6 +483,19 @@ class AsStrings(uproot.interpretation.Interpretation):
         )
 
         return output
+
+
+def _string_array_to_awkward(string_array):
+    return awkward.Array(
+        awkward.contents.ListOffsetArray(
+            awkward.index.Index64(numpy.asarray(string_array.offsets, numpy.int64)),
+            awkward.contents.NumpyArray(
+                numpy.frombuffer(string_array.content, numpy.uint8),
+                parameters={"__array__": "char"},
+            ),
+            parameters={"__array__": "string"},
+        )
+    )
 
 
 class StringArray:

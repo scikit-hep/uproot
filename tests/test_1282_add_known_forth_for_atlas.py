@@ -38,13 +38,13 @@ def test_consistent_library_np_vector_vector_elementlink():
         {skhep_testdata.data_path("uproot-issue-123a.root"): "CollectionTree"}
     ) as tree:
         for key in VECTOR_VECTOR_ELEMENTLINK_BRANCHES:
-            arrays_np[key] = tree[key].array(library="np", entry_stop=25)
+            arrays_np[key] = tree[key].array(library="np")
     arrays_ak = {}
     with uproot.open(
         {skhep_testdata.data_path("uproot-issue-123a.root"): "CollectionTree"}
     ) as tree:
         for key in VECTOR_VECTOR_ELEMENTLINK_BRANCHES:
-            arrays_ak[key] = tree[key].array(entry_stop=25)
+            arrays_ak[key] = tree[key].array()
     for key in arrays_np:
         array_ak = arrays_ak[key]
         array_np = uproot.interpretation.library._object_to_awkward_array(

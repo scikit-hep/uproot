@@ -39,7 +39,11 @@ def test_write_with_a_graphed_without_worker_backend(tmp_path, monkeypatch, back
         backend=backend,
     )
     assert len(paths) == 2
-    back = ak.concatenate([uproot.open(path)["tree"].arrays() for path in paths])
+    pieces = []
+    for path in paths:
+        with uproot.open(path) as file:
+            pieces.append(file["tree"].arrays())
+    back = ak.concatenate(pieces)
     assert back.x.tolist() == list(range(8))
 
 

@@ -63,6 +63,11 @@ def test_branch_types_can_be_any_mapping(tmp_path):
         tree = file.mktree("t", types.MappingProxyType({"ab": "float64"}))
         tree.extend({"ab": np.array([1.5, 2.5])})
 
+    with uproot.open(path) as file:
+        assert file["t"].keys() == ["ab"]
+        assert file["t"]["ab"].typename == "double"
+        assert file["t"]["ab"].array(library="np").tolist() == [1.5, 2.5]
+
     assert root_entries(path, "t", "ab") == [[1.5], [2.5]]
 
 
@@ -185,12 +190,13 @@ def test_capacity_grows_with_records(tmp_path):
         assert tree._cascading.basket_capacity == 8
 
     expected = [[i, i + 0.5] for i in range(5)]
-    assert root_entries(path, "t", "rec_x", "rec_y") == expected
     with uproot.open(path) as file:
         assert file["t"]["rec_x"].num_baskets == 5
-        assert file["t"].arrays(library="np")["rec_y"].tolist() == [
-            x[1] for x in expected
-        ]
+        arrays = file["t"].arrays(library="np")
+        assert arrays["rec_x"].tolist() == [x[0] for x in expected]
+        assert arrays["rec_y"].tolist() == [x[1] for x in expected]
+
+    assert root_entries(path, "t", "rec_x", "rec_y") == expected
 
 
 def test_extend_from_no_basket_capacity(tmp_path):
@@ -275,6 +281,12 @@ def test_records_as_lists_of_dicts(tmp_path):
         tree = file.mktree("t", {"rec": {"x": "int32", "y": "float64"}})
         tree.extend({"rec": [{"x": 1, "y": 1.5}, {"x": 2, "y": 2.5}]})
 
+    with uproot.open(path) as file:
+        assert file["t"].keys() == ["rec_x", "rec_y"]
+        arrays = file["t"].arrays(library="np")
+        assert arrays["rec_x"].tolist() == [1, 2]
+        assert arrays["rec_y"].tolist() == [1.5, 2.5]
+
     assert root_entries(path, "t", "rec_x", "rec_y") == [[1, 1.5], [2, 2.5]]
 
 
@@ -285,6 +297,12 @@ def test_records_as_pandas_series(tmp_path):
     with uproot.recreate(path) as file:
         tree = file.mktree("t", {"rec": {"x": "int32", "y": "float64"}})
         tree.extend({"rec": pandas.Series({"x": [1, 2], "y": [1.5, 2.5]})})
+
+    with uproot.open(path) as file:
+        assert file["t"].keys() == ["rec_x", "rec_y"]
+        arrays = file["t"].arrays(library="np")
+        assert arrays["rec_x"].tolist() == [1, 2]
+        assert arrays["rec_y"].tolist() == [1.5, 2.5]
 
     assert root_entries(path, "t", "rec_x", "rec_y") == [[1, 1.5], [2, 2.5]]
 

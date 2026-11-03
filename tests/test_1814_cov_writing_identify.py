@@ -267,8 +267,6 @@ def test_pyroot_object_must_be_a_TObject():
 @pytest.mark.parametrize("ndim", [1, 2, 3])
 @pytest.mark.parametrize("title", [None, "the title"])
 def test_tuple_with_variable_edges(tmp_path, ndim, title):
-    ROOT = pytest.importorskip("ROOT")
-
     edges = [np.array(x, dtype=np.float64) for x in EDGES["variable"][:ndim]]
     shape = tuple(len(x) - 1 for x in edges)
     entries = np.arange(1.0, 1.0 + np.prod(shape)).reshape(shape)
@@ -281,6 +279,7 @@ def test_tuple_with_variable_edges(tmp_path, ndim, title):
         assert file["h"].values().tolist() == entries.tolist()
         assert file["h"].axes[ndim - 1].edges().tolist() == edges[-1].tolist()
 
+    ROOT = pytest.importorskip("ROOT")
     root_file = ROOT.TFile.Open(str(path))
     hist = root_file.Get("h")
     assert hist.GetDimension() == ndim
@@ -378,8 +377,6 @@ TO_TH = {1: to_TH1x, 2: to_TH2x, 3: to_TH3x}
 )
 @pytest.mark.parametrize("wrapped", [False, True], ids=["ndarray", "TArray"])
 def test_histogram_type_follows_the_data(tmp_path, ndim, dtype, letter, wrapped):
-    ROOT = pytest.importorskip("ROOT")
-
     data = np.arange(4**ndim, dtype=dtype) % 100
     hist = TO_TH[ndim](**hist_args(ndim, to_TArray(data) if wrapped else data))
     assert hist.classname == f"TH{ndim}{letter}"
@@ -389,6 +386,7 @@ def test_histogram_type_follows_the_data(tmp_path, ndim, dtype, letter, wrapped)
         assert file["h"].classname == f"TH{ndim}{letter}"
         assert file["h"].values(flow=True).T.reshape(-1).tolist() == data.tolist()
 
+    ROOT = pytest.importorskip("ROOT")
     root_file = ROOT.TFile.Open(str(path))
     root_hist = root_file.Get("h")
     assert root_hist.ClassName() == f"TH{ndim}{letter}"

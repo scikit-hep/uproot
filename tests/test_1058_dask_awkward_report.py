@@ -57,7 +57,8 @@ def test_with_report_known_divisions():
     )
     assert collection.known_divisions
     assert collection.divisions == (0, 1152, 2304)
-    expected = uproot.open(test_path + ":events")["M"].array()
+    with uproot.open(test_path + ":events") as tree:
+        expected = tree["M"].array()
     (ccollection,) = dask.compute(collection)
     assert ccollection.M.tolist() == expected.tolist()
     collection, report = uproot.dask(

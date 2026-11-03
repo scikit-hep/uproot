@@ -462,8 +462,8 @@ def test_regularize_files_open_tree_has_no_steps():
     with uproot.open(skhep_testdata.data_path("uproot-Zmumu.root")) as file:
         tree = file["events"]
         assert regularized([tree]) == [(tree, None)]
-        with pytest.raises(TypeError, match="unhashable type"):
-            regularized({tree: {"steps": [0, 10]}}, steps_allowed=True)
+        # an open tree is yielded as is, without a steps entry, even if allowed
+        assert regularized(tree, steps_allowed=True) == [(tree, None)]
 
 
 def test_regularize_files_bad_object_path():

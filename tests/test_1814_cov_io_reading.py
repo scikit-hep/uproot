@@ -201,7 +201,8 @@ def file_with_streamer_payload(tmp_path, payload):
     assert fields[1] < 1000000  # a small file, whose header has 32-bit seek positions
 
     seek = len(data)
-    name = b"\x05TList\x09StreamerI\x00"
+    # fClassName, fName, fTitle, as ROOT writes them for the streamers
+    name = b"\x05TList\x0cStreamerInfo\x12Doubly linked list"
     keylen = KEY.size + len(name)
     data += KEY.pack(
         keylen + len(payload), 4, len(payload), 0, keylen, 1, seek, fields[2]
@@ -295,6 +296,22 @@ def test_show_streamers_of_all_versions(versions_file):
     assert "TH1D (v" in shown
     assert "TH1 (v" in shown
     assert "TNamed (v" in shown
+
+
+def test_show_every_streamer(versions_file):
+    stream = io.StringIO()
+    with ReadOnlyFile(versions_file) as file:
+        file.show_streamers(stream=stream)
+        expected = [
+            f"{name} (v{version})"
+            for name, versions in file.streamers.items()
+            for version in versions
+        ]
+    shown = stream.getvalue()
+    # each one starts a paragraph, in the order of file.streamers
+    headers = [x.split("\n")[0].split(":")[0] for x in shown.split("\n\n")]
+    assert headers == expected
+    assert not shown.startswith("\n")
 
 
 def test_remove_class_definition_that_is_not_there():

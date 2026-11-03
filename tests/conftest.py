@@ -246,7 +246,13 @@ def xrootd_server(tmpdir_factory):
     with socket.socket() as sock:
         sock.bind(("localhost", 0))
         port = sock.getsockname()[1]
-    proc = subprocess.Popen([xrootd, "-p", str(port), server_dir])
+    # nor the default admin path (/tmp/.xrootd), where concurrent servers collide
+    # binding a unix socket; short, because the pytest tmpdir is too long for one
+    admin_dir = tempfile.mkdtemp(prefix="xrd", dir="/tmp")
+    config = os.path.join(admin_dir, "xrootd.cfg")
+    with open(config, "w") as f:
+        f.write(f"all.adminpath {admin_dir}\nall.pidpath {admin_dir}\n")
+    proc = subprocess.Popen([xrootd, "-p", str(port), "-c", config, server_dir])
     try:
         _wait_for_port(proc, port)
         yield f"root://localhost:{port}/" + str(temp_path), temp_path
@@ -258,3 +264,4 @@ def xrootd_server(tmpdir_factory):
             proc.kill()
             proc.wait()
         shutil.rmtree(server_dir)
+        shutil.rmtree(admin_dir, ignore_errors=True)

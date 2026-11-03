@@ -837,9 +837,9 @@ class Pandas(Library):
 
     The "group" behavior for this library is:
 
-    * ``how=None`` or a string: passed to ``pandas.merge`` as its ``how``
-      parameter, which would be relevant if jagged arrays with different
-      multiplicity are requested.
+    * ``how=None`` or a string: a single ``pandas.DataFrame``, made by
+      ``pandas.concat`` of the arrays along columns (an outer join on their
+      indexes). The value of a string ``how`` is ignored.
     * ``how=dict``: a dict of str \u2192 array, mapping the names to
       ``pandas.Series``.
     * ``how=tuple``: a tuple of ``pandas.Series``, in the order requested.
@@ -897,9 +897,9 @@ class Pandas(Library):
 
         else:
             raise TypeError(
-                f"for library {self.name}, how must be tuple, list, dict, str (for "
-                "pandas.merge's 'how' parameter), or None (for one or more "
-                "DataFrames without merging)"
+                f"for library {self.name}, how must be tuple, list, dict, or None "
+                "or a str (for a DataFrame of all arrays, concatenated along "
+                "columns; the value of the str is ignored)"
             )
 
     def global_index(self, arrays, global_offset):

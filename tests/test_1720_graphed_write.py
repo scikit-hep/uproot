@@ -68,7 +68,10 @@ def test_prefix_tree_name_and_multifile_numbering(tmp_path):
     assert [os.path.basename(p) for p in paths] == [
         f"skim-0000{i}.root" for i in range(4)
     ]
-    pieces = [uproot.open(p)["ev"].arrays().x.tolist() for p in paths]
+    pieces = []
+    for p in paths:
+        with uproot.open(p) as file:
+            pieces.append(file["ev"].arrays().x.tolist())
     assert pieces == [[0, 1, 2], [3, 4, 5], [0, 1], [2, 3]]
 
 

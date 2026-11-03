@@ -150,8 +150,9 @@ def test_arrays_dataframe(tree):
         (
             "pd",
             5,
-            r"^for library pd, how must be tuple, list, dict, str \(for pandas\.merge's "
-            r"'how' parameter\), or None \(for one or more DataFrames without merging\)$",
+            r"^for library pd, how must be tuple, list, dict, or None or a str \(for a "
+            r"DataFrame of all arrays, concatenated along columns; the value of the str "
+            r"is ignored\)$",
         ),
     ],
 )
@@ -161,6 +162,26 @@ def test_group_invalid_how(name, how, message):
 
     with pytest.raises(TypeError, match=message):
         library._libraries[name].group({}, [], how)
+
+
+@pytest.mark.parametrize("how", [None, "outer", "inner", "left", "anything"])
+def test_pandas_group_with_str_how(how):
+    pandas = pytest.importorskip("pandas")
+
+    arrays = {
+        "x": pandas.Series([1, 2, 3], index=[0, 1, 2]),
+        "y": pandas.Series([1.5, 2.5], index=[1, 2]),
+    }
+    out = pd.group(arrays, [("x", None), ("y", None)], how)
+
+    # Whatever the str, the arrays are concatenated along columns with an outer
+    # join on their indexes (pandas.concat), not merged.
+    assert isinstance(out, pandas.DataFrame)
+    assert out.columns.tolist() == ["x", "y"]
+    assert out.index.tolist() == [0, 1, 2]
+    assert out["x"].tolist() == [1, 2, 3]
+    assert out["y"].isna().tolist() == [True, False, False]
+    assert out["y"].tolist()[1:] == [1.5, 2.5]
 
 
 def test_group_renames():

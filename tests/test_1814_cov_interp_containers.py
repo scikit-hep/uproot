@@ -199,6 +199,26 @@ def test_typename_cache_key_repr(container, typename, cache_key, text):
             False,
         ),
         (AsArray(True, False, i4), AsVector(True, i4), False),
+        (
+            AsArray(True, False, numpy.dtype("O")),
+            AsArray(True, False, Model_TObject),
+            False,
+        ),
+        (
+            AsArray(True, False, Model_TObject),
+            AsArray(True, False, numpy.dtype("O")),
+            False,
+        ),
+        (
+            AsArray(True, False, Model_TObject),
+            AsArray(True, False, Model_TObject),
+            True,
+        ),
+        (
+            AsArray(True, False, AsString(False)),
+            AsArray(True, False, AsString(True)),
+            False,
+        ),
         (AsVector(True, i4), AsVector(True, i4), True),
         (AsVector(True, i4), AsVector(False, i4), False),
         (AsVector(True, i4), AsVector(True, f8), False),

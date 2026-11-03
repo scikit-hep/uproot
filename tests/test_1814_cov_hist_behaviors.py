@@ -60,7 +60,7 @@ def th2(sumw2=()):
     return identify.to_TH2x(
         fName="h2",
         fTitle="title",
-        data=numpy.arange(25, dtype="f8"),
+        data=numpy.arange(25, dtype="f8") - 12,
         fEntries=6.0,
         fTsumw=6.0,
         fTsumw2=6.0,
@@ -285,6 +285,21 @@ def test_th1_to_numpy_dd():
     assert edges.tolist() == [0.0, 1.0, 2.0, 3.0]
 
 
+def test_th2_values_and_variances():
+    hist = th2()
+    expected = numpy.transpose((numpy.arange(25) - 12.0).reshape(5, 5))
+    assert numpy.array_equal(hist.values(flow=True), expected)
+
+    # without fSumw2, the variances are |values|, as ROOT's errors are
+    variances = numpy.abs(expected)
+    assert numpy.array_equal(hist.variances(flow=True), variances)
+    assert numpy.array_equal(hist.variances(), variances[1:-1, 1:-1])
+
+    sumw2 = numpy.arange(25, dtype="f8")
+    weighted = th2(sumw2=sumw2).variances(flow=True)
+    assert numpy.array_equal(weighted, numpy.transpose(sumw2.reshape(5, 5)))
+
+
 def test_th3_values_and_variances():
     hist = th3()
     expected = numpy.transpose((numpy.arange(125) - 62.0).reshape(5, 5, 5))
@@ -355,6 +370,10 @@ def test_profile_values_and_errors(make, index):
     }
 
     assert hist.values()[index].tolist() == expected_values
+    # the variances behind histogram equality are the squared errors
+    values, variances = hist._values_variances(flow=False)
+    assert values[index].tolist() == expected_values
+    assert variances[index] == pytest.approx(expected_errors[""] ** 2)
     for mode, errors in expected_errors.items():
         assert hist.errors(error_mode=mode)[index] == pytest.approx(errors)
         assert hist.variances(error_mode=mode)[index] == pytest.approx(errors**2)

@@ -72,7 +72,7 @@ def serve(get=None, head=None):
         server.server_close()
 
 
-@pytest.fixture(autouse=True, scope="module")
+@pytest.fixture(autouse=True)
 def nothing_is_left_open():
     # a response left open is a ResourceWarning (hence an error) when the garbage
     # collector gets to it; make that happen here, not in somebody else's test
@@ -797,18 +797,24 @@ class Stream:
 
 @pytest.mark.timeout(60)  # a bug in readline can make it spin forever
 def test_response_buffer_read_and_readline():
-    buffer = _ResponseBuffer(Stream(b"first\nsecond\n" + b"x" * 2000))
+    lines = b"first\nsecond\n"
+    num_x = 2000
+    assert len(lines) < _ResponseBuffer.CHUNK < len(lines) + num_x
+    buffer = _ResponseBuffer(Stream(lines + b"x" * num_x))
     assert buffer.readline() == b"first\n"
     assert buffer.readline() == b"second\n"
 
-    # some of this has already been read from the stream, in a block
+    # the rest of the first block read from the stream is already read
+    x_already_read = _ResponseBuffer.CHUNK - len(lines)
     assert buffer.read(3) == b"xxx"
-    assert buffer.read(len(buffer.already_read)) == b"x" * 1008
+    assert len(buffer.already_read) == x_already_read - 3
+    assert buffer.read(len(buffer.already_read)) == b"x" * (x_already_read - 3)
     assert buffer.already_read == b""
     assert buffer.read(10) == b"x" * 10
 
     assert buffer.read(10) == b"x" * 10
-    assert buffer.readline() == b"x" * 969  # ends at the end of the stream
+    # ends at the end of the stream
+    assert buffer.readline() == b"x" * (num_x - x_already_read - 20)
 
 
 def test_response_buffer_read_beyond_what_is_already_read():

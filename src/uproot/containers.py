@@ -878,12 +878,20 @@ in file {selffile.file_path}"""
                 return uproot._util.objectarray1d(out).reshape(-1, *self.inner_shape)
 
     def __eq__(self, other):
-        return (
+        if not (
             isinstance(other, AsArray)
             and self._header == other._header
             and self._speedbump == other._speedbump
-            and self._values == other._values
             and self._inner_shape == other._inner_shape
+        ):
+            return False
+
+        # a numpy.dtype compares equal to anything that numpy.dtype accepts,
+        # such as a Model class (dtype("O")), so only compare like with like
+        return (
+            isinstance(self._values, numpy.dtype)
+            == isinstance(other._values, numpy.dtype)
+            and self._values == other._values
         )
 
 

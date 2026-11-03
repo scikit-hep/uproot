@@ -24,6 +24,16 @@ def test_single_delay_open():
     assert arr.all()
 
 
+def test_multiple_delay_open():
+    filename1 = skhep_testdata.data_path("uproot-Zmumu.root") + ":events"
+    filename2 = skhep_testdata.data_path("uproot-Zmumu-uncompressed.root") + ":events"
+    true_val = uproot.concatenate([filename1, filename2], "px1", library="np")["px1"]
+
+    daskarr = uproot.dask([filename1, filename2], open_files=False, library="np")["px1"]
+    assert daskarr.chunks == ((numpy.nan, numpy.nan),)
+    assert numpy.array_equal(daskarr.compute(), true_val)
+
+
 @pytest.mark.parametrize("open_files", [False, True])
 @pytest.mark.parametrize("library", ["np", "ak"])
 def test_supplied_steps(open_files, library):

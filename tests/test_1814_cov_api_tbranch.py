@@ -615,3 +615,19 @@ def test_subbranches_with_the_same_name(tmp_path):
         assert parent["c"] is parent[0]
         assert parent["c"].array(library="np").tolist() == [0, 10, 20]
         assert parent[1].array(library="np").tolist() == [0, 100, 200]
+
+
+def test_steps_within_an_already_read_basket_request_nothing():
+    # px1 is a single basket, so after the first of the 24 steps, the rest come from
+    # the basket cache and no more requests are made to the source
+    with uproot.open(skhep_testdata.data_path("uproot-Zmumu.root")) as file:
+        tree = file["events"]
+        assert tree["px1"].num_baskets == 1
+        source = file.file.source
+        before = source.num_requests
+        steps = list(tree.iterate(["px1"], step_size=100, library="np"))
+        assert len(steps) == 24
+        assert source.num_requests - before == 1
+        assert np.array_equal(
+            np.concatenate([x["px1"] for x in steps]), tree["px1"].array(library="np")
+        )

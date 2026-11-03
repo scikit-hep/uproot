@@ -214,6 +214,63 @@ def test_serialize_with_bases(header):
         assert b"".join(out) == prefix + payload
 
 
+TATT_MEMBERS = {
+    "TAttLine_v2": (
+        {"fLineColor": 2, "fLineStyle": 3, "fLineWidth": 4},
+        struct.pack(">hhh", 2, 3, 4),
+        2,
+    ),
+    "TAttFill_v2": (
+        {"fFillColor": 5, "fFillStyle": 1001},
+        struct.pack(">hh", 5, 1001),
+        2,
+    ),
+    "TAttMarker_v2": (
+        {"fMarkerColor": 6, "fMarkerStyle": 20, "fMarkerSize": 1.5},
+        struct.pack(">hhf", 6, 20, 1.5),
+        2,
+    ),
+    "TAttAxis_v4": (
+        {
+            "fNdivisions": 510,
+            "fAxisColor": 1,
+            "fLabelColor": 2,
+            "fLabelFont": 42,
+            "fLabelOffset": 0.5,
+            "fLabelSize": 0.25,
+            "fTickLength": 0.75,
+            "fTitleOffset": 1.0,
+            "fTitleSize": 0.125,
+            "fTitleColor": 3,
+            "fTitleFont": 62,
+        },
+        struct.pack(">ihhhfffffhh", 510, 1, 2, 42, 0.5, 0.25, 0.75, 1.0, 0.125, 3, 62),
+        4,
+    ),
+    "TAtt3D_v1": ({}, b"", 1),
+}
+
+
+@pytest.mark.parametrize("header", [True, False])
+@pytest.mark.parametrize("name", sorted(TATT_MEMBERS))
+def test_tatt_serialize_with_bases(name, header):
+    """The TAtt classes don't have bases in ROOT, but they would be serialized first."""
+    members, payload, version = TATT_MEMBERS[name]
+    obj = getattr(uproot.models.TAtt, "Model_" + name).empty()
+    obj._members.update(members)
+    base = uproot.models.TObject.Model_TObject.empty()
+    base._members["@fUniqueID"] = 7
+    obj._bases.append(base)
+
+    out = []
+    obj._serialize(out, header, None, numpy.uint32(0))
+    payload = b"\x00\x01" + struct.pack(">II", 7, 0) + payload
+    prefix = b""
+    if header:
+        prefix = struct.pack(">IH", kByteCount | (2 + len(payload)), version)
+    assert b"".join(out) == prefix + payload
+
+
 def test_tstring(file):
     data = b"\x05hello"
     obj, cursor = read(uproot.models.TString.Model_TString, data, file)
@@ -381,7 +438,8 @@ def test_tref_branch():
 
 
 def test_tref(file):
-    data = struct.pack(">HIHI", 7, 1234, 0, 0)
+    # TObject version, fUniqueID (the reference), fBits (kNotDeleted), pidf
+    data = struct.pack(">HIIH", 1, 1234, 0x02000000, 0)
     obj, cursor = read(uproot.models.TRef.Model_TRef, data, file)
     assert cursor.index == 12
     assert obj.ref == 1234
@@ -490,7 +548,8 @@ def clones_data(item_classname, items):
             payload += b"\x01" + (
                 struct.pack(">IH", kByteCount | (2 + len(body)), 1) + body
             )
-    return struct.pack(">IH", kByteCount | (2 + len(payload)), 5) + payload
+    # ClassDef(TClonesArray, 4)
+    return struct.pack(">IH", kByteCount | (2 + len(payload)), 4) + payload
 
 
 @pytest.mark.parametrize(

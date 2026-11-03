@@ -937,6 +937,13 @@ class TListOfStreamers(CascadeNode):
         where = len(self._rawstreamers)
 
         for streamer in streamers:
+            if not isinstance(
+                streamer, (uproot.streamers.Model_TStreamerInfo, RawStreamerInfo)
+            ):
+                raise TypeError(
+                    f"streamers must be TStreamerInfo or RawStreamerInfo, not {type(streamer).__name__}"
+                )
+
             pair = (streamer.name, streamer.class_version)
             if pair not in self._lookup:
                 self._lookup.add(pair)
@@ -954,14 +961,9 @@ class TListOfStreamers(CascadeNode):
                         )
                     )
 
-                elif isinstance(streamer, RawStreamerInfo):
+                else:
                     self._rawstreamers.append(
                         streamer.copy_to(self._key.location + self.num_bytes)
-                    )
-
-                else:
-                    raise TypeError(
-                        f"streamers must be TStreamerInfo or RawStreamerInfo, not {type(streamer).__name__}"
                     )
 
         self.more_dependencies(*self._rawstreamers[where:])

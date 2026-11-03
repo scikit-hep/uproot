@@ -370,14 +370,17 @@ def test_unpickled_in_a_process_without_the_dynamic_class(monkeypatch):
     assert again.member("fName") == expected["fName"]
 
 
-def test_dynamic_getattr_returns_the_same_class(monkeypatch):
+def test_dynamic_getattr_returns_the_same_class():
     name = "Model_NotInAnyFile_v1"
-    monkeypatch.delitem(vars(uproot.dynamic), name, raising=False)
-    first = uproot.dynamic.__getattr__(name)
-    assert issubclass(first, uproot.model.DynamicModel)
-    assert uproot.dynamic.__getattr__(name) is first
-    assert uproot.dynamic.Model_NotInAnyFile_v1 is first
-    monkeypatch.delitem(vars(uproot.dynamic), name)
+    assert name not in vars(uproot.dynamic)
+    try:
+        first = uproot.dynamic.__getattr__(name)
+        assert issubclass(first, uproot.model.DynamicModel)
+        assert uproot.dynamic.__getattr__(name) is first
+        assert uproot.dynamic.Model_NotInAnyFile_v1 is first
+    finally:
+        vars(uproot.dynamic).pop(name, None)
+    assert name not in vars(uproot.dynamic)
 
 
 def test_behavior_of_tbranchelement():

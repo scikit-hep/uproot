@@ -554,13 +554,15 @@ skip_without_sparse_files = pytest.mark.skipif(
 
 @skip_without_sparse_files
 @pytest.mark.parametrize("data", [None, {"x": np.array([1.5, 2.5])}])
-def test_rntuple_past_the_big_file_boundary(tmp_path, data):
+# past 2 GiB, the anchor's key can't hold its location in a 4-byte fSeekKey
+@pytest.mark.parametrize("num_bytes", [kStartBigFile, 2**31 + 1000])
+def test_rntuple_past_the_big_file_boundary(tmp_path, data, num_bytes):
     path = tmp_path / "big.root"
     with uproot.recreate(path, compression=None) as file:
         file["small"] = "before the boundary"
-        make_big(file)
-        # the anchor's key is written small, and so must be its copy in the
-        # directory's list of keys, which readers take fKeylen from
+        make_big(file, num_bytes)
+        # the anchor's key is big, and so must be its copy in the directory's
+        # list of keys, which readers take fKeylen from
         if data is None:
             file.mkrntuple("ntuple", {"x": "float64"})
         else:
@@ -568,6 +570,9 @@ def test_rntuple_past_the_big_file_boundary(tmp_path, data):
 
     with uproot.open(path) as file:
         assert file["small"] == "before the boundary"
+        key = file.key("ntuple")
+        assert key.fSeekKey >= num_bytes
+        assert key.fVersion > 1000  # a big key
         ntuple = file["ntuple"]
         assert ntuple.num_entries == (0 if data is None else 2)
         assert ntuple.arrays()["x"].tolist() == ([] if data is None else [1.5, 2.5])

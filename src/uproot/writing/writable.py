@@ -1223,8 +1223,8 @@ class WritableDirectory(MutableMapping):
                 "tleaf_special_struct": _struct.Struct(">" + sc + sc),
             }
             # only a registered custom interpretation could make a leafless TBranch
-            # interpretable; everything else skips it above
-            if _leaves:  # pragma: no branch  (see above)
+            # interpretable; it can't be extended (see _rewrite_blockers)
+            if _leaves:
                 bd["leaf_name"] = _leaves[0].member("fName")
                 bd["leaf_title"] = _leaves[0].member("fTitle")
             if dtype == ">U0":

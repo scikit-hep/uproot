@@ -409,20 +409,44 @@ def test_truncated_and_ranged_in_a_file_from_root():
         assert tree["array_10"].array(library="np").shape == (len(expected), 3)
 
 
-def test_final_array_of_not_only_awkward_baskets(tree):
-    branch = tree["x"]
+def test_final_array_of_mixed_string_baskets():
+    # Whether basket_array returns an awkward array or a StringArray depends
+    # on whether each TBasket has entry offsets; build one of each from the
+    # same real TBasket, which has none.
+    with uproot.open(skhep_testdata.data_path("uproot-issue413.root")) as file:
+        branch = file["mytree"]["Str"]
+        basket = branch.basket(0)
+        interpretation = branch.interpretation
+        assert basket.byte_offsets is None
 
-    result = AsStrings().final_array(
-        {0: awkward.Array(["ab", "c"]), 1: numpy.array(["d"])},
-        1,
-        3,
-        [0, 2, 3],
-        ak,
-        branch,
-        {},
-    )
+        def basket_array(library):
+            return interpretation.basket_array(
+                basket.data,
+                basket.byte_offsets,
+                basket,
+                branch,
+                branch.context,
+                basket.member("fKeylen"),
+                library,
+                {},
+            )
 
-    assert result.tolist() == ["c", "d"]
+        as_awkward = basket_array(ak)
+        as_string_array = basket_array(np)
+        assert isinstance(as_awkward, awkward.Array)
+        assert isinstance(as_string_array, StringArray)
+
+        strings = [f"evt-{i}" for i in range(5)]
+        for baskets in [
+            {0: as_awkward, 1: as_string_array},
+            {0: as_string_array, 1: as_awkward},
+        ]:
+            result = interpretation.final_array(
+                baskets, 3, 7, [0, 5, 10], ak, branch, {}
+            )
+            assert isinstance(result, awkward.Array)
+            assert str(result.type) == "4 * string"
+            assert result.tolist() == strings[3:] + strings[:2]
 
 
 def test_string_array():

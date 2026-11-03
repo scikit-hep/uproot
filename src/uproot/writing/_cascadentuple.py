@@ -1161,7 +1161,6 @@ class NTuple(CascadeNode):
             anchor_raw_data,
             len(anchor_raw_data),
             replaces=self._key,
-            big=False,
         )
         self._anchor.location = self._key.location + self._key.allocation
         #### Anchor end ##############################

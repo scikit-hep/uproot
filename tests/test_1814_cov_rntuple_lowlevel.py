@@ -149,6 +149,21 @@ def test_unknown_field_role(tmp_path):
             file["ntuple"].arrays()
 
 
+def test_split_column_of_an_unsupported_bit_width(tmp_path):
+    path = _write(tmp_path / "file.root", {"x": np.arange(4, dtype=np.int32)})
+
+    def patch(header, fields, columns):
+        split_int32 = uproot.const.rntuple_col_type_to_num_dict["splitint32"]
+        _set_column_type(header, columns, 0, split_int32)
+        struct.pack_into("<H", header, columns[0] + 2, 24)  # the column's bit width
+
+    _rewrite_header(path, patch)
+    with uproot.open(path) as file:
+        assert file["ntuple"].column_records[0].nbits == 24
+        with pytest.raises(ValueError, match="split column 0 has 24 bits"):
+            file["ntuple"].arrays()
+
+
 def test_string_column_without_chars(tmp_path):
     path = _write(tmp_path / "file.root", {"s": ak.Array(["a", "bb"])})
 
@@ -408,3 +423,68 @@ def test_linked_attribute_set():
     assert linked.locator.num_bytes == 100
     assert linked.locator.offset == 200
     assert linked.attribute_set_name == "attributes"
+
+
+def _with_a_wider_representation(path, column_type, nbits):
+    """
+    Turns the column of ``x`` into ``column_type`` and makes the column of ``y`` a
+    second (wider) representation of ``x``, as when a field changes representation
+    from one cluster to another.
+    """
+
+    def patch(header, fields, columns):
+        _set_column_type(
+            header,
+            columns,
+            0,
+            uproot.const.rntuple_col_type_to_num_dict[column_type],
+        )
+        struct.pack_into("<H", header, columns[0] + 2, nbits)
+        _set_column_field(header, columns, 1, 0)
+
+    _rewrite_header(path, patch)
+
+
+def test_zigzag_column_with_a_wider_representation(tmp_path):
+    values = [-32768, 32767, -1, 0, 16384, -16385, 1, -2]
+    # the zigzag encoding of the values, (v << 1) ^ (v >> 15), by hand
+    zigzag = np.array([65535, 65534, 1, 0, 32768, 32769, 2, 3], dtype="<u2")
+    # a split column stores the low bytes of all values, then the high bytes
+    split = zigzag.view(np.uint8).reshape(-1, 2).T.ravel().view("<i2")
+    path = _write(
+        tmp_path / "file.root",
+        {"x": split, "y": np.zeros(len(values), dtype=np.int32)},
+    )
+    _with_a_wider_representation(path, "splitint16", 16)
+
+    with uproot.open(path) as file:
+        ntuple = file["ntuple"]
+        field_metadata = ntuple.get_field_metadata(0)
+        assert field_metadata.zigzag
+        assert field_metadata.dtype == np.dtype("int16")
+        assert field_metadata.dtype_result == np.dtype("int32")
+        out = ntuple.read_cluster_range(0, 0, 1)
+    assert out.dtype == np.dtype("int32")
+    assert out.tolist() == values
+
+
+def test_truncated_float_column_with_a_wider_representation(tmp_path):
+    values = [1.5, -2.25, 0.0, 1024.0]
+    # the 16 high bits of each float32, packed one after the other
+    packed = np.array([0x3FC0, 0xC010, 0x0000, 0x4480], dtype="<u2").tobytes()
+    # the page is read as far as the truncated floats need, the rest is ignored
+    x = np.frombuffer(packed + bytes(len(packed)), dtype=np.float32)
+    path = _write(
+        tmp_path / "file.root",
+        {"x": x, "y": np.zeros(len(values), dtype=np.float64)},
+    )
+    _with_a_wider_representation(path, "real32trunc", 16)
+
+    with uproot.open(path) as file:
+        ntuple = file["ntuple"]
+        field_metadata = ntuple.get_field_metadata(0)
+        assert field_metadata.dtype_str == "real32trunc"
+        assert field_metadata.dtype_result == np.dtype("float64")
+        out = ntuple.read_cluster_range(0, 0, 1)
+    assert out.dtype == np.dtype("float64")
+    assert out.tolist() == values

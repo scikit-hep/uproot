@@ -2,6 +2,7 @@
 
 import io
 import shutil
+import types
 import uuid
 
 import awkward as ak
@@ -10,6 +11,7 @@ import pytest
 import skhep_testdata
 
 import uproot
+from uproot.interpretation.custom import CustomInterpretation
 from uproot.writing.writable import WritableNTuple, _regularize_input_type_to_dict
 
 
@@ -661,3 +663,74 @@ def test_jagged_branch_counted_by_another_branch_type(tmp_path):
             tree.add_branches({"y": np.arange(3)})
         with pytest.raises(NotImplementedError, match="TBranchElement"):
             tree.extend({"x": ak.Array([[1.5]])})
+
+
+class LeaflessAsInt32(CustomInterpretation):
+    numpy_dtype = np.dtype(">i4")
+
+    @classmethod
+    def match_branch(cls, branch, context, simplify):
+        return branch.name == "x" and len(branch.member("fLeaves")) == 0
+
+
+def test_extending_a_leafless_branch_with_a_custom_interpretation(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "out.root"
+    with uproot.recreate(path) as file:
+        file.mktree("tree", {"x": "i4"}).extend({"x": np.array([1, 2], ">i4")})
+
+    # no file that Uproot can write has a leafless TBranch, so drop the leaf on reading
+    model = uproot.models.TBranch.Model_TBranch_v13
+    read_members = model.read_members
+
+    def leafless(self, chunk, cursor, context, file):
+        read_members(self, chunk, cursor, context, file)
+        if self.member("fName") == "x":
+            self._members["fLeaves"]._data = []
+
+    monkeypatch.setattr(model, "read_members", leafless)
+    uproot.register_interpretation(LeaflessAsInt32)
+    try:
+        with uproot.update(path) as file:
+            tree = file["tree"]
+            (datum,) = tree._cascading._branch_data
+            assert datum["fName"] == "x"
+            assert datum["dtype"] == np.dtype(">i4")
+            assert datum["tleaf_maximum_value"] == 0
+            assert "leaf_name" not in datum
+            assert "leaf_title" not in datum
+            assert tree._cascading._rewrite_blockers == (
+                "branches with several leaves",
+            )
+            with pytest.raises(NotImplementedError, match="several leaves"):
+                tree.extend({"x": np.array([3], ">i4")})
+    finally:
+        uproot.unregister_interpretation(LeaflessAsInt32)
+        monkeypatch.undo()
+
+    with uproot.open(path) as file:
+        branch = file["tree"]["x"]
+        assert len(branch.member("fLeaves")) == 1
+        assert branch.array(library="np").tolist() == [1, 2]
+
+
+def test_a_streamer_after_a_rejected_one_with_the_same_name(tmp_path):
+    with uproot.open(skhep_testdata.data_path("uproot-HZZ.root")) as file:
+        streamer = file.file.streamer_named("TAttLine", 1)
+    bogus = types.SimpleNamespace(name="TAttLine", class_version=1)
+
+    path = tmp_path / "out.root"
+    with uproot.recreate(path) as file:
+        with pytest.raises(TypeError, match="not SimpleNamespace"):
+            file.file.update_streamers([bogus])
+        file.file.update_streamers([streamer])
+
+    with uproot.open(path) as file:
+        assert list(file.file.streamers) == ["TAttLine"]
+        written = file.file.streamer_named("TAttLine", 1)
+        assert [x.name for x in written.elements] == [
+            "fLineColor",
+            "fLineStyle",
+            "fLineWidth",
+        ]

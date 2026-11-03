@@ -97,6 +97,29 @@ def test_uncompressed_pages_and_cufile_counters():
         assert bytes(expected[:5]) == b"Jakob"
 
 
+@pytest.mark.parametrize(
+    "compression_settings",
+    [0, 5, 100 * uproot.const.kZSTD],  # nothing, algorithm 0, level 0
+)
+def test_compression_settings_of_uncompressed_pages(compression_settings):
+    filename = skhep_testdata.data_path(UNCOMPRESSED)
+    with uproot.open(filename) as file:
+        ntuple = file["Contributors"]
+        ntuple.page_link_list[0][1].compression_settings = compression_settings
+        field_metadata = ntuple.get_field_metadata(1)
+        filehandle = CuFileSource(filename, "rb")
+        payload = ntuple.gpu_read_cluster_pages(0, 1, filehandle, field_metadata)
+        filehandle.get_all()
+        filehandle.close()
+
+        assert payload.algorithm is None
+        assert payload.compression_level == compression_settings % 100
+        payload._decompress()
+        data = ntuple.gpu_deserialize_pages(payload.data, 1, 0, field_metadata)
+        expected = ntuple.read_cluster_range(1, 0, 1)
+        assert cupy.asnumpy(data).tobytes() == expected.tobytes()
+
+
 def test_uncompressed_arrays():
     with uproot.open(skhep_testdata.data_path(UNCOMPRESSED)) as file:
         ntuple = file["Contributors"]
@@ -104,3 +127,62 @@ def test_uncompressed_arrays():
         expected = ntuple.arrays()
     assert len(expected) == 22
     assert ak.to_backend(arrays, "cpu").to_list() == expected.to_list()
+
+
+@pytest.mark.parametrize(
+    ("compression", "first", "compressed"),
+    [
+        # every page is read as is
+        (None, [True, False, True] * 333 + [True], [False, False]),
+        # the first page is compressed, but the second is too small for it
+        (uproot.ZSTD(1), [True] * 1000, [True, False]),
+        # the column is compressed, but neither of its pages
+        (uproot.ZSTD(1), [True, False, False] * 4 + [True], [False, False]),
+    ],
+)
+def test_bit_column_of_many_pages(tmp_path, compression, first, compressed):
+    # uproot writes one page per cluster, so the pages of two clusters are made
+    # the pages of the first; their numbers of bits are not multiples of 8
+    second = [True, False, True, True, False]
+    path = tmp_path / "bits.root"
+    with uproot.recreate(path, compression=compression) as file:
+        ntuple = file.mkrntuple("ntuple", {"b": numpy.array(first)})
+        ntuple.extend({"b": numpy.array(second)})
+
+    with uproot.open(path) as file:
+        ntuple = file["ntuple"]
+        field_metadata = ntuple.get_field_metadata(0)
+        assert field_metadata.isbit
+        first_pages = ntuple.page_link_list[0][0].pages
+        first_pages.extend(ntuple.page_link_list[1][0].pages)
+        assert [page.num_elements for page in first_pages] == [len(first), 5]
+        expected = first + second
+        assert ntuple.read_cluster_pages(0, 0, field_metadata).tolist() == expected
+
+        datas = ntuple.gpu_read_cluster_range(["column-0"], 0, 1)
+        payload = datas.refs[0].fieldpayloads[0]
+        assert [page is not None for page in payload.pages] == compressed
+        assert payload.page_is_compressed == any(compressed)
+        datas._decompress()
+        arrays = ntuple.gpu_deserialize_decompressed_content(datas, 0, 1)
+    assert cupy.asnumpy(arrays[0]).tolist() == expected
+
+
+@pytest.mark.parametrize("compression", [None, uproot.ZSTD(1)])
+def test_bit_column_payload_decompresses_itself(tmp_path, compression):
+    path = tmp_path / "bits.root"
+    values = [True] * 1000 + [False] * 3
+    with uproot.recreate(path, compression=compression) as file:
+        file.mkrntuple("ntuple", {"b": numpy.array(values)})
+
+    with uproot.open(path) as file:
+        ntuple = file["ntuple"]
+        field_metadata = ntuple.get_field_metadata(0)
+        filehandle = CuFileSource(str(path), "rb")
+        payload = ntuple.gpu_read_cluster_pages(0, 0, filehandle, field_metadata)
+        filehandle.get_all()
+        filehandle.close()
+        assert payload.page_is_compressed == (compression is not None)
+        payload._decompress()
+        data = ntuple.gpu_deserialize_pages(payload.data, 0, 0, field_metadata)
+    assert cupy.asnumpy(data).tolist() == values

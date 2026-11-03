@@ -297,8 +297,15 @@ def test_tbranch_64bit_seek_flag(root_version, version, downgrade, minimal):
     assert rewritable.data[bump3] == 1
     rewritable.data[bump3] = 2
 
+    # fBasketSeek is already read as 64-bit, so the flag 2 only needs to be consumed
+    # (one byte): reading the right values after it is what shows that it was.
     branch = rewritable.read(uproot.models.TBranch.Model_TBranch)
     assert_same_baskets(branch, rewritable.branch, version)
+    expected = rewritable.branch.member("fBasketSeek")
+    assert branch.member("fBasketSeek").tolist() == expected.tolist()
+    assert any(x > 0 for x in expected.tolist())
+    if not minimal:
+        assert branch.member("fFileName") == rewritable.branch.member("fFileName")
 
 
 @pytest.mark.parametrize("root_version, version, downgrade", branch_cases)

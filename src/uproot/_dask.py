@@ -820,10 +820,8 @@ def _get_dask_array(
             if explicit_chunks is None:
                 for start in range(entry_start, entry_stop, entry_step):
                     stop = min(start + entry_step, entry_stop)
-                    length = stop - start
-                    if length > 0:  # pragma: no branch  (range steps are non-empty)
-                        chunks.append(length)
-                        chunk_args.append((i, start, stop))
+                    chunks.append(stop - start)
+                    chunk_args.append((i, start, stop))
             else:
                 for start, stop in explicit_chunks[i]:
                     if (not 0 <= start <= entry_stop) or (not 0 <= stop <= entry_stop):
@@ -1985,10 +1983,8 @@ def _get_dak_array(
         if explicit_chunks is None:
             for start in range(entry_start, entry_stop, entry_step):
                 stop = min(start + entry_step, entry_stop)
-                length = stop - start
-                if length > 0:  # pragma: no branch  (range steps are non-empty)
-                    divisions.append(divisions[-1] + length)
-                    partition_args.append((i, start, stop))
+                divisions.append(divisions[-1] + stop - start)
+                partition_args.append((i, start, stop))
         else:
             for start, stop in explicit_chunks[i]:
                 if (not 0 <= start <= entry_stop) or (not 0 <= stop <= entry_stop):

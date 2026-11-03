@@ -25,7 +25,8 @@ dask_awkward = pytest.importorskip("dask_awkward")
 def test_uproot_dask_steps(library, open_files, steps, num_partitions):
     test_path = skhep_testdata.data_path("uproot-Zmumu.root") + ":events"
     columns = ["Type", "Run", "px1", "py2"]
-    arrays = uproot.open(test_path).arrays(columns, library=library)
+    with uproot.open(test_path) as tree:
+        arrays = tree.arrays(columns, library=library)
 
     dask_arrays = uproot.dask(
         test_path, filter_name=columns, library=library, open_files=open_files, **steps
