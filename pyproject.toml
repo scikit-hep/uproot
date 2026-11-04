@@ -142,7 +142,9 @@ filterwarnings = [
   "error",
   "default:module 'sre_.*' is deprecated:DeprecationWarning",
   "ignore:unclosed transport <asyncio.sslproto._SSLProtocolTransport",  # https://github.com/aio-libs/aiohttp/issues/1115
-  "ignore:Implicitly cleaning up <HTTPError 405:ResourceWarning"  # Selenium leaves geckodriver's /shutdown response unclosed (Pyodide tests)
+  "ignore:Implicitly cleaning up <HTTPError 405:ResourceWarning",  # Selenium leaves geckodriver's /shutdown response unclosed (Pyodide tests)
+  "ignore:_pytest.python.CallSpec2 has been renamed:pytest.PytestRemovedIn10Warning",  # anyio's pytest plugin imports it, with pytest 9.2
+  'ignore:The configuration option "asyncio_default_fixture_loop_scope" is unset:pytest.PytestDeprecationWarning'  # pytest-asyncio, which no test uses
 ]
 log_level = "INFO"
 markers = [
