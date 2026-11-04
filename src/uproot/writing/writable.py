@@ -846,37 +846,13 @@ class WritableDirectory(MutableMapping):
 
         Note that this does not read any data from the file.
         """
-        filter_name = uproot._util.regularize_filter(filter_name)
-        filter_classname = uproot._util.regularize_filter(filter_classname)
-
-        def names():
-            for keyname, cyclenum, classname in self._cascading.data.key_triples:
-                if (filter_name is no_filter or filter_name(keyname)) and (
-                    filter_classname is no_filter or filter_classname(classname)
-                ):
-                    if cycle:
-                        yield f"{keyname};{cyclenum}"
-                    else:
-                        yield keyname
-
-                if recursive and classname in ("TDirectory", "TDirectoryFile"):
-                    for k1 in self._get(keyname, cyclenum).iterkeys(
-                        recursive=recursive,
-                        cycle=cycle,
-                        filter_name=filter_name,
-                        filter_classname=filter_classname,
-                    ):
-                        k2 = f"{keyname}/{k1}"
-                        k3 = k2[: k2.index(";")] if ";" in k2 else k2
-                        if filter_name is no_filter or filter_name(k3):
-                            yield k2
-
-        # without cycle numbers, each name once (as ReadOnlyDirectory does)
-        seen = set()
-        for name in names():
-            if name not in seen:
-                seen.add(name)
-                yield name
+        yield from self._iter(
+            "keys",
+            recursive=recursive,
+            cycle=cycle,
+            filter_name=filter_name,
+            filter_classname=filter_classname,
+        )
 
     def itervalues(
         self,
@@ -934,14 +910,13 @@ class WritableDirectory(MutableMapping):
         Note that this reads all objects that are selected by ``filter_name``
         and ``filter_classname``.
         """
-        # without a cycle number, a name is its highest cycle, as in self[name]
-        for keyname in self.iterkeys(
+        yield from self._iter(
+            "items",
             recursive=recursive,
             cycle=cycle,
             filter_name=filter_name,
             filter_classname=filter_classname,
-        ):
-            yield keyname, self[keyname]
+        )
 
     def iterclassnames(
         self,
@@ -967,28 +942,79 @@ class WritableDirectory(MutableMapping):
 
         Note that this does not read any data from the file.
         """
+        yield from self._iter(
+            "classnames",
+            recursive=recursive,
+            cycle=cycle,
+            filter_name=filter_name,
+            filter_classname=filter_classname,
+        )
+
+    def _iter(
+        self,
+        what,
+        *,
+        recursive=True,
+        cycle=True,
+        filter_name=no_filter,
+        filter_classname=no_filter,
+    ):
+        """
+        Private generator shared by ``iterkeys``, ``iteritems``, and
+        ``iterclassnames``, like :ref:`uproot.reading.ReadOnlyDirectory._iter`.
+        The ``what`` argument selects what is yielded: ``"keys"`` yields names
+        (str), ``"items"`` yields (name, object) pairs, and ``"classnames"``
+        yields (name, classname) pairs.
+        """
         filter_name = uproot._util.regularize_filter(filter_name)
         filter_classname = uproot._util.regularize_filter(filter_classname)
-        for keyname, cyclenum, classname in self._cascading.data.key_triples:
+
+        triples = self._cascading.data.key_triples
+        if not cycle:
+            # without cycle numbers, a name stands for its highest cycle, as in
+            # self[name], so the cycles of each name are visited from the highest
+            order = {}
+            for keyname, _, _ in triples:
+                order.setdefault(keyname, len(order))
+            triples = sorted(triples, key=lambda t: (order[t[0]], -t[1]))
+
+        seen = set()
+        for keyname, cyclenum, classname in triples:
             if (filter_name is no_filter or filter_name(keyname)) and (
                 filter_classname is no_filter or filter_classname(classname)
             ):
-                if cycle:
-                    yield f"{keyname};{cyclenum}", classname
-                else:
-                    yield keyname, classname
+                out = f"{keyname};{cyclenum}" if cycle else keyname
+                if out not in seen:
+                    seen.add(out)
+                    if what == "keys":
+                        yield out
+                    elif what == "items":
+                        yield out, self._get(keyname, cyclenum)
+                    else:
+                        yield out, classname
 
             if recursive and classname in ("TDirectory", "TDirectoryFile"):
-                for k1, c1 in self._get(keyname, cyclenum).iterclassnames(
+                for sub in self._get(keyname, cyclenum)._iter(
+                    what,
                     recursive=recursive,
                     cycle=cycle,
-                    filter_name=filter_name,
+                    filter_name=no_filter,
                     filter_classname=filter_classname,
                 ):
+                    if what == "keys":
+                        k1 = sub
+                    else:
+                        k1, v = sub
                     k2 = f"{keyname}/{k1}"
                     k3 = k2[: k2.index(";")] if ";" in k2 else k2
-                    if filter_name is no_filter or filter_name(k3):
-                        yield k2, c1
+                    if (filter_name is no_filter or filter_name(k3)) and (
+                        k2 not in seen
+                    ):
+                        seen.add(k2)
+                        if what == "keys":
+                            yield k2
+                        else:
+                            yield k2, v
 
     def _get_del_search(self, where, isget):
         if "/" in where or ":" in where:

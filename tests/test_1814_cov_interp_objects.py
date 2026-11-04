@@ -421,13 +421,20 @@ def test_models_that_cannot_be_forth(raw_branch, model, entries, expected):
 
 
 def test_map_read_empty_has_no_keys(raw_branch):
-    branch = raw_branch([size(0)])
+    # objectwise, each pair is a key followed by its value
+    branch = raw_branch([size(0), size(2) + ints(5, 50, 6, 60)])
     result = branch.array(
         interpretation=AsObjects(AsMap(False, i4, i4), branch), library="np"
     )
     assert isinstance(result[0], STLMap)
     assert len(result[0]) == 0
     assert result[0].tolist() == {}
+    assert result[1].tolist() == {5: 50, 6: 60}
+    # an empty map has the dtypes of the others
+    assert result[0].keys().dtype == result[1].keys().dtype == numpy.dtype(numpy.int32)
+    assert (
+        result[0].values().dtype == result[1].values().dtype == numpy.dtype(numpy.int32)
+    )
 
 
 def test_array_with_header_does_not_read_past_itself(raw_branch):

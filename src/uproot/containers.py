@@ -47,6 +47,16 @@ def _content_cache_key(content):
         return content.cache_key
 
 
+def _empty_like_nested(model):
+    """
+    An empty array of the type that :ref:`uproot.containers._read_nested` returns.
+    """
+    if isinstance(model, numpy.dtype):
+        return numpy.empty(0, model)
+    else:
+        return numpy.empty(0, _stl_object_type)
+
+
 def _read_nested(
     model, length, chunk, cursor, context, file, selffile, parent, header=True
 ):
@@ -1478,7 +1488,10 @@ class AsMap(AsContainer):
             if forth_obj is not None:
                 raise uproot.interpretation.objects.CannotBeForth()
             length = cursor.field(chunk, _stl_container_size, context)
-            keys, values = [], []
+            # start from empty arrays of the right dtype, so that an empty map
+            # has the same dtypes as the others
+            keys = [_empty_like_nested(self._keys)]
+            values = [_empty_like_nested(self._values)]
             # objectwise, strings are written without a header
             keys_header = not isinstance(self._keys, AsString)
             values_header = not isinstance(self._values, AsString)
@@ -1509,11 +1522,7 @@ class AsMap(AsContainer):
                         header=values_header,
                     )
                 )
-            if length == 0:
-                keys, values = [numpy.empty(0, _stl_object_type)] * 2
-            else:
-                keys, values = numpy.concatenate(keys), numpy.concatenate(values)
-            out = STLMap(keys, values)
+            out = STLMap(numpy.concatenate(keys), numpy.concatenate(values))
             if self._header and header:
                 uproot.deserialization.numbytes_check(
                     chunk,

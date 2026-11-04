@@ -734,3 +734,77 @@ def test_a_streamer_after_a_rejected_one_with_the_same_name(tmp_path):
             "fLineStyle",
             "fLineWidth",
         ]
+
+
+@pytest.fixture
+def two_cycles_of_each(tmp_path):
+    # h;1 is a TH1D and h;2 an RNTuple; d/x;1 and d/x;2 are TH1Ds of 1 and 2 entries
+    path = tmp_path / "cycles.root"
+    with uproot.recreate(path) as file:
+        file["h"] = np.histogram([1, 2, 3])
+        file["d/x"] = np.histogram([1])
+        file["d/x"] = np.histogram([1, 2])
+    with uproot.update(path) as file:
+        file["h"] = {"x": np.array([1, 2, 3])}
+    return path
+
+
+def summary(directory, **kwargs):
+    def describe(obj):
+        if isinstance(obj, (uproot.ReadOnlyDirectory, uproot.WritableDirectory)):
+            return "directory"
+        elif isinstance(obj, uproot.writing.writable.WritableNTuple):
+            return "ROOT::RNTuple"
+        elif obj.classname == "TH1D":
+            return f"TH1D of {obj.member('fEntries'):g}"
+        else:
+            return obj.classname
+
+    return (
+        list(directory.iterkeys(**kwargs)),
+        list(directory.iterclassnames(**kwargs)),
+        [(name, describe(obj)) for name, obj in directory.iteritems(**kwargs)],
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        (
+            {"cycle": False},
+            (
+                ["h", "d", "d/x"],
+                [("h", "ROOT::RNTuple"), ("d", "TDirectory"), ("d/x", "TH1D")],
+                [("h", "ROOT::RNTuple"), ("d", "directory"), ("d/x", "TH1D of 2")],
+            ),
+        ),
+        (
+            # the highest cycle that passes the filter
+            {"cycle": False, "filter_classname": "TH1*"},
+            (
+                ["h", "d/x"],
+                [("h", "TH1D"), ("d/x", "TH1D")],
+                [("h", "TH1D of 3"), ("d/x", "TH1D of 2")],
+            ),
+        ),
+        (
+            {"cycle": False, "filter_name": "d/*"},
+            (["d/x"], [("d/x", "TH1D")], [("d/x", "TH1D of 2")]),
+        ),
+        (
+            {"cycle": True, "filter_name": "d/x"},
+            (
+                ["d/x;1", "d/x;2"],
+                [("d/x;1", "TH1D"), ("d/x;2", "TH1D")],
+                [("d/x;1", "TH1D of 1"), ("d/x;2", "TH1D of 2")],
+            ),
+        ),
+    ],
+)
+def test_names_without_cycles_are_their_highest_cycle(
+    two_cycles_of_each, kwargs, expected
+):
+    with uproot.update(two_cycles_of_each) as file:
+        assert summary(file, **kwargs) == expected
+    with uproot.open(two_cycles_of_each) as file:
+        assert summary(file, **kwargs) == expected

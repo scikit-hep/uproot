@@ -1782,8 +1782,17 @@ class ReadOnlyDirectory(Mapping):
         """
         filter_name = uproot._util.regularize_filter(filter_name)
         filter_classname = uproot._util.regularize_filter(filter_classname)
+        keys = self._keys
+        if not cycle:
+            # without cycle numbers, a name stands for its highest cycle, as in
+            # self[name], so the cycles of each name are visited from the highest
+            order = {}
+            for key in keys:
+                order.setdefault(key.fName, len(order))
+            keys = sorted(keys, key=lambda key: (order[key.fName], -key.fCycle))
+
         seen = set()
-        for key in self._keys:
+        for key in keys:
             if (filter_name is no_filter or filter_name(key.fName)) and (
                 filter_classname is no_filter or filter_classname(key.fClassName)
             ):
