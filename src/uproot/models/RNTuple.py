@@ -1498,28 +1498,21 @@ in file {self.file.file_path}"""
             field_metadata.dtype_byte
             == uproot.const.rntuple_col_type_to_num_dict["switch"]
         ):
-            array_library_string = uproot._util.get_array_library(array)
-            library = numpy if array_library_string == "numpy" else uproot.extras.cupy()
             tags = array["tag"]
             indices = array["index"]
             for i in range(1, len(starts)):
                 start = starts[i]
-                stop = starts[i + 1] if i + 1 < len(starts) else len(array)
-                if start == stop:
+                stop = starts[i + 1] if i + 1 < len(starts) else None
+                if stop is not None and start == stop:
                     continue
                 prev_tags = tags[:start]
                 curr_tags = tags[start:stop]
-                unique_tags = library.unique(curr_tags).tolist()
-                for t in unique_tags:
+                for t in set(curr_tags.tolist()):
                     if t == 0:
                         continue
-                    tag_offset = int(library.count_nonzero(prev_tags == t))
-                    if tag_offset != 0:
-                        indices[start:stop] = library.where(
-                            curr_tags == t,
-                            indices[start:stop] + tag_offset,
-                            indices[start:stop],
-                        )
+                    tag_offset = int((prev_tags == t).sum())
+                    if tag_offset > 0:
+                        indices[start:stop][curr_tags == t] += tag_offset
 
 
 def _extract_bits(packed, nbits):

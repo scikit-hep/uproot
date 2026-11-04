@@ -110,3 +110,59 @@ def test_rntuple_variant_multicluster_scalars(tmp_path):
         n = f["n"]
         assert n.arrays().x.tolist() == [1, "first", 2, "second"]
         assert n.arrays(entry_start=1, entry_stop=3).x.tolist() == ["first", 2]
+
+
+def test_rntuple_variant_multicluster_disjoint_tags(tmp_path):
+    import numpy as np
+
+    c1 = ak.Array([1, 2]).layout
+    c2 = ak.Array(["a", "b"]).layout
+    u1 = ak.Array(
+        ak.contents.UnionArray(
+            tags=ak.index.Index8(np.array([0, 0], dtype=np.int8)),
+            index=ak.index.Index64(np.array([0, 1], dtype=np.int64)),
+            contents=[c1, c2],
+        )
+    )
+    u2 = ak.Array(
+        ak.contents.UnionArray(
+            tags=ak.index.Index8(np.array([1, 1], dtype=np.int8)),
+            index=ak.index.Index64(np.array([0, 1], dtype=np.int64)),
+            contents=[c1, c2],
+        )
+    )
+
+    path = tmp_path / "var_disjoint.root"
+    with uproot.recreate(path) as f:
+        f["n"] = {"x": u1}
+        f["n"].extend({"x": u2})
+
+    with uproot.open(path) as f:
+        n = f["n"]
+        assert n.arrays().x.tolist() == [1, 2, "a", "b"]
+
+
+def test_rntuple_variant_combine_cluster_arrays_unit(tmp_path):
+    import numpy as np
+
+    path = tmp_path / "var_unit.root"
+    with uproot.recreate(path) as f:
+        f["n"] = {"x": ak.Array([[1], "a"])}
+        f["n"].extend({"x": ak.Array([[2], "b"])})
+
+    with uproot.open(path) as f:
+        n = f["n"]
+        meta = n.get_field_metadata(0)
+        assert meta.dtype_byte == uproot.const.rntuple_col_type_to_num_dict["switch"]
+
+        # Empty cluster in middle: start == stop
+        arr_empty = np.zeros(4, dtype=[("index", np.int64), ("tag", np.int32)])
+        arr_empty["tag"] = [1, 2, 1, 2]
+        n.combine_cluster_arrays(arr_empty, [0, 2, 2], meta)
+        assert list(arr_empty["index"]) == [0, 0, 1, 1]
+
+        # Tag 0 sentinel preservation
+        arr_tag0 = np.zeros(4, dtype=[("index", np.int64), ("tag", np.int32)])
+        arr_tag0["tag"] = [1, 0, 0, 1]
+        n.combine_cluster_arrays(arr_tag0, [0, 2], meta)
+        assert list(arr_tag0["index"]) == [0, 0, 0, 1]
