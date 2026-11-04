@@ -1494,6 +1494,32 @@ in file {self.file.file_path}"""
                 if start == stop:
                     continue
                 array[start:stop] += array[start - 1]
+        elif (
+            field_metadata.dtype_byte
+            == uproot.const.rntuple_col_type_to_num_dict["switch"]
+        ):
+            array_library_string = uproot._util.get_array_library(array)
+            library = numpy if array_library_string == "numpy" else uproot.extras.cupy()
+            tags = array["tag"]
+            indices = array["index"]
+            for i in range(1, len(starts)):
+                start = starts[i]
+                stop = starts[i + 1] if i + 1 < len(starts) else len(array)
+                if start == stop:
+                    continue
+                prev_tags = tags[:start]
+                curr_tags = tags[start:stop]
+                unique_tags = library.unique(curr_tags).tolist()
+                for t in unique_tags:
+                    if t == 0:
+                        continue
+                    tag_offset = int(library.count_nonzero(prev_tags == t))
+                    if tag_offset != 0:
+                        indices[start:stop] = library.where(
+                            curr_tags == t,
+                            indices[start:stop] + tag_offset,
+                            indices[start:stop],
+                        )
 
 
 def _extract_bits(packed, nbits):
