@@ -16,7 +16,8 @@ extra = [
   "dask[array,distributed]",
   "hist>=1.2",
   "pandas",
-  "awkward-pandas"
+  "awkward-pandas",
+  "scipy"
 ]
 test = [
   "aiohttp",

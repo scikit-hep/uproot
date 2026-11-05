@@ -2119,3 +2119,222 @@ def to_TProfile3D(
     tprofile3d._deeply_writable = th3x._deeply_writable
 
     return tprofile3d
+
+
+def _is_weighted_histogram(hist):
+    fSumw2 = hist.member("fSumw2", none_if_missing=True)
+    if fSumw2 is None or len(fSumw2) == 0:
+        return False
+    return not numpy.array_equal(
+        numpy.asarray(fSumw2), numpy.asarray(hist.values(flow=True)).T.reshape(-1)
+    )
+
+
+def to_TEfficiency(
+    fName,
+    fTitle,
+    fPassedHistogram,
+    fTotalHistogram,
+    fStatisticOption="kFCP",
+    fConfLevel=0.682689492137,
+    fBeta_alpha=1.0,
+    fBeta_beta=1.0,
+    fBeta_bin_params=None,
+    fWeight=1.0,
+    use_weights=None,
+    posterior_mode=False,
+    shortest_interval=False,
+    fLineColor=1,
+    fLineStyle=1,
+    fLineWidth=1,
+    fFillColor=19,
+    fFillStyle=1001,
+    fMarkerColor=1,
+    fMarkerStyle=1,
+    fMarkerSize=1.0,
+):
+    """
+    Args:
+        fName (None or str): Name of the efficiency object (and the prefix of the
+            names of its histograms, ``<fName>_passed`` and ``<fName>_total``).
+        fTitle (str): Title of the efficiency object.
+        fPassedHistogram (:doc:`uproot.behaviors.TH1.Histogram` or other histogram): Histogram
+            of events that passed the selection. Anything that
+            :doc:`uproot.writing.identify.to_writable` converts into a ROOT
+            ``TH1``, ``TH2``, or ``TH3`` (e.g. a ``hist.Hist``, a
+            ``boost_histogram.Histogram``, or a ``numpy.histogram`` tuple) is
+            accepted.
+        fTotalHistogram (:doc:`uproot.behaviors.TH1.Histogram` or other histogram): Histogram
+            of all events, with the same binning as ``fPassedHistogram``.
+        fStatisticOption (str or int): Method used for confidence intervals:
+            ``"kFCP"`` (Clopper-Pearson, ROOT's default), ``"kFNormal"``,
+            ``"kFWilson"``, ``"kFAC"``, ``"kFFC"``, ``"kBJeffrey"``,
+            ``"kBUniform"``, ``"kBBayesian"``, or ``"kMidP"`` (or the
+            corresponding integer value of ``TEfficiency::EStatOption``).
+        fConfLevel (float): Confidence level of the intervals.
+        fBeta_alpha (float): Global alpha parameter of the beta prior. Overridden
+            for ``"kBJeffrey"`` (0.5) and ``"kBUniform"`` (1), as in ROOT.
+        fBeta_beta (float): Global beta parameter of the beta prior. Overridden
+            for ``"kBJeffrey"`` (0.5) and ``"kBUniform"`` (1), as in ROOT.
+        fBeta_bin_params (None, numpy structured array with fields ``"first"`` and ``"second"``, or array-like of shape ``(n, 2)``):
+            Per-bin (alpha, beta) parameters of the beta prior, indexed by ROOT
+            global bin number. If not empty, per-bin priors are enabled.
+        fWeight (float): Global weight of this efficiency (used when combining).
+        use_weights (None or bool): If True, the histograms are treated as
+            weighted (sum of weights and sum of squared weights per bin). If
+            None, this is True if either histogram has squared weights that
+            differ from its bin contents.
+        posterior_mode (bool): If True, use the mode of the posterior as the
+            efficiency estimate (and the shortest interval), as
+            ``TEfficiency::SetPosteriorMode``. Only relevant for Bayesian options.
+        shortest_interval (bool): If True, use the shortest (rather than
+            central) interval. Only relevant for Bayesian options.
+        fLineColor (int): Line color. (https://root.cern.ch/doc/master/classTAttLine.html)
+        fLineStyle (int): Line style.
+        fLineWidth (int): Line width.
+        fFillColor (int): Fill area color. (https://root.cern.ch/doc/master/classTAttFill.html)
+        fFillStyle (int): Fill area style.
+        fMarkerColor (int): Marker color. (https://root.cern.ch/doc/master/classTAttMarker.html)
+        fMarkerStyle (int): Marker style.
+        fMarkerSize (float): Marker size.
+
+    Creates a ``TEfficiency`` object that can be written to ROOT files.
+
+    .. code-block:: python
+
+        import hist, uproot
+
+        total = hist.Hist.new.Reg(10, 0, 100, name="pt").Double().fill(pt_all)
+        passed = hist.Hist.new.Reg(10, 0, 100, name="pt").Double().fill(pt_pass)
+
+        with uproot.recreate("output.root") as file:
+            file["eff"] = uproot.writing.identify.to_TEfficiency(
+                "eff", "efficiency;p_{T};#epsilon", passed, total
+            )
+    """
+    import uproot.behaviors.TEfficiency
+    import uproot.models.TEfficiency
+
+    passed = to_writable(fPassedHistogram)
+    total = to_writable(fTotalHistogram)
+    for which, hist in (("passed", passed), ("total", total)):
+        if not isinstance(hist, uproot.behaviors.TH1.Histogram) or isinstance(
+            hist, uproot.behaviors.TProfile.Profile
+        ):
+            raise TypeError(
+                f"the {which} histogram of a TEfficiency must be a TH1, TH2, or TH3 (not a profile), not {type(fPassedHistogram if which == 'passed' else fTotalHistogram).__name__}"
+            )
+
+    if len(passed.axes) != len(total.axes):
+        raise ValueError(
+            "the passed and total histograms of a TEfficiency must have the same number of dimensions"
+        )
+    for passed_axis, total_axis in zip(passed.axes, total.axes, strict=True):
+        if not numpy.array_equal(passed_axis.edges(), total_axis.edges()):
+            raise ValueError(
+                "the passed and total histograms of a TEfficiency must have the same binning"
+            )
+
+    if isinstance(fStatisticOption, str):
+        try:
+            fStatisticOption = uproot.behaviors.TEfficiency.statistic_options.index(
+                fStatisticOption
+            )
+        except ValueError:
+            raise ValueError(
+                f"unrecognized TEfficiency statistic option {fStatisticOption!r}; expected one of {uproot.behaviors.TEfficiency.statistic_options}"
+            ) from None
+    elif (
+        not 0 <= fStatisticOption < len(uproot.behaviors.TEfficiency.statistic_options)
+    ):
+        raise ValueError(
+            f"unrecognized TEfficiency statistic option {fStatisticOption!r}"
+        )
+    fStatisticOption = int(fStatisticOption)
+
+    # mirror TEfficiency::SetStatisticOption
+    is_bayesian = fStatisticOption in (5, 6, 7)
+    if fStatisticOption == 5:
+        fBeta_alpha = fBeta_beta = 0.5
+    elif fStatisticOption == 6:
+        fBeta_alpha = fBeta_beta = 1.0
+
+    if fBeta_bin_params is None:
+        fBeta_bin_params = numpy.empty(
+            0, dtype=uproot.models.TEfficiency._beta_bin_params_dtype
+        )
+    else:
+        params = numpy.asarray(fBeta_bin_params)
+        if params.dtype.names is None:
+            params = numpy.asarray(params, dtype=numpy.float64).reshape(-1, 2)
+            fBeta_bin_params = numpy.empty(
+                len(params), dtype=uproot.models.TEfficiency._beta_bin_params_dtype
+            )
+            fBeta_bin_params["first"] = params[:, 0]
+            fBeta_bin_params["second"] = params[:, 1]
+        else:
+            fBeta_bin_params = params.astype(
+                uproot.models.TEfficiency._beta_bin_params_dtype
+            )
+
+    if use_weights is None:
+        use_weights = _is_weighted_histogram(passed) or _is_weighted_histogram(total)
+
+    fBits = 0
+    if is_bayesian:
+        fBits |= uproot.behaviors.TEfficiency.kIsBayesian
+    if posterior_mode:
+        fBits |= uproot.behaviors.TEfficiency.kPosteriorMode
+        shortest_interval = True
+    if shortest_interval:
+        fBits |= uproot.behaviors.TEfficiency.kShortestInterval
+    if len(fBeta_bin_params) != 0 and fStatisticOption not in (5, 6):
+        fBits |= uproot.behaviors.TEfficiency.kUseBinPrior
+    if use_weights:
+        fBits |= uproot.behaviors.TEfficiency.kUseWeights
+
+    tobject = uproot.models.TObject.Model_TObject.empty()
+    tobject._members["@fUniqueID"] = 0
+    tobject._members["@fBits"] = fBits
+
+    tnamed = uproot.models.TNamed.Model_TNamed.empty()
+    tnamed._deeply_writable = True
+    tnamed._bases.append(tobject)
+    tnamed._members["fName"] = fName
+    tnamed._members["fTitle"] = fTitle
+
+    tattline = uproot.models.TAtt.Model_TAttLine_v2.empty()
+    tattline._deeply_writable = True
+    tattline._members["fLineColor"] = fLineColor
+    tattline._members["fLineStyle"] = fLineStyle
+    tattline._members["fLineWidth"] = fLineWidth
+
+    tattfill = uproot.models.TAtt.Model_TAttFill_v2.empty()
+    tattfill._deeply_writable = True
+    tattfill._members["fFillColor"] = fFillColor
+    tattfill._members["fFillStyle"] = fFillStyle
+
+    tattmarker = uproot.models.TAtt.Model_TAttMarker_v2.empty()
+    tattmarker._deeply_writable = True
+    tattmarker._members["fMarkerColor"] = fMarkerColor
+    tattmarker._members["fMarkerStyle"] = fMarkerStyle
+    tattmarker._members["fMarkerSize"] = fMarkerSize
+
+    teff = uproot.models.TEfficiency.Model_TEfficiency_v2.empty()
+    teff._bases.append(tnamed)
+    teff._bases.append(tattline)
+    teff._bases.append(tattfill)
+    teff._bases.append(tattmarker)
+    teff._members["fBeta_alpha"] = float(fBeta_alpha)
+    teff._members["fBeta_beta"] = float(fBeta_beta)
+    teff._members["fBeta_bin_params"] = fBeta_bin_params
+    teff._members["fConfLevel"] = float(fConfLevel)
+    teff._members["fFunctions"] = to_TList([])
+    teff._members["fPassedHistogram"] = passed
+    teff._members["fStatisticOption"] = fStatisticOption
+    teff._members["fTotalHistogram"] = total
+    teff._members["fWeight"] = float(fWeight)
+
+    teff._deeply_writable = passed._deeply_writable and total._deeply_writable
+
+    return teff

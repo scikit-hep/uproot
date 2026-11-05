@@ -169,6 +169,26 @@ or
         return boost_histogram
 
 
+def scipy():
+    """
+    Imports and returns ``scipy``.
+    """
+    try:
+        import scipy
+        import scipy.optimize
+        import scipy.special
+    except ModuleNotFoundError as err:
+        raise ModuleNotFoundError("""install the 'scipy' package with:
+
+    pip install scipy
+
+or
+
+    conda install -c conda-forge scipy""") from err
+    else:
+        return scipy
+
+
 def hist():
     """
     Imports and returns ``hist``.

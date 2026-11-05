@@ -106,6 +106,7 @@ def reset_classes():
     reload(uproot.models.RNTuple)
     reload(uproot.models.TH)
     reload(uproot.models.TGraph)
+    reload(uproot.models.TEfficiency)
     reload(uproot.models.TMatrixT)
     reload(uproot.models.TTime)
 
