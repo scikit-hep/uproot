@@ -16,3 +16,8 @@ def test(tmp_path):
 
     with uproot.recreate(filename) as file:
         file.mktree("tree", {"nMuon_pt": nMuon_pt, "Muon_pt": Muon_pt})
+
+    with uproot.open(filename) as file:
+        tree = file["tree"]
+        assert tree["nMuon_pt"].array().tolist() == [1, 2, 3]
+        assert tree["Muon_pt"].array().tolist() == Muon_pt.tolist()

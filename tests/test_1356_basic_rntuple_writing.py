@@ -14,21 +14,6 @@ import uproot
 ak = pytest.importorskip("awkward")
 
 
-def test_flat_arrays(tmp_path):
-    filepath = os.path.join(tmp_path, "test.root")
-
-    with uproot.recreate(filepath) as file:
-        data = ak.Array({"one": [1, 2, 3], "two": [1.1, 2.2, 3.3]})
-        obj = file.mkrntuple("ntuple", data.layout.form)
-        obj.extend(data)
-
-    obj = uproot.open(filepath)["ntuple"]
-    arrays = obj.arrays()
-
-    assert arrays.one.tolist() == data.one.tolist()
-    assert arrays.two.tolist() == data.two.tolist()
-
-
 def test_flat_arrays_ROOT(tmp_path, capfd):
     ROOT = pytest.importorskip("ROOT")
     if ROOT.gROOT.GetVersionInt() < 63400:

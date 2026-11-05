@@ -34,24 +34,7 @@ def test_classname_encoding(tmpdir):
     ) == ("namespace::some.deep<templated, thing>", None)
 
 
-@pytest.mark.parametrize("use_isal", [False, True])
-def test_file_header(use_isal):
-    if use_isal:
-        pytest.importorskip("isal")
-    uproot.ZLIB.use_isal = use_isal
-    filename = skhep_testdata.data_path("uproot-Zmumu.root")
-    file = uproot.reading.ReadOnlyFile(filename)
-    assert repr(file.compression) == "ZLIB(4)"
-    assert not file.is_64bit
-    assert file.fNbytesInfo == 4447
-    assert file.hex_uuid == "944b77d0-98ab-11e7-a769-0100007fbeef"
-
-
-@pytest.mark.parametrize("use_deflate", [False, True])
-def test_file_header(use_deflate):
-    if use_deflate:
-        pytest.importorskip("deflate")
-    uproot.ZLIB.use_deflate = use_deflate
+def test_file_header():
     filename = skhep_testdata.data_path("uproot-Zmumu.root")
     file = uproot.reading.ReadOnlyFile(filename)
     assert repr(file.compression) == "ZLIB(4)"

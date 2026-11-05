@@ -11,5 +11,7 @@ def test_fallback_reading():
     with uproot.open(
         skhep_testdata.data_path("uproot-small-evnt-tree-fullsplit.root")
     ) as f:
-        f["tree:evt/P3/P3.Py"]
+        branch = f["tree:evt/P3/P3.Py"]
+        assert branch.name == "P3.Py"
+        assert branch.array(library="np", entry_stop=3).tolist() == [0.0, 1.0, 2.0]
         assert f.file._streamers is None

@@ -89,12 +89,20 @@ def test_write_form(tmp_path):
         assert rntuple.arrays().tolist() == sliced_data.tolist()
 
 
-def test_write_dict(tmp_path):
+@pytest.mark.parametrize(
+    "extension",
+    [
+        {"a": [1, 2, 3], "b": [1.1, 2.2, 3.3]},
+        {"b": [1.1, 2.2, 3.3], "a": [1, 2, 3]},
+    ],
+    ids=["same_order", "mixed_order"],
+)
+def test_write_dict(tmp_path, extension):
     filepath = os.path.join(tmp_path, "test.root")
 
     with uproot.recreate(filepath) as file:
         rntuple = file.mkrntuple("ntuple", {"a": [1, 2, 3], "b": [1.1, 2.2, 3.3]})
-        rntuple.extend({"a": [1, 2, 3], "b": [1.1, 2.2, 3.3]})
+        rntuple.extend(extension)
 
     with uproot.open(filepath) as file:
         rntuple = file["ntuple"]
@@ -167,19 +175,6 @@ def test_write_pandas(tmp_path):
         ]
 
 
-def test_extend_dict_mixed_order(tmp_path):
-    filepath = os.path.join(tmp_path, "test.root")
-
-    with uproot.recreate(filepath) as file:
-        rntuple = file.mkrntuple("ntuple", {"a": [1, 2, 3], "b": [1.1, 2.2, 3.3]})
-        rntuple.extend({"b": [1.1, 2.2, 3.3], "a": [1, 2, 3]})
-
-    with uproot.open(filepath) as file:
-        rntuple = file["ntuple"]
-        assert rntuple["a"].array().tolist() == [1, 2, 3, 1, 2, 3]
-        assert rntuple["b"].array().tolist() == [1.1, 2.2, 3.3, 1.1, 2.2, 3.3]
-
-
 def test_write_with_setitem(tmp_path):
     filepath = os.path.join(tmp_path, "test.root")
 
@@ -212,7 +207,7 @@ def test_invalid_inputs(tmp_path):
     with uproot.recreate(filepath) as file:
         with pytest.raises(ValueError):
             file["ntuple1"] = {"a": "int32", "b": "float64", "c": np.int64}
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError, match="array must be a RecordArray"):
             file["ntuple2"] = data.layout.contents[0]
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError, match="form must be a RecordForm"):
             file["ntuple3"] = data.layout.contents[0].form

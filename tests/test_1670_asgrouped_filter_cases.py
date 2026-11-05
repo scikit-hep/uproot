@@ -40,6 +40,21 @@ da = pytest.importorskip("dask.array")
 # ---------------------------------------------------------------------------
 
 
+GENPARTICLES_CORE = [
+    "genParticles.core.pdgId",
+    "genParticles.core.charge",
+    "genParticles.core.status",
+    "genParticles.core.vertex.x",
+    "genParticles.core.vertex.y",
+    "genParticles.core.vertex.z",
+    "genParticles.core.p4.mass",
+    "genParticles.core.p4.px",
+    "genParticles.core.p4.py",
+    "genParticles.core.p4.pz",
+    "genParticles.core.bits",
+]
+
+
 def fcc_path():
     return skhep_testdata.data_path("uproot-FCCDelphesOutput.root")
 
@@ -61,9 +76,7 @@ def test_case1_only_parent_eager():
 
     assert arr.fields == ["genParticles"]
     sub = arr["genParticles"]
-    assert len(sub.fields) == 11
-    assert "genParticles.core.pdgId" in sub.fields
-    assert "genParticles.core.p4.mass" in sub.fields
+    assert sub.fields == GENPARTICLES_CORE
     assert sub["genParticles.core.pdgId"][0][:3].tolist() == [11, -11, 11]
 
 
@@ -139,7 +152,7 @@ def test_case3_parent_and_all_children_eager():
     # parent should NOT appear; all 11 core sub-branches should be flat
     assert "genParticles" not in arr.fields
     core_fields = [f for f in arr.fields if f.startswith("genParticles.core")]
-    assert len(core_fields) == 11
+    assert core_fields == GENPARTICLES_CORE
     assert arr["genParticles.core.pdgId"][0][:3].tolist() == [11, -11, 11]
 
 
@@ -187,9 +200,7 @@ def test_case4_parent_and_some_children_eager():
     assert arr.fields == ["genParticles"]
     sub = arr["genParticles"]
     # ALL 11 sub-branches should be present (not just the one that was in the filter)
-    assert len(sub.fields) == 11
-    assert "genParticles.core.pdgId" in sub.fields
-    assert "genParticles.core.p4.mass" in sub.fields
+    assert sub.fields == GENPARTICLES_CORE
     assert sub["genParticles.core.pdgId"][0][:3].tolist() == [11, -11, 11]
 
 

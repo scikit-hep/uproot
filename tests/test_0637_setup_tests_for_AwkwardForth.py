@@ -950,6 +950,10 @@ def test_26():
         branch = file["config/SEL/SEL._firstSteps"]
         interp = uproot.interpretation.identify.interpretation_of(branch, {}, False)
         py = branch.array(interp, library="np", entry_stop=2)
+        assert py.shape == (1,)  # there's only one entry
+        assert py[-1].shape == (1,)
+        assert isinstance(py[-1][0], uproot.containers.STLVector)
+        assert py[-1][0].tolist() == []
         # py[-1] == array([<STLVector [] at 0x7f5060ef49d0>], dtype=object)
 
 
@@ -1048,6 +1052,12 @@ def test_29():
         branch = file["T/eventPack/fGenInfo"]
         interp = uproot.interpretation.identify.interpretation_of(branch, {}, False)
         py = branch.array(interp, library="np", entry_stop=2)
+        assert len(py) == 2
+        assert py[-1].classname == "JPetGeantEventInformation"
+        assert py[-1].instance_version == 3
+        assert py[-1].member("fMaxGammaNumberIndex") == 3
+        assert py[-1].member("fVtxPosition").classname == "TVector3"
+        assert py[-1].member("fGenGammaNum").classname == "TBits"
         # py[-1] == <JPetGeantEventInformation (version 3) at 0x7fd5bdeedac0>
 
 
@@ -1755,6 +1765,16 @@ def test_45():
         branch = file["MCTrack/global"]
         interp = uproot.interpretation.identify.interpretation_of(branch, {}, False)
         py = branch.array(interp, library="np", entry_stop=2)
+        assert [len(x) for x in py] == [145, 142]
+        track = py[-1][0]
+        assert track.classname == "allpix::MCTrack"
+        assert track.member("particle_id_") == 2212
+        assert track.member("origin_g4_vol_name_") == "World"
+        assert track.member("initial_kin_E_") == 120.0
+        assert track.member("final_kin_E_") == pytest.approx(116.63632162357003)
+        assert track.member("start_point_").member("fCoordinates").member(
+            "fZ"
+        ) == pytest.approx(-10.0)
         # py[-1] == <STLVector [<allpix::MCTrack (version 2) at 0x7f88b9a8ad90>, ...] at 0x7f88b9a8ad00>
 
 
@@ -1765,6 +1785,14 @@ def test_46():
         branch = file["MCParticle/detector1"]
         interp = uproot.interpretation.identify.interpretation_of(branch, {}, False)
         py = branch.array(interp, library="np", entry_stop=2)
+        assert [len(x) for x in py] == [121, 116]
+        particle = py[-1][0]
+        assert particle.classname == "allpix::MCParticle"
+        assert particle.member("particle_id_") == 2212
+        assert particle.member("time_") == pytest.approx(0.07104118009984536)
+        assert particle.member("local_start_point_").member("fCoordinates").member(
+            "fZ"
+        ) == pytest.approx(-0.15)
         # py[-1] == <STLVector [<allpix::MCParticle (version 6) at 0x7f94bc223760>, ...] at 0x7f94bc223550>
 
 

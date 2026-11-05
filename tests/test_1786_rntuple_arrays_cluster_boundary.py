@@ -138,7 +138,8 @@ def test_access_log_with_empty_cluster(ntuple_with_empty_cluster):
         entry_start=600, entry_stop=600, virtual=True, access_log=log
     )
     assert ak.materialize(arrays).to_list() == []
-    assert len(log) > 0
+    # the columns of x, of a and b in struct, and of the offsets and content of jagged
+    assert sorted(access.column_index for access in log) == [0, 1, 2, 3, 4]
     assert all(access.cluster_start == access.cluster_stop for access in log)
 
 
@@ -157,3 +158,8 @@ def test_empty_cluster_range_buffers_are_zeroed(ntuple, monkeypatch):
         for cluster_idx in (0, 1):
             buffer = model.read_cluster_range(col_idx, cluster_idx, cluster_idx)
             assert numpy.all(buffer == 0)
+            padded = model.read_cluster_range(
+                col_idx, cluster_idx, cluster_idx, missing_element_padding=3
+            )
+            assert padded.tolist() == [0] * len(padded)
+            assert len(padded) >= 3

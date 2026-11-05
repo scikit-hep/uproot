@@ -14,7 +14,6 @@ def test_schema_extension():
         arrays = obj.arrays()
         int_vec_array = arrays["int_vector"]
 
-        for j in range(2):
-            for i in range(100):
-                assert int_vec_array[i + j * 100, 0] == i
-                assert int_vec_array[i + j * 100, 1] == i + j
+        assert int_vec_array[:200].tolist() == [
+            [i, i + j] for j in range(2) for i in range(100)
+        ]

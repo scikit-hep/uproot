@@ -18,3 +18,4 @@ def test(tmp_path):
 
     with uproot.open(filename) as file:
         assert isinstance(file["tree/branch"].interpretation, uproot.AsJagged)
+        assert file["tree/branch"].array().tolist() == [[1, 2, 3], [4, 5, 6]]

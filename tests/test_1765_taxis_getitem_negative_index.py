@@ -18,11 +18,11 @@ def test_regular_axis_negative_index():
         bins = list(axis)
         for i in range(-100, 100):
             assert axis[i] == tuple(bins[i])
-        with pytest.raises(IndexError):
+        with pytest.raises(IndexError, match="bin index 100 out of range for 100"):
             axis[100]
-        with pytest.raises(IndexError):
+        with pytest.raises(IndexError, match="bin index -101 out of range for 100"):
             axis[-101]
-        with pytest.raises(IndexError):
+        with pytest.raises(IndexError, match="only integers, slices"):
             axis[99.5]
 
 
@@ -65,7 +65,7 @@ def test_variable_axis_negative_index(tmp_path):
         low, high = axis[numpy.array([[0, 2], [1, 0]])]
         assert low.tolist() == [[0.0, 3.0], [1.0, 0.0]]
         assert high.tolist() == [[1.0, 7.0], [3.0, 1.0]]
-        with pytest.raises(IndexError):
+        with pytest.raises(IndexError, match="bin index 3 out of range for 3 bins"):
             axis[3]
-        with pytest.raises(IndexError):
+        with pytest.raises(IndexError, match="bin index -4 out of range for 3 bins"):
             axis[-4]
