@@ -93,7 +93,7 @@ class Model_TBasket(uproot.model.Model):
         )
 
         return interpretation.final_array(
-            [basket_array],
+            {0: basket_array},
             0,
             self.num_entries,
             [0, self.num_entries],

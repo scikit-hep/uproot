@@ -738,6 +738,7 @@ uproot.classes["TLeaf"] = Model_TLeaf
 uproot.classes["TLeafB"] = Model_TLeafB
 uproot.classes["TLeafS"] = Model_TLeafS
 uproot.classes["TLeafI"] = Model_TLeafI
+uproot.classes["TLeafG"] = Model_TLeafG
 uproot.classes["TLeafL"] = Model_TLeafL
 uproot.classes["TLeafF"] = Model_TLeafF
 uproot.classes["TLeafD"] = Model_TLeafD

@@ -14,29 +14,40 @@ from uproot.interpretation.numerical import AsDtype
 from uproot.interpretation.objects import AsObjects
 
 
-@pytest.mark.skip(
-    reason="Implement non-memberwise std::map; we have a sample (map<string,double>)"
-)
 def test_nonmemberwise_asmap():
     with uproot.open(skhep_testdata.data_path("uproot-issue243.root")) as file:
         branch = file["triggerList/triggerMap"]
-        interp = uproot.interpretation.identify.interpretation_of(branch, {}, False)
-        py = branch.array(library="np", entry_stop=2)
+        assert branch.interpretation == AsObjects(
+            AsMap(True, AsString(True), numpy.dtype(">f8"))
+        )
+        py = branch.array(library="np", entry_stop=3)
 
-    with uproot.open(skhep_testdata.data_path("uproot-issue-268.root")) as file:
-        branch = file["aTree/VtxTracks/channels_"]
-        interp = uproot.interpretation.identify.interpretation_of(branch, {}, False)
-        py = branch.array(library="np", entry_stop=2)
+    assert [x.tolist() for x in py] == [
+        {
+            "HLT_2j35_bmv2c1070_split_2j35_bmv2c1085_split_L14J15.0ETA25": 1.0,
+            "HLT_4j35_bmv2c1077_split_L14J15.0ETA25": 1.0,
+        },
+        {
+            "HLT_2j35_bmv2c1070_split_2j35_bmv2c1085_split_L14J15.0ETA25": 1.0,
+            "HLT_4j35_bmv2c1077_split_L14J15.0ETA25": 1.0,
+        },
+        {},
+    ]
 
     with uproot.open(skhep_testdata.data_path("uproot-issue-268.root")) as file:
         branch = file["aTree/VtxTracks2TofHits/match_"]
-        interp = uproot.interpretation.identify.interpretation_of(branch, {}, False)
-        py = branch.array(library="np", entry_stop=2)
+        assert branch.interpretation == AsObjects(
+            AsMap(True, numpy.dtype(">i2"), numpy.dtype(">i2"))
+        )
+        match = branch.array(library="np", entry_stop=2)
+        inverted = file["aTree/VtxTracks2TofHits/match_inverted_"].array(
+            library="np", entry_stop=2
+        )
 
-    with uproot.open(skhep_testdata.data_path("uproot-issue-268.root")) as file:
-        branch = file["aTree/VtxTracks2TofHits/match_inverted_"]
-        interp = uproot.interpretation.identify.interpretation_of(branch, {}, False)
-        py = branch.array(library="np", entry_stop=2)
+    assert list(match[0].tolist().items())[:4] == [(0, 0), (3, 1), (5, 2), (9, 3)]
+    assert [len(x) for x in match] == [29, 20]
+    for forward, backward in zip(match, inverted, strict=True):
+        assert {v: k for k, v in forward.tolist().items()} == backward.tolist()
 
 
 def test_nonmemberwise_asmap_in_memberwise_vector_is_not_implemented():
