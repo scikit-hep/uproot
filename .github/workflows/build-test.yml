@@ -68,7 +68,6 @@ jobs:
             conda-forge/label/python_rc::_python_rc
             python=${{ matrix.python-version }}
             ${{ matrix.root-version == 'latest' && 'root' || matrix.root-version == '6.32' && 'root=6.32.*' || '' }}
-            ${{ matrix.root-version && 'anyio>=4.15' || '' }}
             ${{ matrix.coverage && 'xrootd' || '' }}
           micromamba-version: 2.6.0-0   # unpin when there is a release newer than 2.6.1-0
 
