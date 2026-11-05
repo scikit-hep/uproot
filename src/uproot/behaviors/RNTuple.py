@@ -213,14 +213,10 @@ class HasFields(Mapping):
             # Also include the field itself
             keys = [self.path] + [f"{self.path}.{k}" for k in keys]
             if top_collection is None:
-                # The field needs to be in the keys or be a parent of a field in the keys
-                if any(
-                    key.startswith(f"{self.path}.") or key == self.path for key in keys
-                ):
-                    top_names.append(self.name)
-                    record_list.append(
-                        rntuple.field_form(self.field_id, keys, ak_add_doc=ak_add_doc)
-                    )
+                top_names.append(self.name)
+                record_list.append(
+                    rntuple.field_form(self.field_id, keys, ak_add_doc=ak_add_doc)
+                )
             else:
                 keys += [top_collection.path]
                 top_names.append(top_collection.name)
@@ -689,6 +685,7 @@ class HasFields(Mapping):
                 library=library,
                 backend=backend,
                 interpreter=interpreter,
+                ak_add_doc=ak_add_doc,
                 how=how,
                 filter_branch=filter_branch,
             )

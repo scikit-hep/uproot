@@ -329,11 +329,7 @@ class NTuple_Header(CascadeLeaf):
         super().__init__(location, aloc)
 
     def __repr__(self):
-        return "{}({}, {})".format(
-            type(self).__name__,
-            self._location,
-            ", ".join([repr(x) for x in self._akform]),
-        )
+        return f"{type(self).__name__}({self._location}, {self._akform!r})"
 
     def _build_field_col_records(
         self, akform, field_name=None, parent_fid=None, add_field=True, description=""
@@ -1172,7 +1168,6 @@ class NTuple(CascadeNode):
             anchor_raw_data,
             len(anchor_raw_data),
             replaces=self._key,
-            big=False,
         )
         self._anchor.location = self._key.location + self._key.allocation
         #### Anchor end ##############################
@@ -1291,18 +1286,9 @@ def _to_packed(layout):
     This is similar to `to_packed` in Awkward, but a bit more consistent.
     """
     match layout.__class__:
-        case awkward.contents.BitMaskedArray:
-            next = layout.to_IndexedOptionArray64()
-            content = _to_packed(next._content[: layout.length])
-            return awkward.contents.IndexedOptionArray(
-                next._index, content, parameters=next.parameters
-            )
-        case awkward.contents.ByteMaskedArray:
-            next = layout.to_IndexedOptionArray64()
-            content = _to_packed(next._content[: layout._mask.length])
-            return awkward.contents.IndexedOptionArray(
-                next._index, content, parameters=next.parameters
-            )
+        case awkward.contents.BitMaskedArray | awkward.contents.ByteMaskedArray:
+            # the content of an option has no entries for the missing values on disk
+            return _to_packed(layout.to_IndexedOptionArray64())
         case awkward.contents.EmptyArray:
             return layout
         case awkward.contents.IndexedArray:
