@@ -14,42 +14,48 @@ def _members_after_headers(branch):
 
 
 def test_xyz_vector_with_headers():
-    file = uproot.open(skhep_testdata.data_path("uproot-issue-513.root"))
-    trkana = file["TrkAnaNeg/trkana"]
-    branch = trkana["demcent/_mom"]
-    array = branch.array()
+    with uproot.open(skhep_testdata.data_path("uproot-issue-513.root")) as file:
+        trkana = file["TrkAnaNeg/trkana"]
+        branch = trkana["demcent/_mom"]
+        array = branch.array()
 
-    assert len(array) == 101
-    assert array.fields == ["fCoordinates"]
-    assert array.fCoordinates.fields == ["fX", "fY", "fZ"]
+        assert len(array) == 101
+        assert array.fields == ["fCoordinates"]
+        assert array.fCoordinates.fields == ["fX", "fY", "fZ"]
 
-    # a Mu2e conversion electron: close to 105 MeV/c, less what it lost on its way
-    first = array[0].fCoordinates
-    assert (first.fX, first.fY, first.fZ) == pytest.approx(
-        (-11.16814136505127, 85.2090835571289, 57.95511245727539)
-    )
-    assert numpy.sqrt(first.fX**2 + first.fY**2 + first.fZ**2) == pytest.approx(
-        103.654, abs=0.001
-    )
+        # a Mu2e conversion electron: close to 105 MeV/c, less what it lost on its way
+        first = array[0].fCoordinates
+        assert (first.fX, first.fY, first.fZ) == pytest.approx(
+            (-11.16814136505127, 85.2090835571289, 57.95511245727539)
+        )
+        assert numpy.sqrt(
+            first.fX**2 + first.fY**2 + first.fZ**2
+        ) == pytest.approx(103.654, abs=0.001)
 
-    expected = _members_after_headers(branch)
-    numpy.testing.assert_array_equal(array.fCoordinates.fX.to_numpy(), expected[:, 0])
-    numpy.testing.assert_array_equal(array.fCoordinates.fY.to_numpy(), expected[:, 1])
-    numpy.testing.assert_array_equal(array.fCoordinates.fZ.to_numpy(), expected[:, 2])
+        expected = _members_after_headers(branch)
+        numpy.testing.assert_array_equal(
+            array.fCoordinates.fX.to_numpy(), expected[:, 0]
+        )
+        numpy.testing.assert_array_equal(
+            array.fCoordinates.fY.to_numpy(), expected[:, 1]
+        )
+        numpy.testing.assert_array_equal(
+            array.fCoordinates.fZ.to_numpy(), expected[:, 2]
+        )
 
 
 def test_xyz_vector_with_headers_in_numpy():
-    file = uproot.open(skhep_testdata.data_path("uproot-issue-513.root"))
-    branch = file["TrkAnaNeg/trkana"]["demcent/_mom"]
-    array = branch.array(entry_start=99, library="np")
+    with uproot.open(skhep_testdata.data_path("uproot-issue-513.root")) as file:
+        branch = file["TrkAnaNeg/trkana"]["demcent/_mom"]
+        array = branch.array(entry_start=99, library="np")
 
-    assert len(array) == 2
-    expected = _members_after_headers(branch)[99:]
-    for vector, (x, y, z) in zip(array, expected, strict=True):
-        coordinates = vector.member("fCoordinates")
-        assert coordinates.member("fX") == x
-        assert coordinates.member("fY") == y
-        assert coordinates.member("fZ") == z
+        assert len(array) == 2
+        expected = _members_after_headers(branch)[99:]
+        for vector, (x, y, z) in zip(array, expected, strict=True):
+            coordinates = vector.member("fCoordinates")
+            assert coordinates.member("fX") == x
+            assert coordinates.member("fY") == y
+            assert coordinates.member("fZ") == z
 
 
 @pytest.mark.parametrize(
