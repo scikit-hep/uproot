@@ -225,11 +225,11 @@ jobs:
 
       - name: Run pytest (Chrome)
         run: |
-          pytest -vv --dist-dir=./pyodide-dist/ --runner=selenium --runtime=chrome tests-wasm
+          pytest -vv -o asyncio_default_fixture_loop_scope=function --dist-dir=./pyodide-dist/ --runner=selenium --runtime=chrome tests-wasm
 
       - name: Run pytest (Firefox)
         run: |
-          pytest -vv --dist-dir=./pyodide-dist/ --runner=selenium --runtime=firefox tests-wasm
+          pytest -vv -o asyncio_default_fixture_loop_scope=function --dist-dir=./pyodide-dist/ --runner=selenium --runtime=firefox tests-wasm
 
   gpu-build:
     name: GPU test with CUDA ${{ matrix.cuda-version }}
