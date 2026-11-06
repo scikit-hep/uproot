@@ -30,11 +30,11 @@ def th1(data=(0, 1, 2, 3, 0), sumw2=(), dtype="f8", xaxis=None):
     )
 
 
-def th2(sumw2=()):
+def th2(sumw2=(), data=None, dtype="f8"):
     return identify.to_TH2x(
         fName="h2",
         fTitle="title",
-        data=numpy.arange(25, dtype="f8") - 12,
+        data=numpy.arange(25, dtype="f8") - 12 if data is None else data,
         fEntries=6.0,
         fTsumw=6.0,
         fTsumw2=6.0,
@@ -49,11 +49,11 @@ def th2(sumw2=()):
     )
 
 
-def th3(sumw2=()):
+def th3(sumw2=(), data=None, dtype="f8"):
     return identify.to_TH3x(
         fName="h3",
         fTitle="title",
-        data=numpy.arange(125, dtype="f8") - 62,
+        data=numpy.arange(125, dtype="f8") - 62 if data is None else data,
         fEntries=6.0,
         fTsumw=6.0,
         fTsumw2=6.0,
@@ -167,6 +167,22 @@ def test_th1_variances_without_and_with_sumw2():
     assert hist.variances().tolist() == [1.0, 2.0, 3.0]
     assert hist.variances(flow=True).tolist() == [0.0, 1.0, 2.0, 3.0, 0.0]  # cached
     assert th1(sumw2=(0, 7, 8, 9, 0)).variances().tolist() == [7.0, 8.0, 9.0]
+
+
+@pytest.mark.parametrize("dtype", ["i1", "i2", "i4"])
+@pytest.mark.parametrize("ndim", [1, 2, 3])
+def test_variances_of_the_lowest_integer_content(ndim, dtype):
+    # the absolute value of the lowest integer doesn't fit in its own dtype
+    lowest = numpy.iinfo(dtype).min
+    data = numpy.zeros(5**ndim, dtype=dtype)
+    data[len(data) // 2] = lowest  # the central bin, which isn't a flow bin
+    hist = {1: th1, 2: th2, 3: th3}[ndim](data=data, dtype=dtype)
+
+    variances = hist.variances(flow=True)
+    assert variances.dtype == numpy.dtype(numpy.float64)
+    assert variances.min() == 0
+    assert variances.max() == -float(lowest)
+    assert hist.errors().max() == numpy.sqrt(-float(lowest))
 
 
 def test_th2_values_and_variances():

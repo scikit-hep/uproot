@@ -323,7 +323,7 @@ class TH1(Histogram):
                 variances[positive] = sumw2[positive]
             else:
                 # like ROOT's TH1::GetBinError, the error is sqrt(|content|)
-                variances[...] = numpy.abs(values)
+                variances[...] = numpy.abs(values.astype(numpy.float64))
             self._variances = variances
 
         if flow:
