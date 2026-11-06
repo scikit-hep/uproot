@@ -39,7 +39,7 @@ This guide will help you get started with contributing.
    pip install boost_histogram
    pip install hist
    pip install dask_awkward
-   pip install awkward-pandas
+   pip install pyarrow
    pip install pytest-timeout
    pip install fsspec-xrootd
    pip install uv

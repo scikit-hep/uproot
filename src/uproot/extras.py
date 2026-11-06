@@ -283,19 +283,19 @@ def graphed_executors():
         return graphed_executors
 
 
-def awkward_pandas():
+def akimbo_pandas():
     """
-    Imports and returns ``awkward_pandas``.
+    Imports and returns ``akimbo.pandas``.
     """
     try:
-        import awkward_pandas
+        import akimbo.pandas
     except ModuleNotFoundError as err:
-        raise ModuleNotFoundError("""install the 'awkward-pandas' package with:
-    pip install awkward-pandas
+        raise ModuleNotFoundError("""install the 'akimbo' package with:
+    pip install akimbo
 or
-    conda install -c conda-forge awkward-pandas""") from err
+    conda install -c conda-forge akimbo""") from err
     else:
-        return awkward_pandas
+        return akimbo.pandas
 
 
 def cupy():

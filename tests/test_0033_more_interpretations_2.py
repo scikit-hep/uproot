@@ -26,7 +26,8 @@ def test_awkward_strings():
 
 def test_pandas_strings():
     pandas = pytest.importorskip("pandas")
-    pytest.importorskip("awkward_pandas")
+    pytest.importorskip("pyarrow")
+    pytest.importorskip("akimbo")
     with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
         "tree"
     ] as tree:
@@ -73,7 +74,8 @@ def test_leaflist_awkward():
 
 def test_leaflist_pandas():
     pandas = pytest.importorskip("pandas")
-    pytest.importorskip("awkward_pandas")
+    pytest.importorskip("pyarrow")
+    pytest.importorskip("akimbo")
     with uproot.open(skhep_testdata.data_path("uproot-leaflist.root"))["tree"] as tree:
         result = tree["leaflist"].array(library="pd")
 
@@ -107,7 +109,8 @@ def test_fixed_width_awkward():
 
 def test_fixed_width_pandas():
     pandas = pytest.importorskip("pandas")
-    pytest.importorskip("awkward_pandas")
+    pytest.importorskip("pyarrow")
+    pytest.importorskip("akimbo")
     with uproot.open(
         skhep_testdata.data_path("uproot-sample-6.20.04-uncompressed.root")
     )["sample"] as tree:
@@ -125,7 +128,8 @@ def test_fixed_width_pandas():
 
 def test_fixed_width_pandas_2():
     pandas = pytest.importorskip("pandas")
-    pytest.importorskip("awkward_pandas")
+    pytest.importorskip("pyarrow")
+    pytest.importorskip("akimbo")
     with uproot.open(skhep_testdata.data_path("uproot-small-evnt-tree-fullsplit.root"))[
         "tree"
     ] as tree:

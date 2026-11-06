@@ -1433,7 +1433,8 @@ def test_awkward_nosplit_file():
 
 def test_pandas_TVector2():
     pandas = pytest.importorskip("pandas")
-    pytest.importorskip("awkward_pandas")
+    pytest.importorskip("pyarrow")
+    pytest.importorskip("akimbo")
     with uproot.open(skhep_testdata.data_path("uproot-HZZ-objects.root"))[
         "events"
     ] as tree:
@@ -1445,25 +1446,26 @@ def test_pandas_TVector2():
 
 def test_pandas_vector_TLorentzVector():
     pandas = pytest.importorskip("pandas")
-    pytest.importorskip("awkward_pandas")
+    pytest.importorskip("pyarrow")
+    pytest.importorskip("akimbo")
     with uproot.open(skhep_testdata.data_path("uproot-HZZ-objects.root"))[
         "events"
     ] as tree:
         result = tree["muonp4"].array(library="pd")
 
-        assert result.ak["fP", "fX"][0].tolist() == [
+        assert result.ak["fP", "fX"][0] == [
             -52.89945602416992,
             37.7377815246582,
         ]
-        assert result.ak["fP", "fY"][0].tolist() == [
+        assert result.ak["fP", "fY"][0] == [
             -11.654671669006348,
             0.6934735774993896,
         ]
-        assert result.ak["fP", "fZ"][0].tolist() == [
+        assert result.ak["fP", "fZ"][0] == [
             -8.16079330444336,
             -11.307581901550293,
         ]
-        assert result.ak["fE"][0].tolist() == [
+        assert result.ak["fE"][0] == [
             54.77949905395508,
             39.401695251464844,
         ]

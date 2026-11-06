@@ -81,7 +81,8 @@ The following libraries are also useful in conjunction with Uproot, but are not 
 **For exporting TTrees to [Pandas](https://pandas.pydata.org/):**
 
    * `pandas`: if `library="pd"`.
-   * `awkward-pandas`: if `library="pd"` and the data have irregular structure ("jagged" arrays), see [awkward-pandas](https://github.com/intake/awkward-pandas).
+   * `pyarrow`: if `library="pd"` and the data have irregular structure ("jagged" arrays), see [pyarrow](https://arrow.apache.org/docs/python).
+   * `akimbo`: if `library="pd"`, the `.ak` accessor for Awkward data is provided by [akimbo](https://github.com/intake/akimbo).
 
 **For exporting histograms:**
 

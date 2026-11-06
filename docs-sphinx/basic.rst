@@ -657,27 +657,27 @@ These "nested" NumPy arrays are not slicable as multidimensional arrays because 
     # File "<stdin>", line 1, in <module>
     # IndexError: too many indices for array: array is 1-dimensional, but 2 were indexed
 
-The Pandas form for this type of data is a DataFrame with Awkward Dtype, provided by the `awkward-pandas <https://github.com/intake/awkward-pandas>`__ package.
+The Pandas form for this type of data is a DataFrame with PyArrow dtype, provided by the `Pandas ArrowExtensionArray <https://pandas.pydata.org/docs/reference/api/pandas.arrays.ArrowExtensionArray.html>`__ type.
 
 .. code-block:: python
 
     >>> events.arrays(filter_name="/(Jet|Muon)_P[xyz]/", library="pd")
-                                                     Jet_Px  ...                                   Muon_Pz
-    0                                                    []  ...  [-8.16079330444336, -11.307581901550293]
-    1                                  [-38.87471389770508]  ...                      [20.199968338012695]
-    2                                                    []  ...   [11.168285369873047, 36.96519088745117]
-    3     [-71.6952133178711, 36.60636901855469, -28.866...  ...   [403.84844970703125, 335.0942077636719]
-    4                [3.880161762237549, 4.979579925537109]  ...  [-89.69573211669922, 20.115053176879883]
-    ...                                                 ...  ...                                       ...
-    2416                                [37.07146453857422]  ...                      [61.715789794921875]
-    2417           [-33.19645690917969, -26.08602523803711]  ...                       [160.8179168701172]
-    2418                              [-3.7148184776306152]  ...                      [-52.66374969482422]
-    2419          [-36.36128616333008, -15.256871223449707]  ...                       [162.1763153076172]
-    2420                                                 []  ...                       [54.71943664550781]
+                                    Jet_Px  ...                  Muon_Pz
+    0                                     []  ...  [ -8.160793 -11.307582]
+    1                           [-38.874714]  ...              [20.199968]
+    2                                     []  ...    [11.168285 36.96519 ]
+    3     [-71.69521   36.60637  -28.866419]  ...    [403.84845 335.0942 ]
+    4                  [3.8801618 4.97958  ]  ...  [-89.69573   20.115053]
+    ...                                  ...  ...                      ...
+    2416                         [37.071465]  ...               [61.71579]
+    2417             [-33.196457 -26.086025]  ...              [160.81792]
+    2418                        [-3.7148185]  ...              [-52.66375]
+    2419             [-36.361286 -15.256871]  ...              [162.17632]
+    2420                                  []  ...              [54.719437]
 
     [2421 rows x 6 columns]
 
-You can operate on Awkward Array data in Pandas using the ``.ak`` accessor; see the [awkward-pandas documentation](https://awkward-pandas.readthedocs.io/en/latest/quickstart.html).
+You can operate on Awkward Array data in Pandas using the ``.ak`` accessor; see the [akimbo documentation](https://akimbo.readthedocs.io/en/latest/quickstart.html).
 
 Before Uproot 5.0, Uproot exploded this data with a `MultiIndex <https://pandas.pydata.org/pandas-docs/stable/user_guide/advanced.html>`__, such that each Pandas cell contains a number, not a list or other type. You can still do this using Awkward Array and `ak.to_dataframe <https://awkward-array.org/doc/main/reference/generated/ak.to_dataframe.html>`__:
 

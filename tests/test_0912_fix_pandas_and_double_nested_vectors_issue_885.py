@@ -46,15 +46,15 @@ def test_pandas_and_double_nested_vectors_issue_885(tmp_path):
 
     with uproot.open(filename)["mytree"] as fs:
         u = fs.arrays(["2Dvector", "1Dvector", "othervector"], library="pd")
-        assert isinstance(u["2Dvector"][0], ak.highlevel.Array)
-        assert isinstance(u["1Dvector"][0], ak.highlevel.Array)
-        assert isinstance(u["othervector"][0], ak.highlevel.Array)
-        assert ak.to_list(u["2Dvector"][0]) == [[0, 1, 2], [0, 1, 2, 3, 4]]
-        assert ak.to_list(u["1Dvector"][0]) == [1, 2, 3, 4]
-        assert ak.to_list(u["othervector"][0]) == [0, 1, 3, 4, 5, 6, 7, 8, 9]
+        assert isinstance(u["2Dvector"][0], list)
+        assert isinstance(u["1Dvector"][0], list)
+        assert isinstance(u["othervector"][0], list)
+        assert u["2Dvector"][0] == [[0.0, 1.0, 2.0], [0.0, 1.0, 2.0, 3.0, 4.0]]
+        assert u["1Dvector"][0] == [1, 2, 3, 4]
+        assert u["othervector"][0] == [0, 1, 3, 4, 5, 6, 7, 8, 9]
 
         branch = fs["2Dvector"]
         interp = uproot.interpretation.identify.interpretation_of(branch, {}, False)
         interp._forth = False
         u2 = branch.array(interp, library="pd")
-        assert isinstance(u2[0], ak.highlevel.Array)
+        assert isinstance(u2[0], list)
