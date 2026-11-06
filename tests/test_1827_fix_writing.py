@@ -801,6 +801,32 @@ def test_a_streamer_after_a_rejected_one_with_the_same_name(tmp_path):
         ]
 
 
+def test_a_rejected_batch_of_streamers_adds_none_of_them(tmp_path):
+    with uproot.open(skhep_testdata.data_path("uproot-HZZ.root")) as file:
+        line = file.file.streamer_named("TAttLine", 1)
+        fill = file.file.streamer_named("TAttFill", 1)
+    bogus = types.SimpleNamespace(name="Bogus", class_version=1)
+
+    path = tmp_path / "out.root"
+    with uproot.recreate(path) as file:
+        # the valid streamer before the invalid one must not be half-added
+        with pytest.raises(TypeError, match="not SimpleNamespace"):
+            file.file.update_streamers([line, bogus])
+        file.file.update_streamers([line, fill])
+
+    with uproot.open(path) as file:
+        assert sorted(file.file.streamers) == ["TAttFill", "TAttLine"]
+        assert [x.name for x in file.file.streamer_named("TAttLine", 1).elements] == [
+            "fLineColor",
+            "fLineStyle",
+            "fLineWidth",
+        ]
+        assert [x.name for x in file.file.streamer_named("TAttFill", 1).elements] == [
+            "fFillColor",
+            "fFillStyle",
+        ]
+
+
 @pytest.fixture
 def two_cycles_of_each(tmp_path):
     # h;1 is a TH1D and h;2 an RNTuple; d/x;1 and d/x;2 are TH1Ds of 1 and 2 entries

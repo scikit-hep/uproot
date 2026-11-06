@@ -934,8 +934,8 @@ class TListOfStreamers(CascadeNode):
         return self._freesegments
 
     def update_streamers(self, sink, streamers, flush=True):
-        where = len(self._rawstreamers)
-
+        # check them all before adding any, so that a rejected batch changes nothing
+        streamers = list(streamers)
         for streamer in streamers:
             if not isinstance(
                 streamer, (uproot.streamers.Model_TStreamerInfo, RawStreamerInfo)
@@ -944,6 +944,9 @@ class TListOfStreamers(CascadeNode):
                     f"streamers must be TStreamerInfo or RawStreamerInfo, not {type(streamer).__name__}"
                 )
 
+        where = len(self._rawstreamers)
+
+        for streamer in streamers:
             pair = (streamer.name, streamer.class_version)
             if pair not in self._lookup:
                 self._lookup.add(pair)
