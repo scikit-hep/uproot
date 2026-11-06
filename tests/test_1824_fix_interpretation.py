@@ -13,6 +13,7 @@ import skhep_testdata
 
 import uproot
 import uproot._util
+from uproot._awkwardforth import Node
 import uproot.interpretation.custom
 import uproot.interpretation.grouped
 from uproot.containers import (
@@ -1844,3 +1845,62 @@ def test_streamer_element_version_3_reads_its_range():
     assert element.member("fXmin") == 0.0
     assert element.member("fXmax") == 1.0
     assert element.member("fFactor") == 255.0
+
+
+def test_forth_node_str_indents_every_child():
+    node = Node(
+        "outer",
+        pre_code=["pre\n"],
+        post_code=["post\n"],
+        init_code=["init\n"],
+        header_code=["header\n"],
+        form_details={"class": "RecordArray"},
+        field_name="field",
+        children=[
+            Node("first"),
+            Node("second", children=[Node("third"), Node("fourth")]),
+        ],
+    )
+
+    assert str(node) == """Node('outer',
+  pre='pre\\n',
+  post='post\\n',
+  init='init\\n',
+  header='header\\n',
+  form_details={"class": "RecordArray"},
+  field_name='field',
+  children=[
+  Node('first',
+    pre='',
+    post='',
+    init='',
+    header='',
+    form_details={},
+    field_name=None,
+    children=[]),
+  Node('second',
+    pre='',
+    post='',
+    init='',
+    header='',
+    form_details={},
+    field_name=None,
+    children=[
+    Node('third',
+      pre='',
+      post='',
+      init='',
+      header='',
+      form_details={},
+      field_name=None,
+      children=[]),
+    Node('fourth',
+      pre='',
+      post='',
+      init='',
+      header='',
+      form_details={},
+      field_name=None,
+      children=[])
+  ])
+])"""
