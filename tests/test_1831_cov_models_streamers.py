@@ -162,9 +162,9 @@ def test_element_version_1(file):
     assert obj.fType == 3
 
 
-@pytest.mark.parametrize("version", [2, 3])
-def test_element_old_versions(file, version):
-    data = element_data("x", 3, "int", size=4, version=version)
+def test_element_version_2(file):
+    # version 3, which also has a range, is tested with the fix that reads it (#1824)
+    data = element_data("x", 3, "int", size=4, version=2)
     obj = read(uproot.streamers.Model_TStreamerElement, data, file)
     assert obj.member("fMaxIndex").tolist() == [0, 0, 0, 0, 0]
 

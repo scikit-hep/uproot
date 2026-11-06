@@ -412,9 +412,10 @@ def test_axis_equality():
 
 
 def test_axis_width_of_variable_bins():
-    variable = axis(fXbins=numpy.array([0.0, 0.5, 1.5, 3.0]))
-    assert variable.width == pytest.approx(1.0)
-    assert variable.widths().tolist() == [0.5, 1.0, 1.5]
+    # the edges span more than fXmin to fXmax, so the two ways to get the mean differ
+    variable = axis(fXbins=numpy.array([0.0, 0.5, 1.5, 6.0]))
+    assert variable.width == pytest.approx(2.0)
+    assert variable.widths().tolist() == [0.5, 1.0, 4.5]
     assert axis().width == 1.0
 
 

@@ -116,6 +116,17 @@ def test_tbranchref():
         assert tree.member("fBranchRef").name == "TRefTable"
 
 
+# the files that Rewritables open, closed after each test
+_opened = []
+
+
+@pytest.fixture(autouse=True)
+def close_rewritables():
+    yield
+    while _opened:
+        _opened.pop().close()
+
+
 class Rewritable:
     """
     The serialized form of a TTree, from which we can read the whole TTree (after
@@ -125,6 +136,7 @@ class Rewritable:
 
     def __init__(self, filename, tree_name, minimal=False):
         self.file = uproot.open(filename, minimal_ttree_metadata=minimal)
+        _opened.append(self.file)
         key = self.file.key(tree_name)
         chunk, cursor = key.get_uncompressed_chunk_cursor()
         self.source = chunk.source
