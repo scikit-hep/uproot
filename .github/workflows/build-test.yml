@@ -75,7 +75,7 @@ jobs:
         if: contains(matrix.python-version, 'python-freethreading')
         run: echo "PYTHON_GIL=0" >> $GITHUB_ENV
 
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Check active Python version
         env:
@@ -154,7 +154,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Pip install the package
         run: |
@@ -185,7 +185,7 @@ jobs:
         with:
           python-version: '3.14'
 
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       # Uproot is pure Python, so a regular wheel works in Pyodide. Its
       # dependencies (including awkward-cpp) are installed by micropip from
