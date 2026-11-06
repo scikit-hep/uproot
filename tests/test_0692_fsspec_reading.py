@@ -341,14 +341,16 @@ def test_open_fsspec_xrootd_iterate_files(handler, xrootd_file, xrootd_server):
             {os.path.join(remote_path, "b.root"): "Events"},
         ],
         expressions=["MET_pt"],
-        step_size=15,
+        # MET_pt is in one TBasket: with smaller steps, the later steps of a file
+        # would have nothing to request, which XRootD fails on until #1825
+        step_size=40,
         handler=handler,
     )
 
     chunks = list(iterator)
-    assert [len(data) for data in chunks] == [15, 15, 10, 15, 15, 10]
-    check_met_pt(np.concatenate([data["MET_pt"].to_numpy() for data in chunks[:3]]))
-    check_met_pt(np.concatenate([data["MET_pt"].to_numpy() for data in chunks[3:]]))
+    assert [len(data) for data in chunks] == [40, 40]
+    check_met_pt(chunks[0]["MET_pt"].to_numpy())
+    check_met_pt(chunks[1]["MET_pt"].to_numpy())
 
 
 @pytest.mark.xrootd
@@ -362,10 +364,11 @@ def test_open_fsspec_xrootd_iterate_files(handler, xrootd_file, xrootd_server):
 )
 def test_open_fsspec_xrootd_iterate_tree(handler, xrootd_file):
     with uproot.open({xrootd_file: "Events"}, handler=handler) as f:
-        chunks = list(f.iterate(["MET_pt"], step_size=15))
+        # one step, for the reason in test_open_fsspec_xrootd_iterate_files
+        chunks = list(f.iterate(["MET_pt"], step_size=40))
 
-    assert [len(data) for data in chunks] == [15, 15, 10]
-    check_met_pt(np.concatenate([data["MET_pt"].to_numpy() for data in chunks]))
+    assert [len(data) for data in chunks] == [40]
+    check_met_pt(chunks[0]["MET_pt"].to_numpy())
 
 
 # https://github.com/scikit-hep/uproot5/issues/1035
