@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+import time
 
 import pytest
 
@@ -16,6 +17,15 @@ import uproot.source.futures
 from uproot.source.coalesce import CoalesceConfig, RangeRequest, _coalesce
 
 
+def test_future_result_timeout_raises():
+    # A task that never completes: result(timeout=...) must raise TimeoutError
+    future = uproot.source.futures.Future(lambda: None, ())
+    start = time.monotonic()
+    with pytest.raises(TimeoutError):
+        future.result(timeout=0.05)
+    assert time.monotonic() - start < 5.0
+
+
 def test_future_result_reraises_exception():
     def boom():
         raise ValueError("kaboom")
@@ -24,6 +34,14 @@ def test_future_result_reraises_exception():
     future._run()
     with pytest.raises(ValueError, match="kaboom"):
         future.result()
+
+
+def test_threadpool_shutdown_joins_workers():
+    executor = uproot.source.futures.ThreadPoolExecutor(max_workers=3)
+    workers = list(executor.workers)
+    executor.shutdown()
+    for worker in workers:
+        assert not worker.is_alive()
 
 
 def test_filesink_close_is_permanent(tmp_path):

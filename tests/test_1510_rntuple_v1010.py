@@ -43,9 +43,7 @@ def test_rntuple_footer_parsing(filename, version_minor):
         # Access footer - should not raise AssertionError
         footer = obj.footer
 
-        # Neither file has attribute sets; see
-        # test_linked_attribute_set_written_by_root in test_1828_fix_rntuple.py
-        # for a file with one.
+        # Neither file has attribute sets
         assert footer.linked_attribute_sets == []
 
         # Verify checksum validation passes
