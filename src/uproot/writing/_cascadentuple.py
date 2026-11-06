@@ -120,8 +120,9 @@ def _cpp_typename(akform, subcall=False):
     elif isinstance(akform, awkward.forms.UnmaskedForm):
         return _cpp_typename(akform.content, subcall=subcall)
     else:
-        msg = "This should not have happened. Please report this issue to the Uproot developers."
-        raise AssertionError(msg)
+        raise AssertionError(
+            f"_to_packed_form only returns the forms above, not {akform}"
+        )
     return typename
 
 
@@ -487,8 +488,9 @@ class NTuple_Header(CascadeLeaf):
                 description=description,
             )
         else:
-            msg = "This should not have happened. Please report this issue to the Uproot developers."
-            raise AssertionError(msg)
+            raise AssertionError(
+                f"_to_packed_form only returns the forms above, not {akform}"
+            )
 
     def generate_field_col_records(self):
         akform = self._akform

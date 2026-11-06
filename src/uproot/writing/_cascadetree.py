@@ -192,8 +192,6 @@ class Tree:
 
             else:
                 parameters = branch_datashape.parameters
-                if parameters is None:
-                    parameters = {}
 
                 if parameters.get("__array__") == "string":
                     self._check_not_counter(branch_name)
@@ -247,13 +245,8 @@ class Tree:
                     self._check_not_counter(branch_name)
 
                     if type(content).__name__ == "RecordType":
-                        if hasattr(content, "contents"):
-                            contents = content.contents
-                        else:
-                            contents = content.fields()
+                        contents = content.contents
                         keys = content.fields
-                        if callable(keys):
-                            keys = keys()
                         if keys is None:
                             keys = [str(x) for x in range(len(contents))]
 
@@ -290,13 +283,8 @@ class Tree:
                         )
 
                 elif type(branch_datashape).__name__ == "RecordType":
-                    if hasattr(branch_datashape, "contents"):
-                        contents = branch_datashape.contents
-                    else:
-                        contents = branch_datashape.fields()
+                    contents = branch_datashape.contents
                     keys = branch_datashape.fields
-                    if callable(keys):
-                        keys = keys()
                     if keys is None:
                         keys = [str(x) for x in range(len(contents))]
 
@@ -373,8 +361,6 @@ class Tree:
             return numpy.dtype("float64")
         elif type(branch_datashape).__name__ == "NumpyType":
             return numpy.dtype(branch_datashape.primitive)
-        elif type(branch_datashape).__name__ == "PrimitiveType":
-            return numpy.dtype(branch_datashape.dtype)
         elif type(branch_datashape).__name__ == "RegularType":
             content = self._branch_ak_to_np(branch_datashape.content)
             if content is None:
@@ -1094,8 +1080,6 @@ class Tree:
                 special_struct = uproot.models.TLeaf._tleafs1_format1
             elif letter_upper == "I":
                 special_struct = uproot.models.TLeaf._tleafi1_format1
-            elif letter_upper == "G":
-                special_struct = uproot.models.TLeaf._tleafl1_format0
             elif letter_upper == "L":
                 special_struct = uproot.models.TLeaf._tleafl1_format0
             elif letter_upper == "F":
@@ -1104,6 +1088,8 @@ class Tree:
                 special_struct = uproot.models.TLeaf._tleafd1_format1
             elif letter_upper == "C":
                 special_struct = uproot.models.TLeaf._tleafc1_format1
+            else:
+                raise AssertionError(f"not in _dtype_to_char: {letter_upper!r}")
 
             fLenType = datum["dtype"].itemsize
             fIsUnsigned = letter != letter_upper
@@ -1621,11 +1607,7 @@ class Tree:
             + 1
         )
 
-        itemsize = array.dtype.itemsize
-        for item in array.shape[1:]:
-            itemsize *= item
-
-        offsets *= itemsize
+        offsets *= array.dtype.itemsize
         offsets += fKeylen
 
         raw_array = array.tobytes()

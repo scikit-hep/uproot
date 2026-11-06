@@ -1037,14 +1037,11 @@ class WritableDirectory(MutableMapping):
                             step = step[item]
 
                     elif isinstance(step, WritableTree):
-                        rest = items[i:]
-                        if len(rest) != 0:
-                            raise uproot.KeyInFileError(
-                                where,
-                                because="TTrees in writable files can't be indexed by TBranch name",
-                                file_path=self.file_path,
-                            )
-                        return step
+                        raise uproot.KeyInFileError(
+                            where,
+                            because="TTrees in writable files can't be indexed by TBranch name",
+                            file_path=self.file_path,
+                        )
 
                     else:
                         raise uproot.KeyInFileError(
@@ -1253,6 +1250,8 @@ class WritableDirectory(MutableMapping):
                 ),
                 "tleaf_special_struct": _struct.Struct(">" + sc + sc),
             }
+            # only a registered custom interpretation could make a leafless TBranch
+            # interpretable; it can't be extended (see _rewrite_blockers)
             if _leaves:
                 bd["leaf_name"] = _leaves[0].member("fName")
                 bd["leaf_title"] = _leaves[0].member("fTitle")
@@ -2666,10 +2665,6 @@ class WritableTree:
         # extend()/add_branches() call (the same trust extend() itself places in
         # it), so there's no need to re-read and re-parse the whole tree from
         # disk here
-        if self._cascading is None:
-            raise RuntimeError(
-                "_cascading is None: this should not happen; please report this bug"
-            )
         casc = self._cascading
 
         if counter_name is not None and not callable(counter_name):
