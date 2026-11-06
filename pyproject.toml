@@ -128,7 +128,7 @@ version-file = "src/uproot/version.py"
 source = "vcs"
 
 [tool.pytest.ini_options]
-addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config"]
+addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config", "-p", "no:anyio"]  # no test uses anyio's plugin, which breaks pytest >= 9.2 with anyio < 4.15
 filterwarnings = [
   "error",
   "default:module 'sre_.*' is deprecated:DeprecationWarning",
