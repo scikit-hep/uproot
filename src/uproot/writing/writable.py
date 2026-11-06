@@ -846,28 +846,13 @@ class WritableDirectory(MutableMapping):
 
         Note that this does not read any data from the file.
         """
-        filter_name = uproot._util.regularize_filter(filter_name)
-        filter_classname = uproot._util.regularize_filter(filter_classname)
-        for keyname, cyclenum, classname in self._cascading.data.key_triples:
-            if (filter_name is no_filter or filter_name(keyname)) and (
-                filter_classname is no_filter or filter_classname(classname)
-            ):
-                if cycle:
-                    yield f"{keyname};{cyclenum}"
-                else:
-                    yield keyname
-
-            if recursive and classname in ("TDirectory", "TDirectoryFile"):
-                for k1 in self._get(keyname, cyclenum).iterkeys(
-                    recursive=recursive,
-                    cycle=cycle,
-                    filter_name=filter_name,
-                    filter_classname=filter_classname,
-                ):
-                    k2 = f"{keyname}/{k1}"
-                    k3 = k2[: k2.index(";")] if ";" in k2 else k2
-                    if filter_name is no_filter or filter_name(k3):
-                        yield k2
+        yield from self._iter(
+            "keys",
+            recursive=recursive,
+            cycle=cycle,
+            filter_name=filter_name,
+            filter_classname=filter_classname,
+        )
 
     def itervalues(
         self,
@@ -925,16 +910,13 @@ class WritableDirectory(MutableMapping):
         Note that this reads all objects that are selected by ``filter_name``
         and ``filter_classname``.
         """
-        for keyname in self.iterkeys(
+        yield from self._iter(
+            "items",
             recursive=recursive,
-            cycle=True,
+            cycle=cycle,
             filter_name=filter_name,
             filter_classname=filter_classname,
-        ):
-            if not cycle:
-                at = keyname.index(";")
-                keyname = keyname[:at]  # noqa: PLW2901 (overwriting keyname)
-            yield keyname, self[keyname]
+        )
 
     def iterclassnames(
         self,
@@ -960,28 +942,79 @@ class WritableDirectory(MutableMapping):
 
         Note that this does not read any data from the file.
         """
+        yield from self._iter(
+            "classnames",
+            recursive=recursive,
+            cycle=cycle,
+            filter_name=filter_name,
+            filter_classname=filter_classname,
+        )
+
+    def _iter(
+        self,
+        what,
+        *,
+        recursive=True,
+        cycle=True,
+        filter_name=no_filter,
+        filter_classname=no_filter,
+    ):
+        """
+        Private generator shared by ``iterkeys``, ``iteritems``, and
+        ``iterclassnames``, like :ref:`uproot.reading.ReadOnlyDirectory._iter`.
+        The ``what`` argument selects what is yielded: ``"keys"`` yields names
+        (str), ``"items"`` yields (name, object) pairs, and ``"classnames"``
+        yields (name, classname) pairs.
+        """
         filter_name = uproot._util.regularize_filter(filter_name)
         filter_classname = uproot._util.regularize_filter(filter_classname)
-        for keyname, cyclenum, classname in self._cascading.data.key_triples:
+
+        triples = self._cascading.data.key_triples
+        if not cycle:
+            # without cycle numbers, a name stands for its highest cycle, as in
+            # self[name], so the cycles of each name are visited from the highest
+            order = {}
+            for keyname, _, _ in triples:
+                order.setdefault(keyname, len(order))
+            triples = sorted(triples, key=lambda t: (order[t[0]], -t[1]))
+
+        seen = set()
+        for keyname, cyclenum, classname in triples:
             if (filter_name is no_filter or filter_name(keyname)) and (
                 filter_classname is no_filter or filter_classname(classname)
             ):
-                if cycle:
-                    yield f"{keyname};{cyclenum}", classname
-                else:
-                    yield keyname, classname
+                out = f"{keyname};{cyclenum}" if cycle else keyname
+                if out not in seen:
+                    seen.add(out)
+                    if what == "keys":
+                        yield out
+                    elif what == "items":
+                        yield out, self._get(keyname, cyclenum)
+                    else:
+                        yield out, classname
 
             if recursive and classname in ("TDirectory", "TDirectoryFile"):
-                for k1, c1 in self._get(keyname, cyclenum).iterclassnames(
+                for sub in self._get(keyname, cyclenum)._iter(
+                    what,
                     recursive=recursive,
                     cycle=cycle,
-                    filter_name=filter_name,
+                    filter_name=no_filter,
                     filter_classname=filter_classname,
                 ):
+                    if what == "keys":
+                        k1 = sub
+                    else:
+                        k1, v = sub
                     k2 = f"{keyname}/{k1}"
                     k3 = k2[: k2.index(";")] if ";" in k2 else k2
-                    if filter_name is no_filter or filter_name(k3):
-                        yield k2, c1
+                    if (filter_name is no_filter or filter_name(k3)) and (
+                        k2 not in seen
+                    ):
+                        seen.add(k2)
+                        if what == "keys":
+                            yield k2
+                        else:
+                            yield k2, v
 
     def _get_del_search(self, where, isget):
         if "/" in where or ":" in where:
@@ -1155,8 +1188,12 @@ class WritableDirectory(MutableMapping):
                     dtype = numpy.dtype(str).newbyteorder(">")
                 else:
                     dtype = interpretation.numpy_dtype.newbyteorder(">")
-            except AttributeError:
-                # TBranchElement or other complex branch — skip
+            except (
+                AttributeError,
+                NotImplementedError,
+                uproot.interpretation.identify.UnknownInterpretation,
+            ):
+                # TBranch that this cascade can't extend — skip
                 continue
 
             if dtype.kind == "O":
@@ -2101,12 +2138,13 @@ in file {source.file_path} in directory {source.path}"""
             )
 
         for name, allocation in new_dirs.items():
-            self.mkdir(
-                name,
-                initial_directory_bytes=max(
-                    self._file.initial_directory_bytes, allocation
-                ),
-            )
+            if name != "":  # the root of the copy is this directory, not a new one
+                self.mkdir(
+                    name,
+                    initial_directory_bytes=max(
+                        self._file.initial_directory_bytes, allocation
+                    ),
+                )
 
         for _ in range(len(ranges)):
             chunk = notifications.get()
@@ -2645,8 +2683,9 @@ class WritableTree:
         # silently drop them from the file
         if casc._has_unsupported_branches:
             raise NotImplementedError(
-                f"{operation} for files with TBranchElement (or other non-TBranch) "
-                "branches is not yet supported via the cascade approach"
+                f"{operation} for TTrees with branches that Uproot can't write "
+                "(TBranchElements and other non-TBranch branches, or TBranches that "
+                "it can't interpret) is not yet supported via the cascade approach"
             )
 
         self._check_rewritable(operation)
@@ -2792,6 +2831,7 @@ class WritableTree:
                 jagged_bd["compression"] = compression
                 big_endian, big_endian_offsets = (
                     uproot.writing._cascadetree._normalize_jagged_array(
+                        branch_name,
                         data,
                         jagged_bd["dtype"],
                         jagged_bd["shape"],
@@ -2936,18 +2976,15 @@ class WritableTree:
             desynchronizing or corrupting the tree's branches.
         """
         self._check_not_deleted()
-        if self._cascading is None:
-            raise RuntimeError(
-                "_cascading is None — this should not happen; please report this bug"
-            )
         if self._cascading._has_unsupported_branches:
             # _load_existing_ttree leaves TBranchElement (and other non-TBranch)
             # branches out of _branch_data entirely, so extend() would only add
             # entries to the branches it knows about, desynchronizing entry
             # counts across the tree's branches
             raise NotImplementedError(
-                "extend for files with TBranchElement (or other non-TBranch) "
-                "branches is not yet supported via the cascade approach"
+                "extend for TTrees with branches that Uproot can't write "
+                "(TBranchElements and other non-TBranch branches, or TBranches that "
+                "it can't interpret) is not yet supported via the cascade approach"
             )
         # the first extend() on a tree loaded from a file rewrites its metadata
         self._check_rewritable("extend")
@@ -3831,7 +3868,7 @@ def _is_type_specification(obj):
         if isinstance(obj, str):
             try:
                 numpy.dtype(obj)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, SyntaxError):
                 pass
             else:
                 continue
@@ -3866,7 +3903,7 @@ def _type_specification_to_awkward_form(obj):
         # so we can try to convert it to a string Awkward understands
         try:
             dt = numpy.dtype(obj)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, SyntaxError):
             pass
         else:
             obj = dt

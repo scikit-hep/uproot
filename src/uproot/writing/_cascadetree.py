@@ -101,7 +101,7 @@ class Tree:
         self._rewrite_blockers = ()
         self._needs_relocation_before_extend = False
 
-        if isinstance(branch_types, dict):
+        if isinstance(branch_types, Mapping):
             branch_types_items = branch_types.items()
         else:
             branch_types_items = branch_types
@@ -130,7 +130,7 @@ class Tree:
                         raise TypeError
                     branch_dtype = numpy.dtype(branch_type)
 
-                except (TypeError, ValueError) as err:
+                except (TypeError, ValueError, SyntaxError) as err:
                     if isinstance(
                         branch_type,
                         (awkward.types.Type, awkward.types.ArrayType),
@@ -695,12 +695,12 @@ class Tree:
                 )
 
             datum = branch_data[branch_lookup[branch_name]]
-            if datum["kind"] == "record":
-                continue
 
             if datum["counter"] is None:
                 if datum["dtype"] == ">U0":
                     layout = awkward.to_layout(branch_array)
+                    if isinstance(layout, awkward.contents.IndexedArray):
+                        layout = layout.project()
                     if isinstance(
                         layout,
                         (
@@ -771,7 +771,11 @@ class Tree:
 
             else:
                 big_endian, big_endian_offsets = _normalize_jagged_array(
-                    branch_array, datum["dtype"], datum["shape"], operation="extend"
+                    branch_name,
+                    branch_array,
+                    datum["dtype"],
+                    datum["shape"],
+                    operation="extend",
                 )
                 tofill.append(
                     (branch_name, datum["compression"], big_endian, big_endian_offsets)
@@ -1762,7 +1766,7 @@ def check_counter_agrees(counter_name, generated, explicit, counted=None):
 
 
 def _normalize_jagged_array(
-    branch_array, target_dtype, target_shape, operation="extend"
+    branch_name, branch_array, target_dtype, target_shape, operation="extend"
 ):
     layout = branch_array.layout
     while not isinstance(layout, awkward.contents.ListOffsetArray):
@@ -1773,7 +1777,10 @@ def _normalize_jagged_array(
             layout = layout.to_ListOffsetArray64(False)
 
         else:
-            raise AssertionError(f"how did this pass the type check?\n\n{layout!r}")
+            raise TypeError(
+                f"jagged branch {branch_name!r} can't be filled with this "
+                f"Awkward Array:\n\n{layout!r}"
+            )
 
     content = layout.content
     offsets = numpy.asarray(layout.offsets)
@@ -1797,7 +1804,10 @@ def _normalize_jagged_array(
             content = content.content
 
         else:
-            raise AssertionError(f"how did this pass the type check?\n\n{content!r}")
+            raise TypeError(
+                f"jagged branch {branch_name!r} can't be filled with lists "
+                f"of this Awkward Array:\n\n{content!r}"
+            )
 
     big_endian = numpy.asarray(content.data, dtype=target_dtype)
     shape = tuple(shape) + big_endian.shape[1:]

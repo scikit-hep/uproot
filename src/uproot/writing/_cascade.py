@@ -226,6 +226,19 @@ class Key(CascadeLeaf):
         return self.num_bytes
 
     @property
+    def location(self):
+        return self._location
+
+    @location.setter
+    def location(self, value):
+        if self._location != value:
+            self._file_dirty = True
+            if self._big is False:
+                # read from a file; it might have to be big in its new location
+                self._big = None
+            self._location = value
+
+    @property
     def uncompressed_bytes(self):
         return self._uncompressed_bytes
 
@@ -924,6 +937,13 @@ class TListOfStreamers(CascadeNode):
         where = len(self._rawstreamers)
 
         for streamer in streamers:
+            if not isinstance(
+                streamer, (uproot.streamers.Model_TStreamerInfo, RawStreamerInfo)
+            ):
+                raise TypeError(
+                    f"streamers must be TStreamerInfo or RawStreamerInfo, not {type(streamer).__name__}"
+                )
+
             pair = (streamer.name, streamer.class_version)
             if pair not in self._lookup:
                 self._lookup.add(pair)
@@ -941,7 +961,7 @@ class TListOfStreamers(CascadeNode):
                         )
                     )
 
-                elif isinstance(streamer, RawStreamerInfo):
+                else:
                     self._rawstreamers.append(
                         streamer.copy_to(self._key.location + self.num_bytes)
                     )
@@ -950,17 +970,20 @@ class TListOfStreamers(CascadeNode):
 
         if flush:
             self.write(sink)
+            sink.set_file_length(self._freesegments.fileheader.end)
             sink.flush()
 
     def _reallocate(self, self_num_bytes):
         original_start = self._key.location
         original_stop = self._key.location + self._key.allocation + self._allocation
 
+        self._key.location = None  # let it assume the key might be big
+        self._key.seek_location = None
         requested_num_bytes = self._key.num_bytes + self_num_bytes
 
         self._key.location = self._freesegments.allocate(requested_num_bytes)
         self._key.seek_location = self._key.location
-        self._allocation = self_num_bytes
+        self._allocation = requested_num_bytes - self._key.num_bytes
 
         self._freesegments.release(original_start, original_stop)
 
@@ -1265,7 +1288,9 @@ class DirectoryData(CascadeLeaf):
 
             for key in self._dirty_keys:
                 copied = key.copy_to(self._dirty_keys_start)
-                copied.location = self._dirty_keys_start
+                # not through the setter: the copy in this list of keys must have
+                # the same size as the key itself, which isn't moving
+                copied._location = self._dirty_keys_start
                 copied.write(sink)
                 self._dirty_keys_start += copied.num_bytes
 
