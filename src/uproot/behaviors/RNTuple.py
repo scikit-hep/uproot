@@ -515,14 +515,10 @@ class HasFields(Mapping):
                 )
                 pandas_dict = {}
                 for f, arr in numpy_data.items():
-                    try:
-                        if getattr(arr, "ndim", 1) > 1:
-                            pandas_dict[f] = list(arr)
-                        else:
-                            pandas_dict[f] = arr
-                    except Exception:
-                        msg = f"Field {f} cannot be converted to NumPy/Pandas"
-                        raise ValueError(msg) from None
+                    if getattr(arr, "ndim", 1) > 1:
+                        pandas_dict[f] = list(arr)
+                    else:
+                        pandas_dict[f] = arr
                 try:
                     pandas_data = pd.DataFrame(pandas_dict, index=pandas_index)
                 except Exception:
@@ -1568,8 +1564,7 @@ def _cupy_insert(arr, obj, value):
             src_i += n
         out[dst_i] = value
         dst_i += 1
-    if src_i < arr.size:
-        out[dst_i:] = arr[src_i:]
+    out[dst_i:] = arr[src_i:]
     return out
 
 
