@@ -115,11 +115,15 @@ def test_file_inside_a_zip_archive_is_closed_with_its_filesystem(tmp_path):
 
 
 def test_closing_ignores_errors_of_the_workarounds(path, monkeypatch):
+    calls = []
+
     class Closing:
         def close(self):
+            calls.append("close")
             raise ValueError("this filesystem can't close")
 
         def __exit__(self, *args):
+            calls.append("__exit__")
             raise ValueError("this file can't exit")
 
     source = FSSpecSource(path)
@@ -127,6 +131,8 @@ def test_closing_ignores_errors_of_the_workarounds(path, monkeypatch):
     monkeypatch.setattr(source._fs, "of", Closing(), raising=False)
     source.close()
     assert source.closed is True
+    # both workarounds were tried, and their errors didn't stop the closing
+    assert sorted(calls) == ["__exit__", "close"]
 
 
 def test_closed_source_refuses_to_read(path):

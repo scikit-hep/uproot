@@ -62,7 +62,10 @@ def serve(get=None, head=None):
     server.daemon_threads = True
     server.requests = []
     server.url = f"http://localhost:{server.server_address[1]}/file.root"
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    # shutdown() waits for serve_forever to poll, by default every 0.5 seconds
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
     thread.start()
     try:
         yield server

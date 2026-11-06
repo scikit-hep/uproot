@@ -54,9 +54,11 @@ class RecordVectorReads:
     def __init__(self, file):
         self._file = file
         self.sizes = []
+        self.lengths = []
 
     def vector_read(self, chunks, **kwargs):
         self.sizes.append(len(chunks))
+        self.lengths.append([length for _, length in chunks])
         return self._file.vector_read(chunks=chunks, **kwargs)
 
     def __getattr__(self, name):
@@ -106,7 +108,13 @@ def test_ranges_larger_than_the_element_size_are_split(remote, expected, multipl
     range_ = (50, 50 + multiple * size + extra)
     with XRootDSource(remote, timeout=TIMEOUT, use_threads=True) as source:
         source._max_element_size = size
-        assert read(source, [range_]) == [expected[slice(*range_)]]
+        recorder = RecordVectorReads(source._resource._file)
+        source._resource._file = recorder
+        try:
+            assert read(source, [range_]) == [expected[slice(*range_)]]
+        finally:
+            source._resource._file = recorder._file
+        assert recorder.lengths == [[size] * multiple + ([extra] if extra else [])]
 
 
 def test_pickled_source_still_reads(remote, expected):

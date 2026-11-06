@@ -277,7 +277,7 @@ def test_remove_class_definition_that_is_not_there():
         assert "TH1D" in uproot.classes
 
 
-def test_class_named_with_named_versions(versions_file):
+def test_class_named_with_named_versions():
     # this file has no streamer for TH2D, so it's up to the classes we know about
     cls = uproot.classes["TH2D"]
     known = sorted(cls.known_versions)
