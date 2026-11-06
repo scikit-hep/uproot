@@ -88,33 +88,40 @@ def _cpp_typename(akform, subcall=False):
         ak_primitive = akform.primitive
         typename = _ak_primitive_to_typename_dict[ak_primitive]
     elif isinstance(akform, awkward.forms.ListOffsetForm):
-        content_typename = _cpp_typename(akform.content, subcall=True)
-        typename = f"std::vector<{content_typename}>"
-        # Check if it contains strings and fix the type
         if akform.parameters.get("__array__", "") == "string":
-            typename = "std::string"
+            return "std::string"
+        content_typename = _cpp_typename(akform.content, subcall=True)
+        if content_typename is None:
+            return None if subcall else ""
+        typename = f"std::vector<{content_typename}>"
     elif isinstance(akform, awkward.forms.RecordForm):
         if akform.is_tuple:
             field_typenames = [_cpp_typename(t, subcall=True) for t in akform.contents]
+            if any(t is None for t in field_typenames):
+                return None if subcall else ""
             typename = f"std::tuple<{','.join(field_typenames)}>"
         else:
-            typename = "UntypedRecord"
+            return None if subcall else ""
     elif isinstance(akform, awkward.forms.RegularForm):
         content_typename = _cpp_typename(akform.content, subcall=True)
+        if content_typename is None:
+            return None if subcall else ""
         typename = f"std::array<{content_typename},{akform.size}>"
     elif isinstance(akform, awkward.forms.IndexedOptionForm):
         content_typename = _cpp_typename(akform.content, subcall=True)
+        if content_typename is None:
+            return None if subcall else ""
         typename = f"std::optional<{content_typename}>"
     elif isinstance(akform, awkward.forms.UnionForm):
         field_typenames = [_cpp_typename(t, subcall=True) for t in akform.contents]
+        if any(t is None for t in field_typenames):
+            return None if subcall else ""
         typename = f"std::variant<{','.join(field_typenames)}>"
     elif isinstance(akform, awkward.forms.UnmaskedForm):
-        return _cpp_typename(akform.content, subcall=True)
+        return _cpp_typename(akform.content, subcall=subcall)
     else:
         msg = "This should not have happened. Please report this issue to the Uproot developers."
         raise AssertionError(msg)
-    if not subcall and "UntypedRecord" in typename:
-        typename = ""  # empty types for anything that contains UntypedRecord
     return typename
 
 
@@ -424,11 +431,19 @@ class NTuple_Header(CascadeLeaf):
             )
         elif isinstance(akform, awkward.forms.IndexedOptionForm):
             type_name = _cpp_typename(akform)
+            # An optional of an untyped record should have the type name
+            # "std::optional<>", which is what ROOT itself writes, but ROOT
+            # (as of 6.40) can't read it back ("no type name specified for
+            # field '_0'"). Until that ROOT bug is fixed, write an empty type
+            # name and record "std::optional<>" in the type alias, where the
+            # reader looks for it.
+            type_alias = "" if type_name else "std::optional<>"
             field = NTuple_Field_Description(
                 parent_fid,
                 uproot.const.RNTupleFieldRole.COLLECTION,
                 field_name,
                 type_name,
+                type_alias=type_alias,
                 field_description=description,
             )
             self._field_records.append(field)
