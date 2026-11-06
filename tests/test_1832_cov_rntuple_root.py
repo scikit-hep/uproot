@@ -15,29 +15,11 @@ _WRITERS = """
 #include <ROOT/RNTupleWriter.hxx>
 #include <TFile.h>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <variant>
 #include <vector>
 
 namespace test_1832 {
-
-struct Base {
-   int member;
-   float other;
-};
-struct Child : Base {
-   int member;
-};
-struct Left {
-   int shared;
-};
-struct Right {
-   int shared;
-};
-struct Both : Left, Right {
-   int member;
-};
 
 void write_projections(const char *path)
 {
@@ -57,23 +39,6 @@ void write_projections(const char *path)
    for (int i = 0; i < 4; i++) {
       *pt = 1.5f * i;
       *values = std::vector<int>(i, i);
-      writer->Fill();
-   }
-}
-
-void write_shadowed_members(const char *path)
-{
-   auto model = ROOT::RNTupleModel::Create();
-   auto child = model->MakeField<Child>("child");
-   auto both = model->MakeField<Both>("both");
-   auto writer = ROOT::RNTupleWriter::Recreate(std::move(model), "ntuple", path);
-   for (int i = 0; i < 3; i++) {
-      child->member = i;
-      child->Base::member = 10 * i;
-      child->other = 0.5f * i;
-      both->member = 100 * i;
-      both->Left::shared = 200 * i;
-      both->Right::shared = 300 * i;
       writer->Fill();
    }
 }
@@ -99,13 +64,6 @@ void write_without_fields(const char *path)
    auto writer = ROOT::RNTupleWriter::Recreate(ROOT::RNTupleModel::Create(), "ntuple", path);
 }
 
-std::string show(const char *path, int entry)
-{
-   std::ostringstream stream;
-   ROOT::RNTupleReader::Open("ntuple", path)->Show(entry, stream);
-   return stream.str();
-}
-
 // Show doesn't support variants
 std::string show_variant(const char *path, int entry)
 {
@@ -120,49 +78,21 @@ std::string show_variant(const char *path, int entry)
 } // namespace test_1832
 """
 
-_ATTRIBUTE_WRITER = """
-#include <ROOT/RNTupleAttrWriting.hxx>
-
-namespace test_1832 {
-
-void write_attributes(const char *path)
-{
-   auto file = std::unique_ptr<TFile>(TFile::Open(path, "RECREATE"));
-   auto model = ROOT::RNTupleModel::Create();
-   auto x = model->MakeField<int>("x");
-   auto writer = ROOT::RNTupleWriter::Append(std::move(model), "ntuple", *file);
-   auto attribute_model = ROOT::RNTupleModel::Create();
-   auto note = attribute_model->MakeField<std::string>("note");
-   auto attributes = writer->CreateAttributeSet(std::move(attribute_model), "my_attributes");
-   auto range = attributes->BeginRange();
-   *note = "a note";
-   for (int i = 0; i < 4; i++) {
-      *x = i;
-      writer->Fill();
-   }
-   attributes->CommitRange(std::move(range));
-   writer.reset();
-}
-
-} // namespace test_1832
-"""
-
 
 @pytest.fixture(scope="module")
 def root():
     ROOT = pytest.importorskip("ROOT")
     if ROOT.gROOT.GetVersionInt() < 63800:
         pytest.skip("needs the RNTuple interfaces of a recent ROOT")
-    # ROOT warnings become Python warnings, which are errors in this test suite. The
-    # classes above have no dictionaries, which ROOT warns about.
+    # ROOT warnings become Python warnings, which are errors in this test suite
     ignore_level = ROOT.gErrorIgnoreLevel
     ROOT.gErrorIgnoreLevel = ROOT.kError
-    if not hasattr(ROOT, "test_1832"):
-        assert ROOT.gInterpreter.Declare(_WRITERS)
-        if ROOT.gROOT.GetVersionInt() >= 64000:
-            assert ROOT.gInterpreter.Declare(_ATTRIBUTE_WRITER)
-    yield ROOT.test_1832
-    ROOT.gErrorIgnoreLevel = ignore_level
+    try:
+        if not hasattr(ROOT, "test_1832"):
+            assert ROOT.gInterpreter.Declare(_WRITERS)
+        yield ROOT.test_1832
+    finally:
+        ROOT.gErrorIgnoreLevel = ignore_level
 
 
 def test_projected_fields(root, tmp_path):

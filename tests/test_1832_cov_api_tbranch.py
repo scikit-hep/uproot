@@ -596,9 +596,11 @@ def test_subbranches_with_the_same_name(tmp_path):
     parent = tree.Branch("p", values[0], "p/I")
     ignore_level = ROOT.gErrorIgnoreLevel
     ROOT.gErrorIgnoreLevel = ROOT.kError  # ROOT warns about the second "c"
-    first = tree.Branch("c", values[1], "c/I")
-    second = tree.Branch("c", values[2], "c/I")
-    ROOT.gErrorIgnoreLevel = ignore_level
+    try:
+        first = tree.Branch("c", values[1], "c/I")
+        second = tree.Branch("c", values[2], "c/I")
+    finally:
+        ROOT.gErrorIgnoreLevel = ignore_level
     for i in range(3):
         values[0][0], values[1][0], values[2][0] = i, i * 10, i * 100
         tree.Fill()
