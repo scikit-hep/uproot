@@ -17,8 +17,6 @@ import uproot.const
 import uproot.models.RNTuple as models
 from uproot.const import kStartBigFile
 
-ak = pytest.importorskip("awkward")
-
 
 @pytest.fixture
 def ntuple_path(tmp_path):
@@ -459,7 +457,6 @@ _WRITERS = """
 #include <memory>
 #include <sstream>
 #include <string>
-#include <variant>
 #include <vector>
 
 namespace test_1828 {
@@ -481,28 +478,6 @@ struct Both : Left, Right {
    int member;
 };
 
-void write_projections(const char *path)
-{
-   auto model = ROOT::RNTupleModel::Create();
-   auto pt = model->MakeField<float>("pt");
-   auto values = model->MakeField<std::vector<int>>("values");
-   model
-      ->AddProjectedField(ROOT::RFieldBase::Create("pt_alias", "float").Unwrap(),
-                          [](const std::string &) { return std::string("pt"); })
-      .ThrowOnError();
-   model
-      ->AddProjectedField(
-         ROOT::RFieldBase::Create("num_values", "ROOT::RNTupleCardinality<std::uint64_t>").Unwrap(),
-         [](const std::string &) { return std::string("values"); })
-      .ThrowOnError();
-   auto writer = ROOT::RNTupleWriter::Recreate(std::move(model), "ntuple", path);
-   for (int i = 0; i < 4; i++) {
-      *pt = 1.5f * i;
-      *values = std::vector<int>(i, i);
-      writer->Fill();
-   }
-}
-
 void write_shadowed_members(const char *path)
 {
    auto model = ROOT::RNTupleModel::Create();
@@ -520,43 +495,11 @@ void write_shadowed_members(const char *path)
    }
 }
 
-void write_streamer_field(const char *path)
-{
-   auto model = ROOT::RNTupleModel::Create();
-   model->MakeField<int>("x");
-   model->AddField(std::make_unique<ROOT::RStreamerField>("streamed", "std::vector<int>"));
-   auto writer = ROOT::RNTupleWriter::Recreate(std::move(model), "ntuple", path);
-   auto entry = writer->CreateEntry();
-   auto x = entry->GetPtr<int>("x");
-   auto streamed = entry->GetPtr<std::vector<int>>("streamed");
-   for (int i = 0; i < 2; i++) {
-      *x = i;
-      streamed->push_back(i);
-      writer->Fill(*entry);
-   }
-}
-
-void write_without_fields(const char *path)
-{
-   auto writer = ROOT::RNTupleWriter::Recreate(ROOT::RNTupleModel::Create(), "ntuple", path);
-}
-
 std::string show(const char *path, int entry)
 {
    std::ostringstream stream;
    ROOT::RNTupleReader::Open("ntuple", path)->Show(entry, stream);
    return stream.str();
-}
-
-// Show doesn't support variants
-std::string show_variant(const char *path, int entry)
-{
-   auto reader = ROOT::RNTupleReader::Open("ntuple", path);
-   auto view = reader->GetView<std::variant<std::int64_t, std::string>>("a");
-   auto value = view(entry);
-   if (value.index() == 0)
-      return std::to_string(std::get<0>(value));
-   return std::get<1>(value);
 }
 
 } // namespace test_1828
@@ -600,12 +543,14 @@ def root():
     # classes above have no dictionaries, which ROOT warns about.
     ignore_level = ROOT.gErrorIgnoreLevel
     ROOT.gErrorIgnoreLevel = ROOT.kError
-    if not hasattr(ROOT, "test_1828"):
-        assert ROOT.gInterpreter.Declare(_WRITERS)
-        if ROOT.gROOT.GetVersionInt() >= 64000:
-            assert ROOT.gInterpreter.Declare(_ATTRIBUTE_WRITER)
-    yield ROOT.test_1828
-    ROOT.gErrorIgnoreLevel = ignore_level
+    try:
+        if not hasattr(ROOT, "test_1828"):
+            assert ROOT.gInterpreter.Declare(_WRITERS)
+            if ROOT.gROOT.GetVersionInt() >= 64000:
+                assert ROOT.gInterpreter.Declare(_ATTRIBUTE_WRITER)
+        yield ROOT.test_1828
+    finally:
+        ROOT.gErrorIgnoreLevel = ignore_level
 
 
 def _show(root, path, entry):
