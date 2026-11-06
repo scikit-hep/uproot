@@ -187,17 +187,23 @@ def test_mkrntuple_invalid(tmp_path):
 
 @pytest.mark.parametrize("kind", ["ttree", "rntuple"])
 def test_update_a_file_object_cannot_load_trees(tmp_path, kind):
-    buffer = io.BytesIO()
-    file = uproot.recreate(buffer)
-    if kind == "ttree":
-        file.mktree("t", {"x": "float64"})
-        message = "does not support accessing existing TTrees"
-    else:
-        file.mkrntuple("t", {"x": "float64"})
-        message = "does not support accessing existing RNTuples"
+    class Unclosable(io.BytesIO):
+        # uproot closes the file objects of the files it closes
+        def close(self):
+            pass
 
-    with pytest.raises(TypeError, match=message):
-        uproot.update(buffer)["t"]
+    buffer = Unclosable()
+    with uproot.recreate(buffer) as file:
+        if kind == "ttree":
+            file.mktree("t", {"x": "float64"})
+            message = "does not support accessing existing TTrees"
+        else:
+            file.mkrntuple("t", {"x": "float64"})
+            message = "does not support accessing existing RNTuples"
+
+    with uproot.update(buffer) as file:
+        with pytest.raises(TypeError, match=message):
+            file["t"]
 
 
 def test_copy_from_invalid_sources(tmp_path):
@@ -426,8 +432,6 @@ def test_ntuple_with_columns_that_uproot_does_not_write(tmp_path):
 
 
 def test_mktree_with_a_dict_of_multidimensional_arrays(tmp_path):
-    ROOT = pytest.importorskip("ROOT")
-
     path = tmp_path / "out.root"
     data = np.array([[1.0, 2.0], [3.0, 4.0]])
     with uproot.recreate(path) as file:
@@ -436,6 +440,7 @@ def test_mktree_with_a_dict_of_multidimensional_arrays(tmp_path):
     with uproot.open(path) as file:
         assert file["tree/rec_a"].array().tolist() == data.tolist()
 
+    ROOT = pytest.importorskip("ROOT")
     root_file = ROOT.TFile.Open(str(path))
     tree = root_file.Get("tree")
     tree.GetEntry(1)

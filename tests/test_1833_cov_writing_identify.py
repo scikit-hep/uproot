@@ -126,8 +126,6 @@ class ProfileLike(PlottableWithFlow):
 
 
 def test_plottable_profile_from_members(tmp_path):
-    ROOT = pytest.importorskip("ROOT")
-
     with uproot.open(skhep_testdata.data_path("uproot-hepdata-example.root")) as file:
         model = file["hprof"]
 
@@ -140,6 +138,7 @@ def test_plottable_profile_from_members(tmp_path):
         assert file["h"].values().tolist() == model.values().tolist()
         assert file["h"].member("fTsumwy") == model.member("fTsumwy")
 
+    ROOT = pytest.importorskip("ROOT")
     root_file = ROOT.TFile.Open(str(path))
     profile = root_file.Get("h")
     assert profile.GetEntries() == model.member("fEntries")

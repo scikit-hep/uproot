@@ -480,8 +480,6 @@ def test_file_name_length():
 
 
 def test_merging_free_segments(tmp_path):
-    ROOT = pytest.importorskip("ROOT")
-
     path = tmp_path / "out.root"
     with uproot.recreate(path) as file:
         for name in "abcde":
@@ -513,6 +511,7 @@ def test_merging_free_segments(tmp_path):
         assert file.keys(cycle=False) == ["a", "e"]
         assert file["e"] == "e" * 100
 
+    ROOT = pytest.importorskip("ROOT")
     root_file = ROOT.TFile.Open(str(path))
     assert not root_file.IsZombie()
     assert [x.GetName() for x in root_file.GetListOfKeys()] == ["a", "e"]

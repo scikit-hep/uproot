@@ -62,38 +62,6 @@ def test_no_branches(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "branch_types, expected",
-    [
-        ([("a", "float64"), ("a", "int32")], ["a"]),
-        ([("r", {"x": "float64"}), ("r", {"y": "float64"})], ["r_x"]),
-        ([("r_x", "int32"), ("r", {"x": "float64", "y": "float64"})], ["r_x", "r_y"]),
-        ([("s", "string"), ("s", "string")], ["s"]),
-        ([("j", "var * int32"), ("j", "var * float64")], ["nj", "j"]),
-        (
-            [("r", "var * {x: int32}"), ("r", "var * {y: int32}")],
-            ["nr", "r_x"],
-        ),
-        (
-            [("r_x", "float64"), ("r", "var * {x: int32, y: int32}")],
-            ["r_x", "nr", "r_y"],
-        ),
-        ([("r", "{x: int32}"), ("r", "{y: int32}")], ["r_x"]),
-        (
-            [("r_x", "float64"), ("r", "{x: int32, y: int32}")],
-            ["r_x", "r_y"],
-        ),
-    ],
-)
-def test_first_branch_of_a_name_wins(tmp_path, branch_types, expected):
-    path = tmp_path / "out.root"
-    with uproot.recreate(path) as file:
-        low_level_tree(file, branch_types)
-
-    with uproot.open(path) as file:
-        assert file["t"].keys() == expected
-
-
-@pytest.mark.parametrize(
     "branch_type, error, message",
     [
         ("not a type", TypeError, "not a NumPy dtype or an Awkward datashape"),

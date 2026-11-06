@@ -25,8 +25,6 @@ def test_invalid_arrays(x, y, message):
 
 
 def test_explicit_y_range_round_trip(tmp_path):
-    ROOT = pytest.importorskip("ROOT")
-
     path = tmp_path / "graph.root"
     with uproot.recreate(path) as file:
         file["graph"] = _as_TGraph(X, Y, minY=-1.5, maxY=20)
@@ -36,6 +34,7 @@ def test_explicit_y_range_round_trip(tmp_path):
         assert graph.member("fMinimum") == -1.5
         assert graph.member("fMaximum") == 20
 
+    ROOT = pytest.importorskip("ROOT")
     root_file = ROOT.TFile.Open(str(path))
     graph = root_file.Get("graph")
     assert graph.GetN() == 3
