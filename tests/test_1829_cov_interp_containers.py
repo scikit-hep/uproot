@@ -248,7 +248,7 @@ def test_sequences_eq_is_elementwise(cls):
 
     assert (container == cls([1, 0, 3])).tolist() == [True, False, True]
     assert (container == [1, 5, 0]).tolist() == [True, True, False]
-    assert (container == "abc") is not True
+    assert not numpy.any(container == "abc")
     assert (container == 123) is False
     assert (container == {"a": 1}) is False
 

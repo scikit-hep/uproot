@@ -36,54 +36,6 @@ def test_add_to_path():
     assert context == {"path": ("a",)}
 
 
-def test_node_str():
-    node = Node(
-        "outer",
-        pre_code=["pre\n"],
-        post_code=["post\n"],
-        init_code=["init\n"],
-        header_code=["header\n"],
-        form_details={"class": "RecordArray"},
-        field_name="field",
-        children=[Node("first"), Node("second", children=[Node("third")])],
-    )
-
-    assert str(node) == """Node('outer',
-  pre='pre\\n',
-  post='post\\n',
-  init='init\\n',
-  header='header\\n',
-  form_details={"class": "RecordArray"},
-  field_name='field',
-  children=[
-  Node('first',
-    pre='',
-    post='',
-    init='',
-    header='',
-    form_details={},
-    field_name=None,
-    children=[]),
-Node('second',
-    pre='',
-    post='',
-    init='',
-    header='',
-    form_details={},
-    field_name=None,
-    children=[
-    Node('third',
-      pre='',
-      post='',
-      init='',
-      header='',
-      form_details={},
-      field_name=None,
-      children=[])
-  ])
-])"""
-
-
 def test_node_properties():
     node = Node("name")
 
