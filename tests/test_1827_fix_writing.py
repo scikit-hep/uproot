@@ -34,6 +34,7 @@ from uproot.writing.identify import (
     to_writable,
 )
 from uproot.writing.interpret import _as_TGraph
+from uproot.writing.writable import WritableTree
 
 
 @pytest.fixture
@@ -827,6 +828,71 @@ def test_a_rejected_batch_of_streamers_adds_none_of_them(tmp_path):
             "fFillColor",
             "fFillStyle",
         ]
+
+
+def low_level_tree(directory, branch_types):
+    """
+    A tree made by the cascade directly, which (unlike mktree) doesn't filter
+    the branch types first and accepts them as (name, type) pairs.
+    """
+    tree = WritableTree(
+        ("t",),
+        directory.file,
+        directory._cascading.add_tree(
+            directory.file.sink,
+            "t",
+            "",
+            branch_types,
+            lambda counted: "n" + counted,
+            lambda outer, inner: outer + "_" + inner,
+            10,
+            10.0,
+        ),
+    )
+    directory.file._new_tree(tree)
+    return tree
+
+
+@pytest.mark.parametrize(
+    "branch_types, name",
+    [
+        ([("a", "float64"), ("a", "int32")], "a"),
+        ([("r", {"x": "float64"}), ("r", {"y": "float64"})], "r"),
+        ([("r_x", "int32"), ("r", {"x": "float64", "y": "float64"})], "r_x"),
+        ([("s", "string"), ("s", "string")], "s"),
+        ([("j", "var * int32"), ("j", "var * float64")], "j"),
+        ([("r", "var * {x: int32}"), ("r", "var * {y: int32}")], "r"),
+        ([("r_x", "float64"), ("r", "var * {x: int32, y: int32}")], "r_x"),
+        ([("r", "{x: int32}"), ("r", "{y: int32}")], "r"),
+        ([("r_x", "float64"), ("r", "{x: int32, y: int32}")], "r_x"),
+    ],
+)
+def test_branch_names_defined_twice_are_rejected(tmp_path, branch_types, name):
+    # before, the second was silently left out, and a record that lost a field
+    # this way made a TTree that could never be extended
+    with uproot.recreate(tmp_path / "out.root") as file:
+        with pytest.raises(
+            ValueError, match=f"^branch '{name}' is defined more than once"
+        ):
+            low_level_tree(file, branch_types)
+
+
+def test_mktree_rejects_a_field_named_like_a_branch(tmp_path):
+    with uproot.recreate(tmp_path / "out.root") as file:
+        with pytest.raises(ValueError, match="^branch 'r_x' is defined more than once"):
+            file.mktree("t", {"r_x": "float64", "r": {"x": "int32", "y": "int32"}})
+
+
+def test_a_scalar_integer_may_name_the_counter_before_it(tmp_path):
+    path = tmp_path / "out.root"
+    with uproot.recreate(path) as file:
+        tree = file.mktree("t", {"j": "var * float64", "nj": "int32"})
+        tree.extend({"j": ak.Array([[1.5], [], [2.5, 3.5]])})
+
+    with uproot.open(path) as file:
+        assert file["t"].keys() == ["nj", "j"]
+        assert file["t/nj"].array(library="np").tolist() == [1, 0, 2]
+        assert file["t/j"].array().tolist() == [[1.5], [], [2.5, 3.5]]
 
 
 @pytest.fixture
