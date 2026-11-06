@@ -728,9 +728,8 @@ def test_values_and_items(tmp_path):
     with uproot.recreate(tmp_path / "out.root") as file:
         make_nested(file)
 
-        strings = file.values(filter_classname="TObjString")
-        assert strings == ["one", "two", "three"]
-
+        # each name once, as its highest cycle, as when reading
+        assert file.values(filter_classname="TObjString") == ["two", "three"]
         assert file.values(filter_name="nothing") == []
 
         # each name once, as its highest cycle
@@ -746,6 +745,9 @@ def test_values_and_items(tmp_path):
             ("a;1", "one"),
             ("a;2", "two"),
         ]
+
+    with uproot.open(tmp_path / "out.root") as file:
+        assert file.values(filter_classname="TObjString") == ["two", "three"]
 
 
 def test_copy_from_directories(tmp_path):

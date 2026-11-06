@@ -872,18 +872,20 @@ class WritableDirectory(MutableMapping):
                 filter to select keys by C++ (decoded) classname.
 
         Returns objects in this ``TDirectory`` as an iterator over
-        :doc:`uproot.model.Model`.
+        :doc:`uproot.model.Model`, each name once, as its highest cycle (as
+        ``items(cycle=False)``).
 
         Note that this reads all objects that are selected by ``filter_name``
         and ``filter_classname``.
         """
-        for keyname in self.iterkeys(
+        for _, value in self._iter(
+            "items",
             recursive=recursive,
-            cycle=True,
+            cycle=False,
             filter_name=filter_name,
             filter_classname=filter_classname,
         ):
-            yield self[keyname]
+            yield value
 
     def iteritems(
         self,
