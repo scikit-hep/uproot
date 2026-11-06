@@ -1817,3 +1817,30 @@ def test_tbasket_of_a_compressed_jagged_branch():
         expected = branch.array(entry_stop=basket.num_entries, library="np")
         assert array[0].tolist() == expected[0].tolist()
         assert array[1].tolist() == expected[1].tolist()
+
+
+def test_streamer_element_version_3_reads_its_range():
+    # only version 3 of TStreamerElement writes fXmin, fXmax and fFactor
+    tobject = struct.pack(">HII", 1, 0, 0x03000000)
+    payload = header(tobject + string(b"x") + string(b"[0, 1, 8]"), version=1)
+    payload += struct.pack(">iiii", uproot.const.kDouble32, 8, 0, 0)
+    payload += struct.pack(">5i", 0, 0, 0, 0, 0)
+    payload += string(b"Double32_t")
+    payload += struct.pack(">ddd", 0.0, 1.0, 255.0)
+    data = header(payload, version=3)
+
+    with uproot.open(skhep_testdata.data_path("uproot-small-flat-tree.root")) as f:
+        file = f.file
+        chunk = uproot.source.chunk.Chunk.wrap(
+            file.source, numpy.frombuffer(data, numpy.uint8)
+        )
+        cursor = uproot.source.cursor.Cursor(0)
+        element = uproot.streamers.Model_TStreamerElement.read(
+            chunk, cursor, {}, file, file.detached, None
+        )
+
+    assert cursor.index == len(data)
+    assert element.typename == "Double32_t"
+    assert element.member("fXmin") == 0.0
+    assert element.member("fXmax") == 1.0
+    assert element.member("fFactor") == 255.0
