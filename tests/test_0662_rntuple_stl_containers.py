@@ -49,8 +49,7 @@ def test_rntuple_stl_containers():
             r["vector_vector_string"][-1]
             == [["one"], ["two"], ["three"], ["four"], ["five"]]
         )
-        assert r["variant_int32_string"][0] == 1
-        assert r["variant_int32_string"][1] == "two"
+        assert r["variant_int32_string"].tolist() == [1, "two", "three", 4, 5]
 
         assert r["vector_variant_int64_string"][0][0] == "one"
         assert r["vector_variant_int64_string"][1][0] == "one"
@@ -77,6 +76,9 @@ def test_rntuple_stl_containers():
 
         assert ak.all(r["array_float"][0] == [1, 1, 1])
         assert ak.all(r["array_float"][-1] == [5, 5, 5])
+
+        for member in ("pt", "eta", "phi", "mass"):
+            assert r["lorentz_vector"][member].tolist() == [1.0, 2.0, 3.0, 4.0, 5.0]
 
         assert ak.all(r["array_lv"][0].pt == [1.0, 1.0, 1.0])
         assert ak.all(r["array_lv"][0].eta == [1.0, 1.0, 1.0])

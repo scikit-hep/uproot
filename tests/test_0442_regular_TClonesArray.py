@@ -23,6 +23,8 @@ def test_read_delphes_np(delphes_tree):
     array = branch.array(library="np")
     assert array.shape == (25,)
     assert isinstance(array[0][0], uproot.models.TRef.Model_TRefArray)
+    assert len(array[0][0]) == 17
+    assert array[0][0].refs[:5].tolist() == [2175, 2356, 2360, 2355, 2247]
 
 
 def test_read_delphes_ak(delphes_tree):
@@ -33,6 +35,10 @@ def test_read_delphes_ak(delphes_tree):
     assert array[0, 0, 0].fE == 126.46277691787493
     assert awkward.all(awkward.num(array, axis=2) == 5)
 
+    form = branch.interpretation.awkward_form(branch.file)
+    assert form.content.size == 5
+    assert form.content.content.parameters == {"__record__": "TLorentzVector"}
+    assert form.content.content.fields == array.layout.form.content.content.fields
     branch = delphes_tree["GenJet04/GenJet04.Constituents"]
     array = branch.array(library="ak")
     assert set(array.fields) == {"fSize", "fName", "refs"}

@@ -1,8 +1,11 @@
 # BSD 3-Clause License; see https://github.com/scikit-hep/uproot4/blob/main/LICENSE
 
 from typing import BinaryIO
+import http.server
+import numpy as np
 import skhep_testdata
 import queue
+import threading
 import fsspec
 import requests
 import os
@@ -17,6 +20,25 @@ import uproot.source.file
 import uproot.source.xrootd
 
 is_windows = sys.platform.startswith("win")
+
+MUON_PX_0 = [-52.899456, 37.73778]
+
+
+def check_met_pt(data):
+    """The content of Events/MET_pt in uproot-issue121.root, in full."""
+    assert len(data) == 40
+    assert data[:3].tolist() == pytest.approx(
+        [25.948482513427734, 40.51326370239258, 38.71651077270508]
+    )
+    assert data.sum() == pytest.approx(1253.3066)
+
+
+@pytest.fixture
+def xrootd_file(xrootd_server):
+    remote_path, local_path = xrootd_server
+    filename = "uproot-issue121.root"
+    shutil.copy(skhep_testdata.data_path(filename), local_path)
+    return os.path.join(remote_path, filename)
 
 
 @pytest.mark.parametrize(
@@ -37,14 +59,22 @@ def test_default_source(urlpath, source_class):
 
 
 @pytest.mark.parametrize(
-    "to_open, handler",
+    "to_open, handler, message",
     [
-        ("file.root", "invalid_handler"),
-        (BinaryIO(), uproot.source.fsspec.FSSpecSource),
+        (
+            "file.root",
+            "invalid_handler",
+            "'handler' is not a class object inheriting from Source: 'invalid_handler'",
+        ),
+        (
+            BinaryIO(),
+            uproot.source.fsspec.FSSpecSource,
+            "'handler' is not ObjectSource for a file-like object",
+        ),
     ],
 )
-def test_invalid_handler(to_open, handler):
-    with pytest.raises(TypeError):
+def test_invalid_handler(to_open, handler, message):
+    with pytest.raises(TypeError, match=message):
         uproot.open(to_open, handler=handler)
 
 
@@ -57,7 +87,7 @@ def test_open_fsspec_http(http_server):
         handler=uproot.source.fsspec.FSSpecSource,
     ) as f:
         data = f["Events/MET_pt"].array(library="np")
-        assert len(data) == 40
+        check_met_pt(data)
 
 
 @pytest.mark.network
@@ -67,7 +97,7 @@ def test_open_fsspec_github():
             "github://scikit-hep:scikit-hep-testdata@v0.4.33/src/skhep_testdata/data/uproot-issue121.root"
         ) as f:
             data = f["Events/MET_pt"].array(library="np")
-            assert len(data) == 40
+            check_met_pt(data)
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 403:
             pytest.skip("GitHub API limit has been reached")
@@ -83,7 +113,7 @@ def test_open_fsspec_local():
         handler=uproot.source.fsspec.FSSpecSource,
     ) as f:
         data = f["Events/MET_pt"].array(library="np")
-        assert len(data) == 40
+        check_met_pt(data)
 
 
 @pytest.mark.parametrize(
@@ -103,6 +133,7 @@ def test_open_fsspec_s3(handler, s3_server):
     ) as f:
         data = f["Muon_Px"].array(library="np")
         assert len(data) == 2421
+        assert data[0].tolist() == pytest.approx(MUON_PX_0)
 
 
 @pytest.mark.parametrize(
@@ -138,10 +169,9 @@ def test_open_fsspec_ssh(handler):
     uri = f"ssh://{user}@{host}:{port}{local_path}"
     with uproot.open(uri, handler=handler) as f:
         data = f["Events/MET_pt"].array(library="np")
-        assert len(data) == 40
+        check_met_pt(data)
 
 
-@pytest.mark.network
 @pytest.mark.xrootd
 @pytest.mark.parametrize(
     "handler",
@@ -151,21 +181,10 @@ def test_open_fsspec_ssh(handler):
         None,
     ],
 )
-def test_open_fsspec_xrootd(handler, xrootd_server):
-    filename = "uproot-issue121.root"
-    remote_path, local_path = xrootd_server
-    with open(skhep_testdata.data_path(filename), "rb") as f_read:
-        with open(os.path.join(local_path, filename), "wb") as f_write:
-            f_write.write(f_read.read())
-
-    print(remote_path, local_path)
-
-    with uproot.open(
-        os.path.join(remote_path, filename),
-        handler=handler,
-    ) as f:
+def test_open_fsspec_xrootd(handler, xrootd_file):
+    with uproot.open(xrootd_file, handler=handler) as f:
         data = f["Events/MET_pt"].array(library="np")
-        assert len(data) == 40
+        check_met_pt(data)
 
 
 @pytest.mark.parametrize(
@@ -187,15 +206,15 @@ def test_issue_1054_filename_colons(handler, tmp_path):
     shutil.copyfile(local_path, local_path_new)
     with uproot.open(local_path_new, handler=handler) as f:
         data = f["Events/MET_pt"].array(library="np")
-        assert len(data) == 40
+        check_met_pt(data)
 
     with uproot.open(local_path_new + ":Events", handler=handler) as tree:
         data = tree["MET_pt"].array(library="np")
-        assert len(data) == 40
+        check_met_pt(data)
 
     with uproot.open(local_path_new + ":Events/MET_pt", handler=handler) as branch:
         data = branch.array(library="np")
-        assert len(data) == 40
+        check_met_pt(data)
 
 
 @pytest.mark.parametrize(
@@ -212,15 +231,15 @@ def test_issue_1054_object_path_split(handler):
     local_path = str(skhep_testdata.data_path(root_filename))
     with uproot.open(local_path, handler=handler) as f:
         data = f["Events/MET_pt"].array(library="np")
-        assert len(data) == 40
+        check_met_pt(data)
 
     with uproot.open(local_path + ":Events", handler=handler) as tree:
         data = tree["MET_pt"].array(library="np")
-        assert len(data) == 40
+        check_met_pt(data)
 
     with uproot.open(local_path + ":Events/MET_pt", handler=handler) as branch:
         data = branch.array(library="np")
-        assert len(data) == 40
+        check_met_pt(data)
 
 
 def test_fsspec_chunks(http_server):
@@ -259,7 +278,7 @@ def test_fsspec_memory():
     # read from memory filesystem
     with uproot.open(f"memory://{file_path}") as f:
         data = f["Events/MET_pt"].array(library="np")
-        assert len(data) == 40
+        check_met_pt(data)
 
 
 def test_fsspec_tar(tmp_path):
@@ -279,7 +298,7 @@ def test_fsspec_tar(tmp_path):
     # open with fsspec
     with uproot.open(f"tar://{filename}::file://{filename_tar}") as f:
         data = f["Events/MET_pt"].array(library="np")
-        assert len(data) == 40
+        check_met_pt(data)
 
 
 def test_fsspec_zip(tmp_path):
@@ -298,10 +317,9 @@ def test_fsspec_zip(tmp_path):
         f"zip://{filename}:Events/MET_pt::file://{filename_zip}"
     ) as branch:
         data = branch.array(library="np")
-        assert len(data) == 40
+        check_met_pt(data)
 
 
-@pytest.mark.network
 @pytest.mark.xrootd
 @pytest.mark.parametrize(
     "handler",
@@ -311,32 +329,30 @@ def test_fsspec_zip(tmp_path):
         None,
     ],
 )
-def test_open_fsspec_xrootd_iterate_files(handler):
-    pytest.importorskip("XRootD")
-    pytest.importorskip("fsspec_xrootd")
+def test_open_fsspec_xrootd_iterate_files(handler, xrootd_file, xrootd_server):
+    remote_path, local_path = xrootd_server
+    shutil.copy(
+        skhep_testdata.data_path("uproot-issue121.root"), local_path + "/b.root"
+    )
 
     iterator = uproot.iterate(
         files=[
-            {
-                "root://eospublic.cern.ch//eos/root-eos/cms_opendata_2012_nanoaod/Run2012B_DoubleMuParked.root": "Events"
-            },
-            {
-                "root://eospublic.cern.ch//eos/root-eos/cms_opendata_2012_nanoaod/Run2012B_DoubleMuParked.root": "Events"
-            },
+            {xrootd_file: "Events"},
+            {os.path.join(remote_path, "b.root"): "Events"},
         ],
-        expressions=["run"],
-        step_size=100,
+        expressions=["MET_pt"],
+        # MET_pt is in one TBasket: with smaller steps, the later steps of a file
+        # would have nothing to request, which XRootD fails on until #1825
+        step_size=40,
         handler=handler,
     )
 
-    for i, data in enumerate(iterator):
-        if i >= 5:
-            break
-        assert len(data) == 100
-        assert all(data["run"] == 194778)
+    chunks = list(iterator)
+    assert [len(data) for data in chunks] == [40, 40]
+    check_met_pt(chunks[0]["MET_pt"].to_numpy())
+    check_met_pt(chunks[1]["MET_pt"].to_numpy())
 
 
-@pytest.mark.network
 @pytest.mark.xrootd
 @pytest.mark.parametrize(
     "handler",
@@ -346,26 +362,13 @@ def test_open_fsspec_xrootd_iterate_files(handler):
         None,
     ],
 )
-def test_open_fsspec_xrootd_iterate_tree(handler):
-    pytest.importorskip("XRootD")
-    pytest.importorskip("fsspec_xrootd")
+def test_open_fsspec_xrootd_iterate_tree(handler, xrootd_file):
+    with uproot.open({xrootd_file: "Events"}, handler=handler) as f:
+        # one step, for the reason in test_open_fsspec_xrootd_iterate_files
+        chunks = list(f.iterate(["MET_pt"], step_size=40))
 
-    with uproot.open(
-        {
-            "root://eospublic.cern.ch//eos/root-eos/cms_opendata_2012_nanoaod/Run2012B_DoubleMuParked.root": "Events"
-        },
-        handler=handler,
-    ) as f:
-        iterator = f.iterate(
-            ["run"],
-            step_size=100,
-        )
-
-        for i, data in enumerate(iterator):
-            if i >= 5:
-                break
-            assert len(data) == 100
-            assert all(data["run"] == 194778)
+    assert [len(data) for data in chunks] == [40]
+    check_met_pt(chunks[0]["MET_pt"].to_numpy())
 
 
 # https://github.com/scikit-hep/uproot5/issues/1035
@@ -379,6 +382,12 @@ def test_open_fsspec_xrootd_iterate_tree(handler):
     ],
 )
 def test_issue_1035(handler):
+    with uproot.open(skhep_testdata.data_path("uproot-issue-798.root")) as f:
+        expected = f["CollectionTree"][
+            "MuonSpectrometerTrackParticlesAuxDyn.truthParticleLink"
+        ].array()
+        expected = expected.tolist()
+
     with uproot.open(
         skhep_testdata.data_path("uproot-issue-798.root"),
         handler=handler,
@@ -390,19 +399,17 @@ def test_issue_1035(handler):
             branch = tree["MuonSpectrometerTrackParticlesAuxDyn.truthParticleLink"]
             data = branch.array()
             assert len(data) == 40
+            assert data.tolist() == expected
 
 
-@pytest.mark.skip(reason="This test occasionally takes too long: GitHub kills it.")
-@pytest.mark.network
 @pytest.mark.xrootd
 @pytest.mark.parametrize(
     "filename",
     [
-        {
-            "root://eospublic.cern.ch//eos/root-eos/cms_opendata_2012_nanoaod/Run2012B_*.root": "Events"
-        },
-        "root://eospublic.cern.ch//eos/root-eos/cms_opendata_2012_nanoaod/Run2012B_*.root:Events",
+        lambda pattern: {pattern: "Events"},
+        lambda pattern: f"{pattern}:Events",
     ],
+    ids=["dict", "str"],
 )
 @pytest.mark.parametrize(
     "handler",
@@ -411,21 +418,26 @@ def test_issue_1035(handler):
         None,
     ],
 )
-def test_fsspec_globbing_xrootd(handler, filename):
-    pytest.importorskip("XRootD")
-    pytest.importorskip("fsspec_xrootd")
+def test_fsspec_globbing_xrootd(handler, filename, xrootd_server):
+    remote_path, local_path = xrootd_server
+    for i in range(2):
+        shutil.copyfile(
+            skhep_testdata.data_path("uproot-issue121.root"),
+            os.path.join(local_path, f"globbed-{i}.root"),
+        )
+
     iterator = uproot.iterate(
-        filename,
-        ["PV_x"],
+        filename(os.path.join(remote_path, "globbed-*.root")),
+        ["MET_pt"],
         handler=handler,
     )
 
     arrays = [array for array in iterator]
-    # if more files are added that match the glob, this test needs to be updated
     assert len(arrays) == 2
+    for array in arrays:
+        check_met_pt(array["MET_pt"].to_numpy())
 
 
-@pytest.mark.network
 @pytest.mark.xrootd
 @pytest.mark.parametrize(
     "handler",
@@ -434,17 +446,14 @@ def test_fsspec_globbing_xrootd(handler, filename):
         None,
     ],
 )
-def test_fsspec_globbing_xrootd_no_files(handler):
-    pytest.importorskip("XRootD")
-    pytest.importorskip("fsspec_xrootd")
+def test_fsspec_globbing_xrootd_no_files(handler, xrootd_server):
+    remote_path, _ = xrootd_server
     iterator = uproot.iterate(
-        {
-            "root://eospublic.cern.ch//eos/root-eos/cms_opendata_2012_nanoaod/*/ThisFileShouldNotExist.root": "Events"
-        },
-        ["PV_x"],
+        {os.path.join(remote_path, "*/ThisFileShouldNotExist.root"): "Events"},
+        ["MET_pt"],
         handler=handler,
     )
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(FileNotFoundError, match="ThisFileShouldNotExist.root"):
         arrays = [array for array in iterator]
 
 
@@ -470,6 +479,7 @@ def test_fsspec_globbing_s3(handler, s3_server):
     assert len(arrays) == 2
     for array in arrays:
         assert len(array) == 2421
+        assert array["Muon_Px"][0].tolist() == pytest.approx(MUON_PX_0)
 
 
 @pytest.mark.parametrize(
@@ -496,7 +506,7 @@ def test_fsspec_cache_xrootd(protocol_prefix, xrootd_server, tmp_path):
         simplecache={"cache_storage": cache_path},
     ) as f:
         data = f["Events/MET_pt"].array(library="np")
-        assert len(data) == 40
+        check_met_pt(data)
 
 
 @pytest.mark.parametrize(
@@ -510,12 +520,11 @@ def test_fsspec_cache_http(http_server, protocol_prefix):
     pytest.importorskip("aiohttp")
 
     url = f"{protocol_prefix}{http_server}/uproot-issue121.root"
-    print(url)
     with uproot.open(
         url,
     ) as f:
         data = f["Events/MET_pt"].array(library="np")
-        assert len(data) == 40
+        check_met_pt(data)
 
 
 def test_fsspec_cache_http_directory(http_server, tmp_path):
@@ -523,13 +532,12 @@ def test_fsspec_cache_http_directory(http_server, tmp_path):
 
     cache_directory = str(tmp_path / "cache")
     url = f"simplecache::{http_server}/uproot-issue121.root"
-    print(tmp_path)
     with uproot.open(
         url,
         simplecache={"cache_storage": cache_directory},
     ) as f:
         data = f["Events/MET_pt"].array(library="np")
-        assert len(data) == 40
+        check_met_pt(data)
 
     assert len(os.listdir(cache_directory)) == 1
 
@@ -544,14 +552,32 @@ def test_fsspec_cache_http_directory(http_server, tmp_path):
 def test_fsspec_globbing_http(handler):
     pytest.importorskip("aiohttp")
 
-    # Globbing does not work with http filesystems and will return an empty list of files
-    # We leave this test here to be notified when this feature is added
-    iterator = uproot.iterate(
-        {
-            "https://github.com/scikit-hep/scikit-hep-testdata/raw/main/src/skhep_testdata/data/uproot-issue*.root": "Events"
-        },
-        ["MET_pt"],
-        handler=handler,
-    )
-    with pytest.raises(FileNotFoundError):
-        arrays = [array for array in iterator]
+    class NoListing(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_error(404)
+
+        do_HEAD = do_GET
+
+        def log_message(self, format, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("localhost", 0), NoListing)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    # Globbing does not work with http filesystems: a pattern is looked up as a
+    # file name, and a server without that file makes it a FileNotFoundError
+    try:
+        iterator = uproot.iterate(
+            {
+                f"http://localhost:{server.server_address[1]}/uproot-issue*.root": "Events"
+            },
+            ["MET_pt"],
+            handler=handler,
+        )
+        with pytest.raises(FileNotFoundError, match="uproot-issue"):
+            arrays = [array for array in iterator]
+    finally:
+        server.shutdown()
+        thread.join()
+        server.server_close()

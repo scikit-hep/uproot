@@ -30,7 +30,7 @@ def test():
 
         assert "one;1/two;1" in directory
 
-        with pytest.raises(KeyError):
+        with pytest.raises(uproot.KeyInFileError, match="not found: 'whatever'"):
             directory["whatever"]
 
         assert directory.get("whatever") is None

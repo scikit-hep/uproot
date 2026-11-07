@@ -32,7 +32,7 @@ def test_formula_with_missing():
     with uproot.open(skhep_testdata.data_path("uproot-small-evnt-tree-fullsplit.root"))[
         "tree"
     ] as tree:
-        with pytest.raises(KeyError):
+        with pytest.raises(uproot.KeyInFileError, match="not found: 'wonky'"):
             tree.arrays("wonky", library="np")
 
 
@@ -44,27 +44,27 @@ def test_strings1():
         assert result.tolist() == [f"hey-{i}" for i in range(30)]
 
 
-def test_strings4():
+def test_strings4_split():
     with uproot.open(skhep_testdata.data_path("uproot-small-evnt-tree-fullsplit.root"))[
         "tree/StlVecStr"
     ] as branch:
         result = branch.array(library="np")
-        assert [result.tolist() for x in result] == [
+        assert [x.tolist() for x in result] == [
             [f"vec-{i:03d}"] * (i % 10) for i in range(100)
         ]
 
 
-def test_strings4():
+def test_strings4_nosplit():
     with uproot.open(skhep_testdata.data_path("uproot-small-evnt-tree-nosplit.root"))[
         "tree/evt"
     ] as branch:
         result = branch.array(library="np")
-        assert [result.member("StlVecStr").tolist() for x in result] == [
+        assert [x.member("StlVecStr").tolist() for x in result] == [
             [f"vec-{i:03d}"] * (i % 10) for i in range(100)
         ]
 
 
-def test_strings4():
+def test_vector_vector_double():
     with uproot.open(skhep_testdata.data_path("uproot-vectorVectorDouble.root"))[
         "t/x"
     ] as branch:

@@ -65,16 +65,16 @@ def test_parse_typename():
         True, AsVector(True, ">i4"), AsSet(True, AsSet(False, ">f4"))
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="invalid C\\+\\+ type name syntax at char 8"):
         parse_typename("string  <")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="invalid C\\+\\+ type name syntax at char 9"):
         parse_typename("vector  <")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="invalid C\\+\\+ type name syntax at char 11"):
         parse_typename("map<string<int>>")
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="invalid C\\+\\+ type name syntax at char 16"):
         parse_typename("map<string, int>>")
 
 

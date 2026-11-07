@@ -24,32 +24,35 @@ to_test = {
 }
 
 
-@pytest.mark.parametrize("file", [file])
-@pytest.mark.parametrize("tree", [tree])
-@pytest.mark.parametrize("open_files", [True, False])
 @pytest.mark.parametrize(
-    "ak_add_doc_value",
+    "open_files, ak_add_doc_value",
     [
-        False,
-        True,
-        {"__doc__": "title"},
-        {"title": "title"},
-        {"typename": "typename"},
-        {"__doc__": "title", "typename": "typename"},
+        # opening this file is slow, and both modes hand the value to _base_form_of
+        (True, True),
+        (True, {"__doc__": "title", "typename": "typename"}),
+        (False, False),
+        (False, True),
+        (False, {"__doc__": "title"}),
+        (False, {"title": "title"}),
+        (False, {"typename": "typename"}),
+        (False, {"__doc__": "title", "typename": "typename"}),
     ],
 )
-def test_extend_ak_add_doc(file, tree, open_files, ak_add_doc_value):
-
+def test_extend_ak_add_doc(open_files, ak_add_doc_value):
     events = uproot.dask(
-        file + ":" + tree, open_files=open_files, ak_add_doc=ak_add_doc_value
+        file + ":" + tree,
+        filter_name=list(to_test),
+        open_files=open_files,
+        ak_add_doc=ak_add_doc_value,
     )
     for branch_name in to_test.keys():
-        if isinstance(ak_add_doc_value, bool):
-            if ak_add_doc_value:
-                assert events[branch_name].form.parameters == {
-                    "__doc__": to_test[branch_name]["title"]
-                }
-        if isinstance(ak_add_doc_value, dict):
+        if ak_add_doc_value is False:
+            assert events[branch_name].form.parameters == {}
+        elif ak_add_doc_value is True:
+            assert events[branch_name].form.parameters == {
+                "__doc__": to_test[branch_name]["title"]
+            }
+        else:
             assert events[branch_name].form.parameters == {
                 key: to_test[branch_name][val] for key, val in ak_add_doc_value.items()
             }

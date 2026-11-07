@@ -17,7 +17,8 @@ def test_write_empty(tmp_path):
         f["test"] = tlist
 
     with uproot.open(filename) as f2:
-        assert len(f2["test"]) == 0
+        assert f2["test"].classname == "TList"
+        assert list(f2["test"]) == []
 
 
 def test_write_single_key(tmp_path):
@@ -31,7 +32,7 @@ def test_write_single_key(tmp_path):
         f["test"] = tlist
 
     with uproot.open(filename) as f2:
-        assert len(f2["test"]) == 1
+        assert [str(x) for x in f2["test"]] == ["test string"]
 
 
 def test_write_nested(tmp_path):

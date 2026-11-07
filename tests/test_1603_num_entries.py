@@ -11,9 +11,6 @@ def test_num_entries(tmp_path):
             file.mktree("tree", {"x": list(range(1 + i))})
 
     num_entries = uproot.num_entries(f"{tmp_path}/test_*.root:tree")
-    num_entries = sorted(num_entries, key=lambda x: x[0])
-    for i, v in enumerate(num_entries):
-        file_path, object_path, n_entries = v
-        assert file_path == os.path.join(tmp_path, f"test_{i}.root")
-        assert object_path == "tree"
-        assert n_entries == 1 + i
+    assert sorted(num_entries, key=lambda x: x[0]) == [
+        (os.path.join(tmp_path, f"test_{i}.root"), "tree", 1 + i) for i in range(5)
+    ]

@@ -16,6 +16,18 @@ def test_expressions_in_pandas(tmp_path):
         tree = file["tree"]
 
         # checking different options
-        tree.arrays(["log(b1)"], library="pd")  # arbitrary expressions work, like log
-        tree.arrays(["where(b1 < b2, b1, b2)"], library="np")  # works with np
-        tree.arrays(["where(b1 < b2, b1, b2)"], library="pd")  # should not fail with pd
+        # arbitrary expressions work, like log
+        df = tree.arrays(["log(b1)"], library="pd")
+        assert df.columns.tolist() == ["log(b1)"]
+        assert df["log(b1)"].tolist() == pytest.approx(
+            [0.0, 1.6094379124341003, 2.1972245773362196]
+        )
+
+        # works with np
+        expression = "where(b1 < b2, b1, b2)"
+        assert tree.arrays([expression], library="np")[expression].tolist() == [1, 5, 9]
+
+        # should not fail with pd
+        df = tree.arrays([expression], library="pd")
+        assert df.columns.tolist() == [expression]
+        assert df[expression].tolist() == [1, 5, 9]

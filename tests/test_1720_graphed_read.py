@@ -270,8 +270,9 @@ class _CountingExecutor:
 def test_decompression_executor_reaches_every_read():
     mark = _CountingExecutor()
     g = uproot.graphed(_zmumu(), decompression_executor=mark)
-    _run(_sum_plan(g.px1, steps_per_file=2))
-    assert mark.calls > 0
+    expected = float(ak.sum(uproot.open(_zmumu())["px1"].array()))
+    assert _run(_sum_plan(g.px1, steps_per_file=2)) == pytest.approx(expected)
+    assert mark.calls == 2  # the only TBasket of px1, for each of the 2 partitions
 
 
 # ---- graphed_head ------------------------------------------------------------------------
