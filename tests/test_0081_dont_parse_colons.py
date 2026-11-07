@@ -7,7 +7,7 @@ import uproot
 
 pytest.importorskip("awkward")
 
-MULTIPLE_TTREES = "TTree object paths must be specified in the 'files'"
+MULTIPLE_TTREES = "TTree or RNTuple object paths must be specified in the 'files'"
 
 
 @pytest.fixture(scope="module")
