@@ -26,7 +26,11 @@ import uproot.interpretation.grouped
 import uproot.language.python
 import uproot.source.chunk
 from uproot._util import no_filter, unset
-from uproot.behaviors.TBranch import _regularize_array_cache
+from uproot.behaviors.TBranch import (
+    _regularize_array_cache,
+    concatenate,  # noqa: F401
+    iterate,  # noqa: F401
+)
 
 
 class HasFields(Mapping):
@@ -646,8 +650,7 @@ class HasFields(Mapping):
         See also :ref:`uproot.behaviors.RNTuple.HasFields.arrays` to read
         everything in a single step, without iteration.
 
-        See also :doc:`uproot.behaviors.RNTuple.iterate` to iterate over many
-        files.
+        See also :doc:`uproot.behaviors.TBranch.iterate` to iterate over many files.
         """
         # This temporarily provides basic functionality while expressions are properly implemented
         if expressions is not None:

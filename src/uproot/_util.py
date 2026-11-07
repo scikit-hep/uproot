@@ -1154,7 +1154,7 @@ def regularize_object_path(
 
 def object_in_directory(directory, object_path, allow_missing):
     """
-    Returns the object at ``object_path`` in an open ``directory`` — the file's single ``TTree``
+    Returns the object at ``object_path`` in an open ``directory`` — the file's single ``TTree`` or ``RNTuple``
     when ``object_path`` is None — or None when ``allow_missing`` and it is absent.
     """
     file_path = directory.file.file_path

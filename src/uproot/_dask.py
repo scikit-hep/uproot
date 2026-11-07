@@ -1808,7 +1808,7 @@ def _trees_and_keys(
 
     if len(ttrees) == 0:
         raise ValueError(
-            "allow_missing=True and no TTrees found in\n\n    {}".format(
+            "allow_missing=True and no TTrees or RNTuples found in\n\n    {}".format(
                 "\n    ".join(
                     f"{{{f.file_path if isinstance(f, HasBranches) else f!r}: {f.object_path if isinstance(f, HasBranches) else o!r}}}"
                     for f, o, *_ in files

@@ -195,7 +195,7 @@ def test_allow_missing_drops_a_file_without_the_tree(tmp_path):
     nott = os.path.join(tmp_path, "nott.root")
     with uproot.recreate(nott) as f:
         f["h"] = np.histogram(np.arange(10.0))
-    with pytest.raises(ValueError, match="no TTrees found"):
+    with pytest.raises(ValueError, match="no TTrees or RNTuples found"):
         uproot.graphed(nott)
     g = uproot.graphed([nott, a], allow_missing=True, name="g")
     assert len(_source_of(g).partitions(1)) == 1

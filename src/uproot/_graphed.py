@@ -1042,8 +1042,9 @@ def read_graphed_partition(
 ):
     """Read a ``graphed.core.Partition``'s chunk of ``columns`` from its ROOT file, resolving a
     **blind** partition against the file's actual entry count. A partition with no object path
-    (``open_files=False`` over a bare file name) reads the file's single ``TTree``. Pass an
-    already-open ``tree`` to reuse a per-worker ``open_once`` handle."""
+    (``open_files=False`` over a bare file name) reads the file's single ``TTree`` or ``RNTuple``.
+    Pass an already-open ``tree``/``RNTuple`` to reuse a per-worker ``open_once`` handle.
+    """
     if tree is None:
         with uproot.open(partition.uri, **open_options) as directory:
             tree = uproot._util.object_in_directory(
