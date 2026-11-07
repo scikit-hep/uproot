@@ -11,18 +11,47 @@ import uproot
 ROOT = pytest.importorskip("ROOT")
 
 
-@pytest.mark.parametrize("use_isal", [False, True])
-def test_ZLIB(use_isal):
-    if use_isal:
-        pytest.importorskip("isal")
-        uproot.ZLIB.library = "isal"
+def use_zlib_library(monkeypatch, library):
+    if library != "zlib":
+        pytest.importorskip(library)
+    monkeypatch.setattr(uproot.ZLIB, "library", library)
+
+
+@pytest.fixture(params=["zlib", "isal", "deflate"])
+def zlib_library(request, monkeypatch):
+    use_zlib_library(monkeypatch, request.param)
+
+
+@pytest.fixture(params=["zlib", "isal", "deflate", "LZMA", "LZ4", "ZSTD"])
+def algorithm(request, monkeypatch):
+    if request.param == "LZMA":
+        pytest.importorskip("lzma")
+    elif request.param in ("LZ4", "ZSTD"):
+        pytest.importorskip("cramjam")
     else:
-        uproot.ZLIB.library = "zlib"
+        use_zlib_library(monkeypatch, request.param)
+        return uproot.ZLIB
+    return getattr(uproot, request.param)
+
+
+@pytest.mark.parametrize(
+    "library, module, filename",
+    [
+        ("zlib", "zlib", "uproot-Zmumu-zlib.root"),
+        ("isal", "isal", "uproot-Zmumu-zlib.root"),
+        ("deflate", "deflate", "uproot-Zmumu-zlib.root"),
+        (None, "lzma", "uproot-Zmumu-lzma.root"),
+        (None, "cramjam", "uproot-Zmumu-lz4.root"),
+        (None, "cramjam", "uproot-Zmumu-zstd.root"),
+    ],
+)
+def test_read_compressed_file(monkeypatch, library, module, filename):
+    pytest.importorskip(module)
+    if library is not None:
+        use_zlib_library(monkeypatch, library)
 
     for _ in range(2):
-        with uproot.open(skhep_testdata.data_path("uproot-Zmumu-zlib.root"))[
-            "events"
-        ] as events:
+        with uproot.open(skhep_testdata.data_path(filename))["events"] as events:
             assert events["px1"].array(entry_stop=5).tolist() == [
                 -41.1952876442,
                 35.1180497674,
@@ -32,223 +61,54 @@ def test_ZLIB(use_isal):
             ]
 
 
-@pytest.mark.parametrize("use_deflate", [False, True])
-def test_deflate(use_deflate):
-    if use_deflate:
-        pytest.importorskip("deflate")
-        uproot.ZLIB.library = "deflate"
-    else:
-        uproot.ZLIB.library = "zlib"
-
-    for _ in range(2):
-        with uproot.open(skhep_testdata.data_path("uproot-Zmumu-zlib.root"))[
-            "events"
-        ] as events:
-            assert events["px1"].array(entry_stop=5).tolist() == [
-                -41.1952876442,
-                35.1180497674,
-                35.1180497674,
-                34.1444372454,
-                22.7835819537,
-            ]
+def assert_compressed_with(branch, algorithm):
+    # TBranch.fCompress is always written as 0: only the blocks tell what was used
+    assert branch.compressed_bytes < branch.uncompressed_bytes
+    ((name, compressed, uncompressed),) = branch.basket(0).block_compression_info
+    assert name == algorithm.__name__
+    assert compressed < uncompressed
 
 
-def test_LZMA():
-    pytest.importorskip("lzma")
-
-    for _ in range(2):
-        with uproot.open(skhep_testdata.data_path("uproot-Zmumu-lzma.root"))[
-            "events"
-        ] as events:
-            assert events["px1"].array(entry_stop=5).tolist() == [
-                -41.1952876442,
-                35.1180497674,
-                35.1180497674,
-                34.1444372454,
-                22.7835819537,
-            ]
-
-
-def test_LZ4():
-    pytest.importorskip("cramjam")
-
-    for _ in range(2):
-        with uproot.open(skhep_testdata.data_path("uproot-Zmumu-lz4.root"))[
-            "events"
-        ] as events:
-            assert events["px1"].array(entry_stop=5).tolist() == [
-                -41.1952876442,
-                35.1180497674,
-                35.1180497674,
-                34.1444372454,
-                22.7835819537,
-            ]
-
-
-def test_ZSTD():
-    pytest.importorskip("cramjam")
-
-    for _ in range(2):
-        with uproot.open(skhep_testdata.data_path("uproot-Zmumu-zstd.root"))[
-            "events"
-        ] as events:
-            assert events["px1"].array(entry_stop=5).tolist() == [
-                -41.1952876442,
-                35.1180497674,
-                35.1180497674,
-                34.1444372454,
-                22.7835819537,
-            ]
-
-
-@pytest.mark.parametrize("use_isal", [False, True])
-def test_histogram_ZLIB(tmp_path, use_isal):
-    if use_isal:
-        pytest.importorskip("isal")
-        uproot.ZLIB.library = "isal"
-    else:
-        uproot.ZLIB.library = "zlib"
-
+def test_histogram(tmp_path, algorithm):
     newfile = os.path.join(tmp_path, "newfile.root")
 
-    SIZE = 2**21
-    histogram = (np.random.randint(0, 10, SIZE), np.linspace(0, 1, SIZE + 1))
-    last = histogram[0][-1]
+    # compressed blocks have at most 2**24 - 1 bytes, so 2**21 float64 are two blocks;
+    # splitting doesn't depend on the algorithm, so that size is for the fastest ones
+    SIZE = 2**21 if algorithm in (uproot.LZ4, uproot.ZSTD) else 2**15
+    entries = np.random.default_rng(416).integers(0, 10, SIZE)
+    edges = np.linspace(0, 1, SIZE + 1)
 
-    with uproot.recreate(newfile, compression=uproot.ZLIB(1)) as fout:
-        fout["out"] = histogram
+    with uproot.recreate(newfile, compression=algorithm(1)) as fout:
+        fout["out"] = entries, edges
 
     with uproot.open(newfile) as fin:
-        content, edges = fin["out"].to_numpy()
-        assert len(content) == SIZE
-        assert len(edges) == SIZE + 1
-        assert content[-1] == last
+        content, read_edges = fin["out"].to_numpy()
+        assert np.array_equal(content, entries)
+        assert np.array_equal(read_edges, edges)
+    assert os.path.getsize(newfile) < 8 * SIZE
 
     f3 = ROOT.TFile(newfile)
     h3 = f3.Get("out")
     assert h3.GetNbinsX() == SIZE
-    assert h3.GetBinContent(SIZE) == last
+    assert h3.GetBinContent(SIZE) == entries[-1]
+    assert h3.Integral() == entries.sum()
     f3.Close()
 
 
-@pytest.mark.parametrize("use_deflate", [False, True])
-def test_histogram_deflate(tmp_path, use_deflate):
-    if use_deflate:
-        pytest.importorskip("deflate")
-        uproot.ZLIB.library = "deflate"
-    else:
-        uproot.ZLIB.library = "zlib"
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    SIZE = 2**21
-    histogram = (np.random.randint(0, 10, SIZE), np.linspace(0, 1, SIZE + 1))
-    last = histogram[0][-1]
-
-    with uproot.recreate(newfile, compression=uproot.ZLIB(1)) as fout:
-        fout["out"] = histogram
-
-    with uproot.open(newfile) as fin:
-        content, edges = fin["out"].to_numpy()
-        assert len(content) == SIZE
-        assert len(edges) == SIZE + 1
-        assert content[-1] == last
-
-    f3 = ROOT.TFile(newfile)
-    h3 = f3.Get("out")
-    assert h3.GetNbinsX() == SIZE
-    assert h3.GetBinContent(SIZE) == last
-    f3.Close()
-
-
-def test_histogram_LZMA(tmp_path):
-    pytest.importorskip("lzma")
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    SIZE = 2**20
-    histogram = (np.random.randint(0, 10, SIZE), np.linspace(0, 1, SIZE + 1))
-    last = histogram[0][-1]
-
-    with uproot.recreate(newfile, compression=uproot.LZMA(1)) as fout:
-        fout["out"] = histogram
-
-    with uproot.open(newfile) as fin:
-        content, edges = fin["out"].to_numpy()
-        assert len(content) == SIZE
-        assert len(edges) == SIZE + 1
-        assert content[-1] == last
-
-    f3 = ROOT.TFile(newfile)
-    h3 = f3.Get("out")
-    assert h3.GetNbinsX() == SIZE
-    assert h3.GetBinContent(SIZE) == last
-    f3.Close()
-
-
-def test_histogram_LZ4(tmp_path):
-    pytest.importorskip("cramjam")
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    SIZE = 2**21
-    histogram = (np.random.randint(0, 10, SIZE), np.linspace(0, 1, SIZE + 1))
-    last = histogram[0][-1]
-
-    with uproot.recreate(newfile, compression=uproot.LZ4(1)) as fout:
-        fout["out"] = histogram
-
-    with uproot.open(newfile) as fin:
-        content, edges = fin["out"].to_numpy()
-        assert len(content) == SIZE
-        assert len(edges) == SIZE + 1
-        assert content[-1] == last
-
-    f3 = ROOT.TFile(newfile)
-    h3 = f3.Get("out")
-    assert h3.GetNbinsX() == SIZE
-    assert h3.GetBinContent(SIZE) == last
-    f3.Close()
-
-
-def test_histogram_ZSTD(tmp_path):
-    pytest.importorskip("cramjam")
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    SIZE = 2**21
-    histogram = (np.random.randint(0, 10, SIZE), np.linspace(0, 1, SIZE + 1))
-    last = histogram[0][-1]
-
-    with uproot.recreate(newfile, compression=uproot.ZSTD(1)) as fout:
-        fout["out"] = histogram
-
-    with uproot.open(newfile) as fin:
-        content, edges = fin["out"].to_numpy()
-        assert len(content) == SIZE
-        assert len(edges) == SIZE + 1
-        assert content[-1] == last
-
-    f3 = ROOT.TFile(newfile)
-    h3 = f3.Get("out")
-    assert h3.GetNbinsX() == SIZE
-    assert h3.GetBinContent(SIZE) == last
-    f3.Close()
-
-
-def test_flattree_ZLIB(tmp_path):
+def test_flattree(tmp_path, algorithm):
     newfile = os.path.join(tmp_path, "newfile.root")
 
     branch1 = np.arange(100)
     branch2 = 1.1 * np.arange(100)
 
-    with uproot.recreate(newfile, compression=uproot.ZLIB(5)) as fout:
+    with uproot.recreate(newfile, compression=algorithm(5)) as fout:
         fout.mktree("tree", {"branch1": branch1, "branch2": branch2})
         fout["tree"].extend({"branch1": branch1, "branch2": branch2})
 
     with uproot.open(newfile) as fin:
         assert fin["tree/branch1"].array(library="np").tolist() == branch1.tolist() * 2
         assert fin["tree/branch2"].array(library="np").tolist() == branch2.tolist() * 2
+        assert_compressed_with(fin["tree/branch1"], algorithm)
 
     f3 = ROOT.TFile(newfile)
     t3 = f3.Get("tree")
@@ -257,76 +117,7 @@ def test_flattree_ZLIB(tmp_path):
     f3.Close()
 
 
-def test_flattree_LZMA(tmp_path):
-    pytest.importorskip("lzma")
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    branch1 = np.arange(100)
-    branch2 = 1.1 * np.arange(100)
-
-    with uproot.recreate(newfile, compression=uproot.LZMA(5)) as fout:
-        fout.mktree("tree", {"branch1": branch1, "branch2": branch2})
-        fout["tree"].extend({"branch1": branch1, "branch2": branch2})
-
-    with uproot.open(newfile) as fin:
-        assert fin["tree/branch1"].array(library="np").tolist() == branch1.tolist() * 2
-        assert fin["tree/branch2"].array(library="np").tolist() == branch2.tolist() * 2
-
-    f3 = ROOT.TFile(newfile)
-    t3 = f3.Get("tree")
-    assert [x.branch1 for x in t3] == branch1.tolist() * 2
-    assert [x.branch2 for x in t3] == branch2.tolist() * 2
-    f3.Close()
-
-
-def test_flattree_LZ4(tmp_path):
-    pytest.importorskip("cramjam")
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    branch1 = np.arange(100)
-    branch2 = 1.1 * np.arange(100)
-
-    with uproot.recreate(newfile, compression=uproot.LZ4(5)) as fout:
-        fout.mktree("tree", {"branch1": branch1, "branch2": branch2})
-        fout["tree"].extend({"branch1": branch1, "branch2": branch2})
-
-    with uproot.open(newfile) as fin:
-        assert fin["tree/branch1"].array(library="np").tolist() == branch1.tolist() * 2
-        assert fin["tree/branch2"].array(library="np").tolist() == branch2.tolist() * 2
-
-    f3 = ROOT.TFile(newfile)
-    t3 = f3.Get("tree")
-    assert [x.branch1 for x in t3] == branch1.tolist() * 2
-    assert [x.branch2 for x in t3] == branch2.tolist() * 2
-    f3.Close()
-
-
-def test_flattree_ZSTD(tmp_path):
-    pytest.importorskip("cramjam")
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    branch1 = np.arange(100)
-    branch2 = 1.1 * np.arange(100)
-
-    with uproot.recreate(newfile, compression=uproot.ZSTD(5)) as fout:
-        fout.mktree("tree", {"branch1": branch1, "branch2": branch2})
-        fout["tree"].extend({"branch1": branch1, "branch2": branch2})
-
-    with uproot.open(newfile) as fin:
-        assert fin["tree/branch1"].array(library="np").tolist() == branch1.tolist() * 2
-        assert fin["tree/branch2"].array(library="np").tolist() == branch2.tolist() * 2
-
-    f3 = ROOT.TFile(newfile)
-    t3 = f3.Get("tree")
-    assert [x.branch1 for x in t3] == branch1.tolist() * 2
-    assert [x.branch2 for x in t3] == branch2.tolist() * 2
-    f3.Close()
-
-
-def test_jaggedtree_ZLIB(tmp_path):
+def test_jaggedtree(tmp_path, algorithm):
     ak = pytest.importorskip("awkward")
 
     newfile = os.path.join(tmp_path, "newfile.root")
@@ -334,13 +125,14 @@ def test_jaggedtree_ZLIB(tmp_path):
     branch1 = ak.Array([[1, 2, 3], [], [4, 5]] * 10)
     branch2 = ak.Array([[1.1, 2.2, 3.3], [], [4.4, 5.5]] * 10)
 
-    with uproot.recreate(newfile, compression=uproot.ZLIB(5)) as fout:
+    with uproot.recreate(newfile, compression=algorithm(5)) as fout:
         fout.mktree("tree", {"branch1": branch1, "branch2": branch2})
         fout["tree"].extend({"branch1": branch1, "branch2": branch2})
 
     with uproot.open(newfile) as fin:
         assert fin["tree/branch1"].array().tolist() == branch1.tolist() * 2
         assert fin["tree/branch2"].array().tolist() == branch2.tolist() * 2
+        assert_compressed_with(fin["tree/branch1"], algorithm)
 
     f3 = ROOT.TFile(newfile)
     t3 = f3.Get("tree")
@@ -349,406 +141,72 @@ def test_jaggedtree_ZLIB(tmp_path):
     f3.Close()
 
 
-def test_jaggedtree_LZMA(tmp_path):
-    pytest.importorskip("lzma")
-    ak = pytest.importorskip("awkward")
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    branch1 = ak.Array([[1, 2, 3], [], [4, 5]] * 10)
-    branch2 = ak.Array([[1.1, 2.2, 3.3], [], [4.4, 5.5]] * 10)
-
-    with uproot.recreate(newfile, compression=uproot.LZMA(5)) as fout:
-        fout.mktree("tree", {"branch1": branch1, "branch2": branch2})
-        fout["tree"].extend({"branch1": branch1, "branch2": branch2})
-
-    with uproot.open(newfile) as fin:
-        assert fin["tree/branch1"].array().tolist() == branch1.tolist() * 2
-        assert fin["tree/branch2"].array().tolist() == branch2.tolist() * 2
-
-    f3 = ROOT.TFile(newfile)
-    t3 = f3.Get("tree")
-    assert [list(x.branch1) for x in t3] == branch1.tolist() * 2
-    assert [list(x.branch2) for x in t3] == branch2.tolist() * 2
-    f3.Close()
+def no_change(fout):
+    pass
 
 
-def test_jaggedtree_LZ4(tmp_path):
-    pytest.importorskip("cramjam")
-    ak = pytest.importorskip("awkward")
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    branch1 = ak.Array([[1, 2, 3], [], [4, 5]] * 10)
-    branch2 = ak.Array([[1.1, 2.2, 3.3], [], [4.4, 5.5]] * 10)
-
-    with uproot.recreate(newfile, compression=uproot.LZ4(5)) as fout:
-        fout.mktree("tree", {"branch1": branch1, "branch2": branch2})
-        fout["tree"].extend({"branch1": branch1, "branch2": branch2})
-
-    with uproot.open(newfile) as fin:
-        assert fin["tree/branch1"].array().tolist() == branch1.tolist() * 2
-        assert fin["tree/branch2"].array().tolist() == branch2.tolist() * 2
-
-    f3 = ROOT.TFile(newfile)
-    t3 = f3.Get("tree")
-    assert [list(x.branch1) for x in t3] == branch1.tolist() * 2
-    assert [list(x.branch2) for x in t3] == branch2.tolist() * 2
-    f3.Close()
+def file_to_None(fout):
+    fout.compression = None
 
 
-def test_jaggedtree_ZSTD(tmp_path):
-    pytest.importorskip("cramjam")
-    ak = pytest.importorskip("awkward")
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    branch1 = ak.Array([[1, 2, 3], [], [4, 5]] * 10)
-    branch2 = ak.Array([[1.1, 2.2, 3.3], [], [4.4, 5.5]] * 10)
-
-    with uproot.recreate(newfile, compression=uproot.ZSTD(5)) as fout:
-        fout.mktree("tree", {"branch1": branch1, "branch2": branch2})
-        fout["tree"].extend({"branch1": branch1, "branch2": branch2})
-
-    with uproot.open(newfile) as fin:
-        assert fin["tree/branch1"].array().tolist() == branch1.tolist() * 2
-        assert fin["tree/branch2"].array().tolist() == branch2.tolist() * 2
-
-    f3 = ROOT.TFile(newfile)
-    t3 = f3.Get("tree")
-    assert [list(x.branch1) for x in t3] == branch1.tolist() * 2
-    assert [list(x.branch2) for x in t3] == branch2.tolist() * 2
-    f3.Close()
+def each_branch(fout):
+    fout["tree"]["branch1"].compression = uproot.ZLIB(5)
+    fout["tree"]["branch2"].compression = None
 
 
-@pytest.mark.parametrize("use_isal", [False, True])
-def test_multicompression_1(tmp_path, use_isal):
-    if use_isal:
-        pytest.importorskip("isal")
-        uproot.ZLIB.library = "isal"
-    else:
-        uproot.ZLIB.library = "zlib"
+def tree_with_dict(fout):
+    fout["tree"].compression = {"branch1": uproot.ZLIB(5), "branch2": None}
 
+
+def tree_with_dict_then_one_algorithm(fout):
+    fout["tree"].compression = {"branch1": uproot.ZLIB(5), "branch2": None}
+    fout["tree"].compression = uproot.ZLIB(5)
+
+
+@pytest.mark.parametrize(
+    "options, before_mktree, after_mktree, branch1_compressed, branch2_compressed",
+    [
+        ({}, no_change, each_branch, True, False),
+        ({}, no_change, tree_with_dict, True, False),
+        ({}, no_change, tree_with_dict_then_one_algorithm, True, True),
+        ({"compression": uproot.ZLIB(5)}, no_change, no_change, True, True),
+        ({"compression": uproot.ZLIB(5)}, file_to_None, no_change, False, False),
+    ],
+    ids=["each-branch", "dict", "dict-then-one", "file", "file-None-after-opening"],
+)
+def test_multicompression(
+    tmp_path,
+    zlib_library,
+    options,
+    before_mktree,
+    after_mktree,
+    branch1_compressed,
+    branch2_compressed,
+):
     newfile = os.path.join(tmp_path, "newfile.root")
 
     branch1 = np.arange(100)
     branch2 = 1.1 * np.arange(100)
 
-    with uproot.recreate(newfile) as fout:
+    with uproot.recreate(newfile, **options) as fout:
+        before_mktree(fout)
         fout.mktree("tree", {"branch1": branch1.dtype, "branch2": branch2.dtype})
-        fout["tree"]["branch1"].compression = uproot.ZLIB(5)
-        fout["tree"]["branch2"].compression = None
+        after_mktree(fout)
         fout["tree"].extend({"branch1": branch1, "branch2": branch2})
 
     with uproot.open(newfile) as fin:
-        assert fin["tree/branch1"].array(library="np").tolist() == branch1.tolist()
-        assert fin["tree/branch2"].array(library="np").tolist() == branch2.tolist()
-        assert fin["tree/branch1"].compressed_bytes < 874
-        assert fin["tree/branch2"].compressed_bytes == 874
-        assert fin["tree/branch1"].uncompressed_bytes == 874
-        assert fin["tree/branch2"].uncompressed_bytes == 874
-
-    f3 = ROOT.TFile(newfile)
-    t3 = f3.Get("tree")
-    assert [x.branch1 for x in t3] == branch1.tolist()
-    assert [x.branch2 for x in t3] == branch2.tolist()
-    f3.Close()
-
-
-@pytest.mark.parametrize("use_isal", [False, True])
-def test_multicompression_2(tmp_path, use_isal):
-    if use_isal:
-        pytest.importorskip("isal")
-        uproot.ZLIB.library = "isal"
-    else:
-        uproot.ZLIB.library = "zlib"
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    branch1 = np.arange(100)
-    branch2 = 1.1 * np.arange(100)
-
-    with uproot.recreate(newfile) as fout:
-        fout.mktree("tree", {"branch1": branch1.dtype, "branch2": branch2.dtype})
-        fout["tree"].compression = {"branch1": uproot.ZLIB(5), "branch2": None}
-        fout["tree"].extend({"branch1": branch1, "branch2": branch2})
-
-    with uproot.open(newfile) as fin:
-        assert fin["tree/branch1"].array(library="np").tolist() == branch1.tolist()
-        assert fin["tree/branch2"].array(library="np").tolist() == branch2.tolist()
-        assert fin["tree/branch1"].compressed_bytes < 874
-        assert fin["tree/branch2"].compressed_bytes == 874
-        assert fin["tree/branch1"].uncompressed_bytes == 874
-        assert fin["tree/branch2"].uncompressed_bytes == 874
-
-    f3 = ROOT.TFile(newfile)
-    t3 = f3.Get("tree")
-    assert [x.branch1 for x in t3] == branch1.tolist()
-    assert [x.branch2 for x in t3] == branch2.tolist()
-    f3.Close()
-
-
-@pytest.mark.parametrize("use_isal", [False, True])
-def test_multicompression_3(tmp_path, use_isal):
-    if use_isal:
-        pytest.importorskip("isal")
-        uproot.ZLIB.library = "isal"
-    else:
-        uproot.ZLIB.library = "zlib"
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    branch1 = np.arange(100)
-    branch2 = 1.1 * np.arange(100)
-
-    with uproot.recreate(newfile) as fout:
-        fout.mktree("tree", {"branch1": branch1.dtype, "branch2": branch2.dtype})
-        fout["tree"].compression = {"branch1": uproot.ZLIB(5), "branch2": None}
-        fout["tree"].compression = uproot.ZLIB(5)
-        fout["tree"].extend({"branch1": branch1, "branch2": branch2})
-
-    with uproot.open(newfile) as fin:
-        assert fin["tree/branch1"].array(library="np").tolist() == branch1.tolist()
-        assert fin["tree/branch2"].array(library="np").tolist() == branch2.tolist()
-        assert fin["tree/branch1"].compressed_bytes < 874
-        assert fin["tree/branch2"].compressed_bytes < 874
-        assert fin["tree/branch1"].uncompressed_bytes == 874
-        assert fin["tree/branch2"].uncompressed_bytes == 874
-
-    f3 = ROOT.TFile(newfile)
-    t3 = f3.Get("tree")
-    assert [x.branch1 for x in t3] == branch1.tolist()
-    assert [x.branch2 for x in t3] == branch2.tolist()
-    f3.Close()
-
-
-@pytest.mark.parametrize("use_isal", [False, True])
-def test_multicompression_4(tmp_path, use_isal):
-    if use_isal:
-        pytest.importorskip("isal")
-        uproot.ZLIB.library = "isal"
-    else:
-        uproot.ZLIB.library = "zlib"
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    branch1 = np.arange(100)
-    branch2 = 1.1 * np.arange(100)
-
-    with uproot.recreate(newfile, compression=uproot.ZLIB(5)) as fout:
-        fout.mktree("tree", {"branch1": branch1.dtype, "branch2": branch2.dtype})
-        fout["tree"].extend({"branch1": branch1, "branch2": branch2})
-
-    with uproot.open(newfile) as fin:
-        assert fin["tree/branch1"].array(library="np").tolist() == branch1.tolist()
-        assert fin["tree/branch2"].array(library="np").tolist() == branch2.tolist()
-        assert fin["tree/branch1"].compressed_bytes < 874
-        assert fin["tree/branch2"].compressed_bytes < 874
-        assert fin["tree/branch1"].uncompressed_bytes == 874
-        assert fin["tree/branch2"].uncompressed_bytes == 874
-
-    f3 = ROOT.TFile(newfile)
-    t3 = f3.Get("tree")
-    assert [x.branch1 for x in t3] == branch1.tolist()
-    assert [x.branch2 for x in t3] == branch2.tolist()
-    f3.Close()
-
-
-@pytest.mark.parametrize("use_isal", [False, True])
-def test_multicompression_5(tmp_path, use_isal):
-    if use_isal:
-        pytest.importorskip("isal")
-        uproot.ZLIB.library = "isal"
-    else:
-        uproot.ZLIB.library = "zlib"
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    branch1 = np.arange(100)
-    branch2 = 1.1 * np.arange(100)
-
-    with uproot.recreate(newfile, compression=uproot.ZLIB(5)) as fout:
-        fout.compression = None
-        fout.mktree("tree", {"branch1": branch1.dtype, "branch2": branch2.dtype})
-        fout["tree"].extend({"branch1": branch1, "branch2": branch2})
-
-    with uproot.open(newfile) as fin:
-        assert fin["tree/branch1"].array(library="np").tolist() == branch1.tolist()
-        assert fin["tree/branch2"].array(library="np").tolist() == branch2.tolist()
-        assert fin["tree/branch1"].compression is None
-        assert fin["tree/branch2"].compression is None
-        assert fin["tree/branch1"].compressed_bytes == 874
-        assert fin["tree/branch2"].compressed_bytes == 874
-        assert fin["tree/branch1"].uncompressed_bytes == 874
-        assert fin["tree/branch2"].uncompressed_bytes == 874
-
-    f3 = ROOT.TFile(newfile)
-    t3 = f3.Get("tree")
-    assert [x.branch1 for x in t3] == branch1.tolist()
-    assert [x.branch2 for x in t3] == branch2.tolist()
-    f3.Close()
-
-
-@pytest.mark.parametrize("use_deflate", [False, True])
-def test_multicompression_1_deflate(tmp_path, use_deflate):
-    if use_deflate:
-        pytest.importorskip("deflate")
-        uproot.ZLIB.library = "deflate"
-    else:
-        uproot.ZLIB.library = "zlib"
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    branch1 = np.arange(100)
-    branch2 = 1.1 * np.arange(100)
-
-    with uproot.recreate(newfile) as fout:
-        fout.mktree("tree", {"branch1": branch1.dtype, "branch2": branch2.dtype})
-        fout["tree"]["branch1"].compression = uproot.ZLIB(5)
-        fout["tree"]["branch2"].compression = None
-        fout["tree"].extend({"branch1": branch1, "branch2": branch2})
-
-    with uproot.open(newfile) as fin:
-        assert fin["tree/branch1"].array(library="np").tolist() == branch1.tolist()
-        assert fin["tree/branch2"].array(library="np").tolist() == branch2.tolist()
-        assert fin["tree/branch1"].compressed_bytes < 874
-        assert fin["tree/branch2"].compressed_bytes == 874
-        assert fin["tree/branch1"].uncompressed_bytes == 874
-        assert fin["tree/branch2"].uncompressed_bytes == 874
-
-    f3 = ROOT.TFile(newfile)
-    t3 = f3.Get("tree")
-    assert [x.branch1 for x in t3] == branch1.tolist()
-    assert [x.branch2 for x in t3] == branch2.tolist()
-    f3.Close()
-
-
-@pytest.mark.parametrize("use_deflate", [False, True])
-def test_multicompression_2_deflate(tmp_path, use_deflate):
-    if use_deflate:
-        pytest.importorskip("deflate")
-        uproot.ZLIB.library = "deflate"
-    else:
-        uproot.ZLIB.library = "zlib"
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    branch1 = np.arange(100)
-    branch2 = 1.1 * np.arange(100)
-
-    with uproot.recreate(newfile) as fout:
-        fout.mktree("tree", {"branch1": branch1.dtype, "branch2": branch2.dtype})
-        fout["tree"].compression = {"branch1": uproot.ZLIB(5), "branch2": None}
-        fout["tree"].extend({"branch1": branch1, "branch2": branch2})
-
-    with uproot.open(newfile) as fin:
-        assert fin["tree/branch1"].array(library="np").tolist() == branch1.tolist()
-        assert fin["tree/branch2"].array(library="np").tolist() == branch2.tolist()
-        assert fin["tree/branch1"].compressed_bytes < 874
-        assert fin["tree/branch2"].compressed_bytes == 874
-        assert fin["tree/branch1"].uncompressed_bytes == 874
-        assert fin["tree/branch2"].uncompressed_bytes == 874
-
-    f3 = ROOT.TFile(newfile)
-    t3 = f3.Get("tree")
-    assert [x.branch1 for x in t3] == branch1.tolist()
-    assert [x.branch2 for x in t3] == branch2.tolist()
-    f3.Close()
-
-
-@pytest.mark.parametrize("use_deflate", [False, True])
-def test_multicompression_3_deflate(tmp_path, use_deflate):
-    if use_deflate:
-        pytest.importorskip("deflate")
-        uproot.ZLIB.library = "deflate"
-    else:
-        uproot.ZLIB.library = "zlib"
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    branch1 = np.arange(100)
-    branch2 = 1.1 * np.arange(100)
-
-    with uproot.recreate(newfile) as fout:
-        fout.mktree("tree", {"branch1": branch1.dtype, "branch2": branch2.dtype})
-        fout["tree"].compression = {"branch1": uproot.ZLIB(5), "branch2": None}
-        fout["tree"].compression = uproot.ZLIB(5)
-        fout["tree"].extend({"branch1": branch1, "branch2": branch2})
-
-    with uproot.open(newfile) as fin:
-        assert fin["tree/branch1"].array(library="np").tolist() == branch1.tolist()
-        assert fin["tree/branch2"].array(library="np").tolist() == branch2.tolist()
-        assert fin["tree/branch1"].compressed_bytes < 874
-        assert fin["tree/branch2"].compressed_bytes < 874
-        assert fin["tree/branch1"].uncompressed_bytes == 874
-        assert fin["tree/branch2"].uncompressed_bytes == 874
-
-    f3 = ROOT.TFile(newfile)
-    t3 = f3.Get("tree")
-    assert [x.branch1 for x in t3] == branch1.tolist()
-    assert [x.branch2 for x in t3] == branch2.tolist()
-    f3.Close()
-
-
-@pytest.mark.parametrize("use_deflate", [False, True])
-def test_multicompression_4_deflate(tmp_path, use_deflate):
-    if use_deflate:
-        pytest.importorskip("deflate")
-        uproot.ZLIB.library = "deflate"
-    else:
-        uproot.ZLIB.library = "zlib"
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    branch1 = np.arange(100)
-    branch2 = 1.1 * np.arange(100)
-
-    with uproot.recreate(newfile, compression=uproot.ZLIB(5)) as fout:
-        fout.mktree("tree", {"branch1": branch1.dtype, "branch2": branch2.dtype})
-        fout["tree"].extend({"branch1": branch1, "branch2": branch2})
-
-    with uproot.open(newfile) as fin:
-        assert fin["tree/branch1"].array(library="np").tolist() == branch1.tolist()
-        assert fin["tree/branch2"].array(library="np").tolist() == branch2.tolist()
-        assert fin["tree/branch1"].compressed_bytes < 874
-        assert fin["tree/branch2"].compressed_bytes < 874
-        assert fin["tree/branch1"].uncompressed_bytes == 874
-        assert fin["tree/branch2"].uncompressed_bytes == 874
-
-    f3 = ROOT.TFile(newfile)
-    t3 = f3.Get("tree")
-    assert [x.branch1 for x in t3] == branch1.tolist()
-    assert [x.branch2 for x in t3] == branch2.tolist()
-    f3.Close()
-
-
-@pytest.mark.parametrize("use_deflate", [False, True])
-def test_multicompression_5_deflate(tmp_path, use_deflate):
-    if use_deflate:
-        pytest.importorskip("deflate")
-        uproot.ZLIB.library = "deflate"
-    else:
-        uproot.ZLIB.library = "zlib"
-
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    branch1 = np.arange(100)
-    branch2 = 1.1 * np.arange(100)
-
-    with uproot.recreate(newfile, compression=uproot.ZLIB(5)) as fout:
-        fout.compression = None
-        fout.mktree("tree", {"branch1": branch1.dtype, "branch2": branch2.dtype})
-        fout["tree"].extend({"branch1": branch1, "branch2": branch2})
-
-    with uproot.open(newfile) as fin:
-        assert fin["tree/branch1"].array(library="np").tolist() == branch1.tolist()
-        assert fin["tree/branch2"].array(library="np").tolist() == branch2.tolist()
-        assert fin["tree/branch1"].compression is None
-        assert fin["tree/branch2"].compression is None
-        assert fin["tree/branch1"].compressed_bytes == 874
-        assert fin["tree/branch2"].compressed_bytes == 874
-        assert fin["tree/branch1"].uncompressed_bytes == 874
-        assert fin["tree/branch2"].uncompressed_bytes == 874
+        for name, array, compressed in [
+            ("branch1", branch1, branch1_compressed),
+            ("branch2", branch2, branch2_compressed),
+        ]:
+            branch = fin["tree"][name]
+            assert branch.array(library="np").tolist() == array.tolist()
+            assert branch.uncompressed_bytes == 874
+            if compressed:
+                assert_compressed_with(branch, uproot.ZLIB)
+            else:
+                assert branch.compressed_bytes == 874
+                assert branch.basket(0).block_compression_info is None
 
     f3 = ROOT.TFile(newfile)
     t3 = f3.Get("tree")

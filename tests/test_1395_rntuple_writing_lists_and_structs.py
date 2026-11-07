@@ -74,17 +74,24 @@ data.layout.contents[10].content.contents[0].parameters[
 ] = "This is a subfield"
 
 
-def test_writing_and_reading(tmp_path):
+def _write(filepath, inputs_data):
+    with uproot.recreate(filepath) as file:
+        if inputs_data:
+            obj = file.mkrntuple("ntuple", data)  # test inputting the data directly
+        else:
+            obj = file.mkrntuple("ntuple", data.layout.form)
+            obj.extend(data)
+        obj.extend(data)  # test multiple cluster groups
+
+
+inputs = pytest.mark.parametrize("inputs_data", [True, False], ids=["data", "form"])
+
+
+@inputs
+def test_writing_and_reading(tmp_path, inputs_data):
     filepath = os.path.join(tmp_path, "test.root")
 
-    with uproot.recreate(filepath) as file:
-        obj = file.mkrntuple("ntuple", data)  # test inputting the data directly
-        obj.extend(data)
-
-    with uproot.recreate(filepath) as file:
-        obj = file.mkrntuple("ntuple", data.layout.form)
-        obj.extend(data)
-        obj.extend(data)  # test multiple cluster groups
+    _write(filepath, inputs_data)
 
     obj = uproot.open(filepath)["ntuple"]
     arrays = obj.arrays()
@@ -156,17 +163,11 @@ def test_writing_then_reading_with_ROOT(tmp_path, capfd):
     assert "* Field 20           : indexed_array (std::int64_t)" in out
 
 
-def test_field_descriptions(tmp_path):
+@inputs
+def test_field_descriptions(tmp_path, inputs_data):
     filepath = os.path.join(tmp_path, "test.root")
 
-    with uproot.recreate(filepath) as file:
-        obj = file.mkrntuple("ntuple", data)  # test inputting the data directly
-        obj.extend(data)
-
-    with uproot.recreate(filepath) as file:
-        obj = file.mkrntuple("ntuple", data.layout.form)
-        obj.extend(data)
-        obj.extend(data)  # test multiple cluster groups
+    _write(filepath, inputs_data)
 
     obj = uproot.open(filepath)["ntuple"]
     arrays = obj.arrays(ak_add_doc=True)
@@ -211,4 +212,5 @@ def test_writing_dict(tmp_path):
     arrays = obj.arrays()
 
     assert len(arrays) == 2 * len(data["bool"])
-    assert arrays["bool"].tolist() == data["bool"] + data["bool"]
+    for field, values in data.items():
+        assert arrays[field].tolist() == values + values

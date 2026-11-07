@@ -29,6 +29,9 @@ def test_schema_extension():
         assert next(i for i, l in enumerate(arrays.float_field) if l != 0) == 200
         assert next(i for i, l in enumerate(arrays.intvec_field) if len(l) != 0) == 400
 
+        assert arrays.float_field[200:].tolist() == [i % 200 + 0.5 for i in range(400)]
+        assert arrays.intvec_field[400:].tolist() == [[i, i + 1] for i in range(200)]
+
         for i in range(50, 600, 50):
             arrays = obj.arrays(entry_start=i)
             assert len(arrays) == 600 - i
@@ -62,6 +65,7 @@ def test_multiple_page_delta_encoding():
         data = obj.read_cluster_pages(0, 0, field_metadata)
         # first page has 64 elements, so this checks that data was stitched together correctly
         assert data[64] - data[63] == 2
+        assert data.tolist() == list(range(2, 2 * len(data) + 2, 2))
 
 
 def test_split_encoding():

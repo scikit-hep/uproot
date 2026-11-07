@@ -53,6 +53,7 @@ def test_open_with_storage_options_reads_data():
     with uproot.open(path) as f:
         tree = f["events"]
         assert tree.num_entries == 2421
+        assert tree["NJet"].array(library="np")[:3].tolist() == [0, 1, 0]
 
 
 def test_open_empty_storage_options_is_noop():
@@ -60,8 +61,9 @@ def test_open_empty_storage_options_is_noop():
     plain_path = skhep_testdata.data_path("uproot-HZZ.root")
     path_obj = PathWithStorageOptions(plain_path, storage_options={})
     with uproot.open(path_obj) as f:
-        tree = f["events"]
-        assert tree.num_entries == 2421
+        assert f.file_path == plain_path
+        assert f._file._source._fsspec_options == {}
+        assert f["events"].num_entries == 2421
 
 
 def test_open_explicit_kwarg_wins_over_storage_options():

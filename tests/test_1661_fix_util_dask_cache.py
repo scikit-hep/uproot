@@ -40,10 +40,11 @@ def test_regularize_files_steps_no_leakage():
         },
         steps_allowed=True,
     )
-    # First entry has 3 elements (path, object_path, steps)
-    assert len(result[0]) == 3, "first entry should carry steps"
-    # Second entry must be a 2-tuple (no steps inherited)
-    assert len(result[1]) == 2, "second entry must NOT inherit steps from first"
+    # Only the first entry carries steps; the second must NOT inherit them
+    assert result == [
+        (path_a, "events", [[0, 10], [10, 100]]),
+        (path_b, "sample"),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +121,7 @@ def test_lru_cache_keys_order():
 
 
 def test_lru_cache_thread_safety():
-    """Concurrent gets and sets should not raise errors."""
+    """Concurrent gets and sets should neither raise nor lose track of the contents."""
     c = LRUCache(50)
     errors = []
 
@@ -144,6 +145,9 @@ def test_lru_cache_thread_safety():
     for t in threads:
         t.join()
     assert errors == [], f"Thread-safety errors: {errors}"
+    # all 200 keys were written, so the cache is full, and nothing got mismatched
+    assert len(c) == c.current == 50
+    assert all(value == key * 2 for key, value in c.items())
 
 
 def test_lru_cache_no_limit():

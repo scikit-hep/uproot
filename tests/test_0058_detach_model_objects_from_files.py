@@ -45,6 +45,10 @@ def test_copy():
         reconstituted_file_path = reconstituted.file.file_path
 
         assert original_file_path == reconstituted_file_path
+        assert reconstituted.name == "hpx"
+        assert reconstituted.title == "This is the px distribution"
+        assert reconstituted.values().tolist() == original.values().tolist()
+        assert reconstituted.values().sum() == 74994
 
 
 def test_pickle():
@@ -56,6 +60,10 @@ def test_pickle():
         reconstituted_file_path = reconstituted.file.file_path
 
         assert original_file_path == reconstituted_file_path
+        assert reconstituted.name == "hpx"
+        assert reconstituted.title == "This is the px distribution"
+        assert reconstituted.values().tolist() == original.values().tolist()
+        assert reconstituted.values().sum() == 74994
 
 
 def test_pickle_boost():
@@ -67,5 +75,9 @@ def test_pickle_boost():
         reconstituted = pickle.loads(pickle.dumps(original))
         reconstituted_boost = reconstituted.to_boost()
 
-        pickle.loads(pickle.dumps(original_boost))
-        pickle.loads(pickle.dumps(reconstituted_boost))
+        assert reconstituted_boost == original_boost
+        assert pickle.loads(pickle.dumps(original_boost)) == original_boost
+        assert pickle.loads(pickle.dumps(reconstituted_boost)) == original_boost
+        assert isinstance(original_boost, boost_histogram.Histogram)
+        assert original_boost.values(flow=True).sum() == original.values(True).sum()
+        assert original_boost.axes[0].edges[:3].tolist() == [-4.0, -3.92, -3.84]

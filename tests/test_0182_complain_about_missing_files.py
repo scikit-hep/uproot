@@ -13,11 +13,15 @@ def test():
     bad = one.replace(".root", "-DOES-NOT-EXIST.root")
     okay = one.replace(".root", "-DOES-NOT-EXIST-*.root")
 
-    assert len(list(uproot.iterate([one, two], step_size="1 TB", library="np"))) == 2
+    def num_entries(files):
+        return [
+            len(arrays["i4"])
+            for arrays in uproot.iterate(files, "i4", step_size="1 TB", library="np")
+        ]
 
-    with pytest.raises(FileNotFoundError):
+    assert num_entries([one, two]) == [30, 30]
+
+    with pytest.raises(FileNotFoundError, match="DOES-NOT-EXIST"):
         list(uproot.iterate([one, two, bad], library="np"))
 
-    assert (
-        len(list(uproot.iterate([one, two, okay], step_size="1 TB", library="np"))) == 2
-    )
+    assert num_entries([one, two, okay]) == [30, 30]

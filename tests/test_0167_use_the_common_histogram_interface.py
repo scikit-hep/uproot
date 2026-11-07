@@ -24,7 +24,6 @@ def test_axis():
             (-3.92, -3.84),
             (-3.84, -3.76),
         ]
-        assert axis == axis
         assert f["hpxpy"].axis(0) == f["hpxpy"].axis(1)
         assert axis.traits.circular is False
         assert axis.traits.discrete is False
@@ -63,7 +62,6 @@ def test_axis():
         assert axis[0] == "Dijet"
         assert axis[1] == "MET"
         assert list(axis)[:3] == ["Dijet", "MET", "MuonVeto"]
-        assert axis == axis
         assert axis.traits.circular is False
         assert axis.traits.discrete is True
         assert axis.low == 0.0
@@ -95,24 +93,32 @@ def test_axis():
 
 def test_bins():
     with uproot.open(skhep_testdata.data_path("uproot-hepdata-example.root")) as f:
-        for i in range(2):
-            hpx = f["hpx"]
-            hpxpy = f["hpxpy"]
-            hprof = f["hprof"]
-            assert len(hpx.axis().centers()) == len(hpx.values())
-            assert len(hpx.axis().centers(flow=True)) == len(hpx.values(flow=True))
-            assert len(hprof.axis().centers()) == len(hprof.values())
-            assert len(hprof.axis().centers(flow=True)) == len(hprof.values(flow=True))
+        hpx = f["hpx"]
+        hpxpy = f["hpxpy"]
+        hprof = f["hprof"]
+        for hist in (hpx, hprof):
+            assert hist.values().shape == hist.axis().centers().shape == (100,)
             assert (
-                len(hpxpy.axis(0).centers()),
-                len(hpxpy.axis(1).centers()),
-            ) == hpxpy.values().shape
-            assert (
+                hist.values(flow=True).shape
+                == hist.axis().centers(flow=True).shape
+                == (102,)
+            )
+        assert (
+            hpxpy.values().shape
+            == (len(hpxpy.axis(0).centers()), len(hpxpy.axis(1).centers()))
+            == (40, 40)
+        )
+        assert (
+            hpxpy.values(flow=True).shape
+            == (
                 len(hpxpy.axis(0).centers(flow=True)),
                 len(hpxpy.axis(1).centers(flow=True)),
-            ) == hpxpy.values(flow=True).shape
-            assert numpy.all(hpxpy.values() == hpxpy.variances())
-            assert numpy.all(hpxpy.values(flow=True) == hpxpy.variances(flow=True))
+            )
+            == (42, 42)
+        )
+        # the histogram wasn't weighted
+        assert numpy.array_equal(hpxpy.values(), hpxpy.variances())
+        assert numpy.array_equal(hpxpy.values(flow=True), hpxpy.variances(flow=True))
 
 
 def test_boost():
@@ -136,22 +142,50 @@ def test_boost():
         assert hprof.to_boost().axes[0].name == "xaxis"
 
 
-@pytest.mark.skip(
-    reason="Something's wrong with uproot-issue33.root and boost-histogram"
-)
 def test_boost_2():
     boost_histogram = pytest.importorskip("boost_histogram")
 
     with uproot.open(skhep_testdata.data_path("uproot-issue33.root")) as f:
-        f["cutflow"].to_boost()
-        # assert f["cutflow"].to_boost().name == "cutflow"
-        # assert f["cutflow"].to_boost().title == "dijethad"
-        # assert f["cutflow"].to_boost().axes[0].name == "xaxis"
-        # assert f["cutflow"].to_boost().axes[0].title == ""
+        cutflow = f["cutflow"]
+        converted = cutflow.to_boost()
+
+    assert converted.name == "cutflow"
+    assert isinstance(converted.storage_type(), boost_histogram.storage.Weight)
+    assert isinstance(converted.axes[0], boost_histogram.axis.StrCategory)
+    assert converted.axes[0].name == "xaxis"
+    assert list(converted.axes[0]) == [
+        "Dijet",
+        "MET",
+        "MuonVeto",
+        "IsoMuonTrackVeto",
+        "ElectronVeto",
+        "IsoElectronTrackVeto",
+        "IsoPionTrackVeto",
+    ]
+    assert converted.values().tolist() == [
+        39551.0,
+        27951.0,
+        27911.0,
+        27861.0,
+        27737.0,
+        27460.0,
+        26751.0,
+    ]
+    assert converted.variances().tolist() == cutflow.variances().tolist()
+    assert converted.variances()[0] == pytest.approx(39952.15079605)
 
 
 def test_issue_0722():
     boost_histogram = pytest.importorskip("boost_histogram")
 
     with uproot.open(skhep_testdata.data_path("uproot-issue-722.root")) as f:
-        f["hist"].to_boost()
+        hist = f["hist"]
+        converted = hist.to_boost()
+
+    # the histogram has 27 labelled bins, and many of the labels are repeated
+    assert hist.axis().labels().count("550.0-800.0") == 9
+    assert isinstance(converted.axes[0], boost_histogram.axis.StrCategory)
+    assert list(converted.axes[0]) == hist.axis().labels()
+    assert converted.values().tolist() == [0.0] * 27
+    assert converted.variances()[:3].tolist() == [1144208.0, 590445.0, 244319.0]
+    assert converted.variances().sum() == pytest.approx(hist.variances().sum())

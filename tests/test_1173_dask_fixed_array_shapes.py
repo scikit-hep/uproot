@@ -9,11 +9,12 @@ import uproot
 pytest.importorskip("dask.array")
 
 
-@pytest.mark.parametrize("open_files", [True, False])
+@pytest.mark.parametrize(
+    ("open_files", "reduce"), [(True, False), (False, True), (False, False)]
+)
 @pytest.mark.parametrize(
     ("dtype", "shape"), [(np.float64, (4,)), (np.float32, (3,)), (np.float64, ())]
 )
-@pytest.mark.parametrize("reduce", [True, False])
 def test_inconsistent_array_dtypes(tmp_path, open_files, dtype, shape, reduce):
     files = {}
     for name, base, inner in [

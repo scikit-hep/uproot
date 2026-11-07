@@ -26,6 +26,7 @@ def test_decompression_executor_for_dask():
         decompression_executor=testexecutor,
     )
 
-    a["i4"].compute()
+    assert a["i4"].compute(scheduler="synchronous").tolist() == list(range(-15, 15))
 
-    assert testexecutor.submit_count > 0
+    # once per TBasket of the only TBranch read
+    assert testexecutor.submit_count == 5
