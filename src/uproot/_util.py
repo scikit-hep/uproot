@@ -1159,22 +1159,22 @@ def object_in_directory(directory, object_path, allow_missing):
     """
     file_path = directory.file.file_path
     if object_path is None:
-        trees = directory.keys(filter_classname="TTree", cycle=False)
-        if len(trees) == 0:
+        objs = directory.keys(filter_classname=["TTree", "ROOT::RNTuple"], cycle=False)
+        if len(objs) == 0:
             if allow_missing:
                 return None
             else:
-                raise ValueError(f"no TTrees found\nin file {file_path}")
-        elif len(trees) == 1:
-            return directory[trees[0]]
+                raise ValueError(f"no TTrees or RNTuples found\nin file {file_path}")
+        elif len(objs) == 1:
+            return directory[objs[0]]
         else:
-            ttree_str = ", ".join(repr(x) for x in trees)
+            obj_str = ", ".join(repr(x) for x in objs)
             raise ValueError(
-                """TTree object paths must be specified in the 'files' """
+                """TTree or RNTuple object paths must be specified in the 'files' """
                 """as {"filenames*.root": "path"} if any files have """
-                f"""more than one TTree
+                f"""more than one TTree or RNTuple
 
-    TTrees: {ttree_str}
+    TTrees/RNTuples: {obj_str}
 
 in file {file_path}"""
             )
