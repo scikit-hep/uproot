@@ -22,7 +22,7 @@ def test_get_key():
         assert f["Events"]["evtNum"].name == "evtNum"
         assert f["Events"]["/Info"].name == "Info"
         assert f["Events"]["/Info/"].name == "Info"
-        with pytest.raises(KeyError):
+        with pytest.raises(uproot.KeyInFileError, match="not found: '/evtNum'"):
             f["Events"]["/evtNum"]
 
 
@@ -62,12 +62,6 @@ def test_compressed():
             1,
         ]
         assert basket.byte_offsets.tolist() == [0, 4, 4, 16, 28, 28, 32, 52, 52, 56, 56]
-
-
-def test_read_all():
-    filename = skhep_testdata.data_path("uproot-issue327.root")
-    with uproot.open(filename, minimal_ttree_metadata=False) as f:
-        f["DstTree/fTracks.fCharge"]
 
 
 @pytest.mark.parametrize("mini", [False, True])

@@ -147,24 +147,32 @@ def test_rntuple_arrays_np_and_pd(rntuple_file):
     ntuple = uproot.open(rntuple_file)["ntuple"]
 
     arrs = ntuple.arrays(library="np")
-    assert set(arrs.keys()) >= set(ALL_FIELDS)
+    assert set(arrs.keys()) == set(ALL_FIELDS)
 
     df = ntuple.arrays(library="pd")
-    assert set(df.columns) >= set(ALL_FIELDS)
+    assert set(df.columns) == set(ALL_FIELDS)
     assert len(df) == 3
+
+    for field in ALL_FIELDS:
+        expected = ak.to_list(ntuple[field].array())
+        assert _to_comparable(arrs[field]) == expected, field
+        assert _to_comparable(df[field]) == expected, field
 
 
 def test_rntuple_iterate_numpy_and_pandas(rntuple_file):
     pytest.importorskip("pandas")
     ntuple = uproot.open(rntuple_file)["ntuple"]
 
-    for chunk in ntuple.iterate(step_size=2, library="np"):
-        assert "jagged_num" in chunk
-        assert chunk["jagged_num"].dtype == np.dtype(object)
+    chunks = list(ntuple.iterate(step_size=2, library="np"))
+    assert [chunk["jagged_num"].dtype for chunk in chunks] == [np.dtype(object)] * 2
+    assert [[x.tolist() for x in c["jagged_num"]] for c in chunks] == [
+        [[1.0, 2.0], [3.0]],
+        [[4.0, 5.0]],
+    ]
 
-    for df in ntuple.iterate(step_size=2, library="pd"):
-        assert "jagged_num" in df.columns
-        assert len(df) in (1, 2)
+    dfs = list(ntuple.iterate(step_size=2, library="pd"))
+    assert [df.index.tolist() for df in dfs] == [[0, 1], [2]]
+    assert [df["str"].tolist() for df in dfs] == [["first", "second"], ["third"]]
 
 
 def test_rntuple_empty_slice(rntuple_file):

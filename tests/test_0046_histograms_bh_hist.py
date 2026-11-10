@@ -2818,34 +2818,37 @@ def test_numpy_profile():
         ]
 
 
-def test_boost_1d():
+@pytest.mark.parametrize(
+    "name, total, total_with_flow, bin_index, bin_value, shape, edges",
+    [
+        ("hpx", 74994, 75000, (50,), 2381, (100,), [-4.0, -3.92, -3.84]),
+        ("hpxpy", 74985, 75000, (20, 20), 449, (40, 40), [-4.0, -3.8, -3.6]),
+    ],
+)
+@pytest.mark.parametrize("convert", ["to_boost", "to_hist"])
+def test_boost_and_hist(
+    name, total, total_with_flow, bin_index, bin_value, shape, edges, convert
+):
     boost_histogram = pytest.importorskip("boost_histogram")
+    if convert == "to_hist":
+        hist = pytest.importorskip("hist")
+
     with uproot.open(skhep_testdata.data_path("uproot-hepdata-example.root")) as f:
-        f["hpx"].to_boost()
+        converted = getattr(f[name], convert)()
 
-
-def test_boost_2d():
-    boost_histogram = pytest.importorskip("boost_histogram")
-    with uproot.open(skhep_testdata.data_path("uproot-hepdata-example.root")) as f:
-        f["hpxpy"].to_boost()
-
-
-def test_hist_1d():
-    hist = pytest.importorskip("hist")
-    with uproot.open(skhep_testdata.data_path("uproot-hepdata-example.root")) as f:
-        f["hpx"].to_hist()
-
-
-def test_hist_2d():
-    hist = pytest.importorskip("hist")
-    with uproot.open(skhep_testdata.data_path("uproot-hepdata-example.root")) as f:
-        f["hpxpy"].to_hist()
+    assert isinstance(converted.storage_type(), boost_histogram.storage.Double)
+    if convert == "to_hist":
+        assert isinstance(converted, hist.Hist)
+    assert converted.shape == shape
+    assert converted.sum() == total
+    assert converted.sum(flow=True) == total_with_flow
+    assert converted.values()[bin_index] == bin_value
+    assert converted.axes[0].edges[:3] == pytest.approx(edges)
 
 
 def test_hist_boost_categorical():
     # https://github.com/scikit-hep/uproot5/issues/672
     hist = pytest.importorskip("hist")
-    boost = pytest.importorskip("boost")
 
     for labels, category_type in zip(
         [numpy.arange(10, 20), ["these", "are", "labels"]],

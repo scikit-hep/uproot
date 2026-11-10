@@ -41,8 +41,7 @@ def test_step_size_caps_each_chunk():
     parts = graphed_partitions(_zmumu(), step_size=1000)
     assert _ranges(parts) == [(0, 1000), (1000, 2000), (2000, N)]
     by_memory = graphed_partitions(_zmumu(), step_size="50 kB")
-    assert len(by_memory) > 1 and by_memory[-1].entry_stop == N
-    assert all(a.entry_stop == b.entry_start for a, b in zip(by_memory, by_memory[1:]))
+    assert _ranges(by_memory) == [(i, min(i + 348, N)) for i in range(0, N, 348)]
 
 
 def test_blind_partitions_open_no_file_and_resolve_on_read():
@@ -99,7 +98,7 @@ def test_hand_built_partitions_drive_a_plan():
         empty=lambda: 0.0,
         partitions=graphed_partitions(_zmumu(), step_size="50 kB"),
     )
-    assert len(plan.tasks) > 1
+    assert len(plan.tasks) == 7
     assert SequentialRunner().run(plan).value == pytest.approx(
         float(ak.sum(uproot.open(_zmumu())["px1"].array()))
     )

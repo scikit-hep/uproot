@@ -48,6 +48,14 @@ def test():
         # cursor.debug(footer_chunk, limit_bytes=80)
         # print("\n")
 
+        header_chunk.wait()
+        footer_chunk.wait()
+        assert (header_chunk.start, header_chunk.stop) == (header_start, header_stop)
+        assert (footer_chunk.start, footer_chunk.stop) == (footer_start, footer_stop)
+        # both envelopes are ZSTD compressed ("ZS" is ROOT's tag for that)
+        assert bytes(header_chunk.raw_data[:2]) == b"ZS"
+        assert bytes(footer_chunk.raw_data[:2]) == b"ZS"
+
 
 # HEADER
 # --+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+-

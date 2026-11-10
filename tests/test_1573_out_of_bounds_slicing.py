@@ -26,11 +26,14 @@ TTREE_BRANCH_ARCHETYPES = [
 
 
 @pytest.mark.parametrize("branch_name", TTREE_BRANCH_ARCHETYPES)
-def test_ttree_hard_out_of_bounds(tree, branch_name):
-    """Verify that reading far beyond the end of a TTree returns an empty array."""
+@pytest.mark.parametrize("beyond", [0, 100], ids=["exact-end", "far-beyond"])
+def test_ttree_read_beyond_the_end(tree, branch_name, beyond):
+    """Verify that reading at or beyond the end of a TTree returns an empty array."""
     total = tree.num_entries
-    data = tree[branch_name].array(entry_start=total + 100, entry_stop=total + 200)
-    assert len(data) == 0
+    data = tree[branch_name].array(
+        entry_start=total + beyond, entry_stop=total + beyond + 100
+    )
+    assert data.tolist() == []
 
 
 @pytest.mark.parametrize("branch_name", TTREE_BRANCH_ARCHETYPES)
@@ -38,15 +41,7 @@ def test_ttree_clamped_out_of_bounds(tree, branch_name):
     """Verify that a TTree slice overlapping the end is correctly clamped."""
     total = tree.num_entries
     data = tree[branch_name].array(entry_start=total - 5, entry_stop=total + 100)
-    assert len(data) == 5
-
-
-@pytest.mark.parametrize("branch_name", TTREE_BRANCH_ARCHETYPES)
-def test_ttree_exact_boundary_start(tree, branch_name):
-    """Verify that starting a TTree read exactly at the end returns empty."""
-    total = tree.num_entries
-    data = tree[branch_name].array(entry_start=total, entry_stop=total + 10)
-    assert len(data) == 0
+    assert data.tolist() == tree[branch_name].array().tolist()[-5:]
 
 
 @pytest.mark.parametrize("branch_name", TTREE_BRANCH_ARCHETYPES)
@@ -55,6 +50,7 @@ def test_ttree_massive_negative_index(tree, branch_name):
     total = tree.num_entries
     data = tree[branch_name].array(entry_start=-1_000_000)
     assert len(data) == total
+    assert data.tolist() == tree[branch_name].array().tolist()
 
 
 @pytest.mark.parametrize("branch_name", TTREE_BRANCH_ARCHETYPES)
@@ -87,12 +83,13 @@ RNTUPLE_BRANCH_ARCHETYPES = [
 
 
 @pytest.mark.parametrize("branch_name", RNTUPLE_BRANCH_ARCHETYPES)
-def test_rntuple_hard_out_of_bounds(rntuple, branch_name):
-    """Verify that reading far beyond the end of an RNTuple returns an empty array."""
+@pytest.mark.parametrize("beyond", [0, 100], ids=["exact-end", "far-beyond"])
+def test_rntuple_read_beyond_the_end(rntuple, branch_name, beyond):
+    """Verify that reading at or beyond the end of an RNTuple returns an empty array."""
     total = rntuple.num_entries
     branch = rntuple[branch_name]
-    data = branch.array(entry_start=total + 100, entry_stop=total + 200)
-    assert len(data) == 0
+    data = branch.array(entry_start=total + beyond, entry_stop=total + beyond + 100)
+    assert data.tolist() == []
 
 
 @pytest.mark.parametrize("branch_name", RNTUPLE_BRANCH_ARCHETYPES)
@@ -101,16 +98,7 @@ def test_rntuple_clamped_out_of_bounds(rntuple, branch_name):
     total = rntuple.num_entries
     branch = rntuple[branch_name]
     data = branch.array(entry_start=total - 5, entry_stop=total + 100)
-    assert len(data) == 5
-
-
-@pytest.mark.parametrize("branch_name", RNTUPLE_BRANCH_ARCHETYPES)
-def test_rntuple_exact_boundary_start(rntuple, branch_name):
-    """Verify that starting a read exactly at the end of an RNTuple returns empty."""
-    total = rntuple.num_entries
-    branch = rntuple[branch_name]
-    data = branch.array(entry_start=total, entry_stop=total + 10)
-    assert len(data) == 0
+    assert data.tolist() == branch.array().tolist()[-5:]
 
 
 @pytest.mark.parametrize("branch_name", RNTUPLE_BRANCH_ARCHETYPES)
@@ -120,6 +108,7 @@ def test_rntuple_massive_negative_index(rntuple, branch_name):
     branch = rntuple[branch_name]
     data = branch.array(entry_start=-1_000_000)
     assert len(data) == total
+    assert data.tolist() == branch.array().tolist()
 
 
 @pytest.mark.parametrize("branch_name", RNTUPLE_BRANCH_ARCHETYPES)

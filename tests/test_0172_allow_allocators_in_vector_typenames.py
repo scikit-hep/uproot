@@ -9,8 +9,9 @@ import uproot
 def test():
     with uproot.open(skhep_testdata.data_path("uproot-issue-172.root")) as f:
         t = f["events"]
-        t.show()
         assert (
             t["rec_part_px_VecOps"].typename == "std::vector<float>"
         )  # without the allocator
-        t["rec_part_px_VecOps"].array(library="np")
+        array = t["rec_part_px_VecOps"].array(library="np")
+        assert [len(x) for x in array] == [24, 44, 49, 39, 36, 32, 43, 29, 29, 30]
+        assert array[0][:2].tolist() == [-0.10093698650598526, -0.17859043180942535]

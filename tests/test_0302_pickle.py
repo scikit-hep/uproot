@@ -1,6 +1,7 @@
 # BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
 
 import pickle
+import shutil
 
 import pytest
 import skhep_testdata
@@ -37,6 +38,20 @@ def test_pickle_roundtrip_local(handler):
     ]
 
 
+ZMUMU_M = [
+    82.4626915551,
+    83.6262040052,
+    83.3084646667,
+    82.1493728809,
+    90.4691230355,
+    89.7576631707,
+    89.7739431721,
+    90.4855320463,
+    91.7737014813,
+    91.9488195857,
+]
+
+
 @pytest.mark.parametrize(
     "handler",
     [
@@ -44,29 +59,15 @@ def test_pickle_roundtrip_local(handler):
         uproot.source.fsspec.FSSpecSource,
     ],
 )
-@pytest.mark.network
-def test_pickle_roundtrip_http(handler):
+def test_pickle_roundtrip_http(http_server, handler):
     pytest.importorskip("aiohttp")
 
-    with uproot.open(
-        "https://scikit-hep.org/uproot3/examples/Zmumu.root", handler=handler
-    ) as f:
+    with uproot.open(f"{http_server}/uproot-Zmumu.root", handler=handler) as f:
         pkl = pickle.dumps(f["events"])
 
     tree = pickle.loads(pkl)
     assert tree.num_entries == 2304
-    assert list(tree["M"].array(entry_stop=10)) == [
-        82.4626915551,
-        83.6262040052,
-        83.3084646667,
-        82.1493728809,
-        90.4691230355,
-        89.7576631707,
-        89.7739431721,
-        90.4855320463,
-        91.7737014813,
-        91.9488195857,
-    ]
+    assert list(tree["M"].array(entry_stop=10)) == ZMUMU_M
 
 
 @pytest.mark.parametrize(
@@ -76,17 +77,14 @@ def test_pickle_roundtrip_http(handler):
         uproot.source.fsspec.FSSpecSource,
     ],
 )
-@pytest.mark.network
 @pytest.mark.xrootd
-def test_pickle_roundtrip_xrootd(handler):
-    pytest.importorskip("XRootD")
-    pytest.importorskip("fsspec_xrootd")
-    with uproot.open(
-        "root://eospublic.cern.ch//eos/root-eos/cms_opendata_2012_nanoaod/Run2012B_DoubleMuParked.root",
-        handler=handler,
-    ) as f:
-        pkl = pickle.dumps(f["Events"])
+def test_pickle_roundtrip_xrootd(xrootd_server, handler):
+    url, directory = xrootd_server
+    shutil.copy(skhep_testdata.data_path("uproot-Zmumu.root"), directory)
+
+    with uproot.open(f"{url}/uproot-Zmumu.root", handler=handler) as f:
+        pkl = pickle.dumps(f["events"])
 
     tree = pickle.loads(pkl)
-    assert tree.num_entries == 29308627
-    assert set(tree["run"].array(entry_stop=10)) == {194778}
+    assert tree.num_entries == 2304
+    assert list(tree["M"].array(entry_stop=10)) == ZMUMU_M

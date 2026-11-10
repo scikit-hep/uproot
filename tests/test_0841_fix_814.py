@@ -19,7 +19,10 @@ def test_check_file_after_snapshot(tmp_path):
         tree.Fill()
     tree.AutoSave()
     tfile.Write()
-    uproot.open(filename + ":tree").arrays()
+    array = uproot.open(filename + ":tree").arrays()
+    assert array["tvector3"].fields == ["fX", "fY", "fZ"]
+    assert array["tvector3"].fX.tolist() == list(range(10))
+    assert array["tvector3"].fY.tolist() == [0.0] * 10
 
     tfile = ROOT.TFile(filename, "READ")
     tree = tfile.Get("tree")
@@ -28,4 +31,7 @@ def test_check_file_after_snapshot(tmp_path):
     branchlist.push_back("tvector3")
     filename2 = os.path.join(tmp_path, "tfile_with_tvector3_2.root")
     rdf.Snapshot("tree", filename2, branchlist)
-    uproot.open(filename2 + ":tree").arrays()
+    array = uproot.open(filename2 + ":tree").arrays()
+    assert array["tvector3"].fields == ["fX", "fY", "fZ"]
+    assert array["tvector3"].fX.tolist() == list(range(10))
+    assert array["tvector3"].fZ.tolist() == [0.0] * 10

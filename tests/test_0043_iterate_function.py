@@ -7,31 +7,29 @@ import skhep_testdata
 import uproot
 
 
-def test_num_entries_for():
-    with uproot.open(skhep_testdata.data_path("uproot-HZZ.root"))["events"] as events:
-        assert events.num_entries_for("1 kB") == 4
-        assert events.num_entries_for("10 kB") == 37
-        assert events.num_entries_for("0.1 MB") == 372
-        assert events.num_entries == 2421
-
-
-def test_num_entries_for_2():
-    with uproot.open(skhep_testdata.data_path("uproot-Zmumu.root"))["events"] as events:
-        assert events.num_entries_for("1 kB") == 7
-        assert events.num_entries_for("10 kB") == 70
-        assert events.num_entries_for("0.1 MB") == 696
-        assert events.num_entries == 2304
+@pytest.mark.parametrize(
+    "filename, num_entries, kb1, kb10, mb01",
+    [("uproot-HZZ.root", 2421, 4, 37, 372), ("uproot-Zmumu.root", 2304, 7, 70, 696)],
+)
+def test_num_entries_for(filename, num_entries, kb1, kb10, mb01):
+    with uproot.open(skhep_testdata.data_path(filename))["events"] as events:
+        assert events.num_entries_for("1 kB") == kb1
+        assert events.num_entries_for("10 kB") == kb10
+        assert events.num_entries_for("0.1 MB") == mb01
+        assert events.num_entries == num_entries
 
 
 def test_iterate_1():
     with uproot.open(skhep_testdata.data_path("uproot-Zmumu.root"))["events"] as events:
-        for i, arrays in enumerate(events.iterate(step_size="0.1 MB", library="np")):
-            if i in range(3):
-                assert len(arrays["px1"]) == 696
-            elif i == 3:
-                assert len(arrays["px1"]) == 216
-            else:
-                assert False
+        batches = list(events.iterate(step_size="0.1 MB", library="np"))
+        assert [len(arrays["px1"]) for arrays in batches] == [696, 696, 696, 216]
+        assert [arrays["px1"][0] for arrays in batches] == [
+            -41.1952876442,
+            -20.8421881222,
+            2.42566255424,
+            -33.6795822298,
+        ]
+        assert batches[-1]["px1"][-1] == 32.4853938749
 
 
 def test_iterate_2():
@@ -66,6 +64,7 @@ def test_iterate_2():
                 ]
             else:
                 assert False
+        assert i == 2
 
 
 def test_iterate_pandas_1():
@@ -83,6 +82,7 @@ def test_iterate_pandas_1():
                 assert arrays["px1"].index.values[-1] == 2303
             else:
                 assert False
+        assert i == 2
 
 
 def test_iterate_pandas_2():
@@ -103,48 +103,27 @@ def test_iterate_pandas_2():
                 assert arrays.index.values[-1] == 2420
             else:
                 assert False
+        assert i == 2
 
 
-def test_iterate_report_1():
-    with uproot.open(skhep_testdata.data_path("uproot-Zmumu.root"))["events"] as events:
-        for i, (arrays, report) in enumerate(
-            events.iterate("px1", step_size=1000, report=True, library="np")
-        ):
-            if i == 0:
-                assert report.tree_entry_start == 0
-                assert report.tree_entry_stop == 1000
-                assert report.file_path == skhep_testdata.data_path("uproot-Zmumu.root")
-            elif i == 1:
-                assert report.tree_entry_start == 1000
-                assert report.tree_entry_stop == 2000
-                assert report.file_path == skhep_testdata.data_path("uproot-Zmumu.root")
-            elif i == 2:
-                assert report.tree_entry_start == 2000
-                assert report.tree_entry_stop == 2304
-                assert report.file_path == skhep_testdata.data_path("uproot-Zmumu.root")
-            else:
-                assert False
-
-
-def test_iterate_report_2():
-    with uproot.open(skhep_testdata.data_path("uproot-HZZ.root"))["events"] as events:
-        for i, (arrays, report) in enumerate(
-            events.iterate("Muon_Px", step_size=1000, report=True, library="np")
-        ):
-            if i == 0:
-                assert report.tree_entry_start == 0
-                assert report.tree_entry_stop == 1000
-                assert report.file_path == skhep_testdata.data_path("uproot-HZZ.root")
-            elif i == 1:
-                assert report.tree_entry_start == 1000
-                assert report.tree_entry_stop == 2000
-                assert report.file_path == skhep_testdata.data_path("uproot-HZZ.root")
-            elif i == 2:
-                assert report.tree_entry_start == 2000
-                assert report.tree_entry_stop == 2421
-                assert report.file_path == skhep_testdata.data_path("uproot-HZZ.root")
-            else:
-                assert False
+@pytest.mark.parametrize(
+    "filename, branch, num_entries",
+    [("uproot-Zmumu.root", "px1", 2304), ("uproot-HZZ.root", "Muon_Px", 2421)],
+)
+def test_iterate_report(filename, branch, num_entries):
+    with uproot.open(skhep_testdata.data_path(filename))["events"] as events:
+        reports = [
+            report
+            for arrays, report in events.iterate(
+                branch, step_size=1000, report=True, library="np"
+            )
+        ]
+    assert [(x.tree_entry_start, x.tree_entry_stop) for x in reports] == [
+        (0, 1000),
+        (1000, 2000),
+        (2000, num_entries),
+    ]
+    assert {x.file_path for x in reports} == {skhep_testdata.data_path(filename)}
 
 
 def test_function_iterate():
@@ -173,6 +152,7 @@ def test_function_iterate():
         assert report.global_entry_start == expect
         assert report.global_entry_stop == expect + len(arrays["i8"])
         expect += len(arrays["i8"])
+    assert expect == 14 * 30
 
 
 def test_function_iterate_pandas():
@@ -203,6 +183,7 @@ def test_function_iterate_pandas():
         assert report.global_entry_start == expect
         assert report.global_entry_stop == expect + len(arrays["i8"])
         expect += len(arrays["i8"])
+    assert expect == 14 * 30
 
 
 def test_function_iterate_pandas_2():
@@ -218,3 +199,4 @@ def test_function_iterate_pandas_2():
     for arrays, report in uproot.iterate(files, "Muon_Px", report=True, library="pd"):
         assert arrays["Muon_Px"].index.values[0] == expect
         expect += report.tree.num_entries
+    assert expect == 4 * 2421

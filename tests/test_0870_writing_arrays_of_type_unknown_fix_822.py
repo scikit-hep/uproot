@@ -16,3 +16,10 @@ def test_writing_ak_arrays_of_type_unknown(tmp_path):
 
     with uproot.recreate(filename) as file:
         file.mktree("test", tree)
+
+    with uproot.open(filename) as file:
+        assert file["test"].num_entries == 3
+        assert file["test"].keys() == ["nbranch", "branch"]
+        assert file["test/nbranch"].array().tolist() == [0, 0, 0]
+        assert file["test/branch"].typename == "double[]"
+        assert file["test/branch"].array().tolist() == [[], [], []]

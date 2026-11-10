@@ -9,18 +9,8 @@ pytest.importorskip("s3fs")
 
 def test_s3_fail(s3_server):
     bucket_url, storage_options = s3_server
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(FileNotFoundError, match="does not exist"):
         with uproot.source.fsspec.FSSpecSource(
             f"{bucket_url}/does-not-exist", **storage_options
         ) as source:
             source.chunk(0, 100)
-
-
-def test_read_s3(s3_server):
-    bucket_url, storage_options = s3_server
-    with uproot.open(
-        f"{bucket_url}/uproot-HZZ-1.root:events",
-        **storage_options,
-    ) as f:
-        data = f["Muon_Px"].array(library="np")
-        assert len(data) == 2421

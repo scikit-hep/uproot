@@ -8,9 +8,14 @@ import uproot
 
 
 def test():
-    for arrays in uproot.iterate(
-        skhep_testdata.data_path("uproot-issue335.root") + ":empty_tree",
-        ["var"],
-        library="np",
-    ):
-        pass
+    # an empty TTree yields no batches, instead of dividing by zero
+    assert (
+        list(
+            uproot.iterate(
+                skhep_testdata.data_path("uproot-issue335.root") + ":empty_tree",
+                ["var"],
+                library="np",
+            )
+        )
+        == []
+    )
