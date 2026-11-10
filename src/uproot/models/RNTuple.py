@@ -1498,26 +1498,27 @@ in file {self.file.file_path}"""
             field_metadata.dtype_byte
             == uproot.const.rntuple_col_type_to_num_dict["switch"]
         ):
-            tags = array["tag"]
-            indices = array["index"]
-            tag_offsets = defaultdict(int)
-            for i in range(len(starts)):
-                start = starts[i]
-                stop = starts[i + 1] if i + 1 < len(starts) else None
-                if stop is not None and start == stop:
-                    continue
-                curr_slice = slice(start, stop)
-                curr_tags = tags[curr_slice]
-                curr_u_tags, curr_cnts = numpy.unique(curr_tags, return_counts=True)
-                for t, cnt in zip(curr_u_tags, curr_cnts, strict=True):
-                    t_int = int(t)
-                    if t_int == 0:
-                        continue
-                    if i > 0:
-                        offset = tag_offsets[t_int]
-                        if offset > 0:
-                            indices[curr_slice][curr_tags == t] += offset
-                    tag_offsets[t_int] += int(cnt)
+            # Switch indices are cluster-local and counted per tag, so each
+            # entry's index is shifted by the number of entries with the same
+            # tag in the preceding clusters. Tag 0 marks an invalid/None entry.
+            # This only runs on NumPy arrays: CuPy has no structured dtypes, so
+            # the GPU interpreter cannot read switch columns.
+            if len(starts) < 2:
+                return
+            starts = numpy.asarray(starts, dtype=numpy.int64)
+            tags = array["tag"][starts[0] :]
+            indices = array["index"][starts[0] :]
+            starts = starts - starts[0]
+            cluster_ids = numpy.repeat(
+                numpy.arange(len(starts)), numpy.diff(starts, append=len(tags))
+            )
+            tag_counts = numpy.bincount(tags)
+            tag_counts[:1] = 0  # skip tag 0
+            for tag in numpy.flatnonzero(tag_counts):
+                mask = tags == tag
+                counts = numpy.bincount(cluster_ids[mask], minlength=len(starts))
+                offsets = numpy.cumsum(counts) - counts
+                indices[mask] += offsets[cluster_ids[mask]]
 
 
 def _extract_bits(packed, nbits):

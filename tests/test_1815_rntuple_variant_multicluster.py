@@ -142,6 +142,30 @@ def test_rntuple_variant_multicluster_disjoint_tags(tmp_path):
         assert n.arrays().x.tolist() == [1, 2, "a", "b"]
 
 
+def test_rntuple_variant_multicluster_none(tmp_path):
+    path = tmp_path / "var_none.root"
+    with uproot.recreate(path) as f:
+        f["n"] = {"x": ak.Array([[1], None, "a"])}
+        f["n"].extend({"x": ak.Array([None, [2], "b"])})
+        f["n"].extend({"x": ak.Array([[3], None, "c"])})
+
+    with uproot.open(path) as f:
+        n = f["n"]
+        expected = [[1], None, "a", None, [2], "b", [3], None, "c"]
+        assert n.arrays().x.tolist() == expected
+        assert n.arrays(entry_start=2).x.tolist() == expected[2:]
+        assert n.arrays(entry_start=4, entry_stop=8).x.tolist() == expected[4:8]
+
+
+def _switch_array(tags, index):
+    import numpy as np
+
+    array = np.zeros(len(tags), dtype=[("index", np.int64), ("tag", np.int32)])
+    array["tag"] = tags
+    array["index"] = index
+    return array
+
+
 def test_rntuple_variant_combine_cluster_arrays_unit(tmp_path):
     import numpy as np
 
@@ -152,33 +176,40 @@ def test_rntuple_variant_combine_cluster_arrays_unit(tmp_path):
 
     with uproot.open(path) as f:
         n = f["n"]
-        meta = n.get_field_metadata(0)
-        assert meta.dtype_byte == uproot.const.rntuple_col_type_to_num_dict["switch"]
+        switch = uproot.const.rntuple_col_type_to_num_dict["switch"]
+        (col_idx,) = [cr.idx for cr in n.column_records if cr.type == switch]
+        meta = n.get_field_metadata(col_idx)
 
-        # Empty cluster in middle: start == stop
-        arr_empty = np.zeros(4, dtype=[("index", np.int64), ("tag", np.int32)])
-        arr_empty["tag"] = [1, 2, 1, 2]
-        n.combine_cluster_arrays(arr_empty, [0, 2, 2], meta)
-        assert list(arr_empty["index"]) == [0, 0, 1, 1]
+        # Empty cluster in the middle (start == stop)
+        array = _switch_array([1, 2, 1, 2], [0, 0, 0, 0])
+        n.combine_cluster_arrays(array, [0, 2, 2], meta)
+        assert array["index"].tolist() == [0, 0, 1, 1]
 
-        # Tag 0 sentinel preservation
-        arr_tag0 = np.zeros(4, dtype=[("index", np.int64), ("tag", np.int32)])
-        arr_tag0["tag"] = [1, 0, 0, 1]
-        n.combine_cluster_arrays(arr_tag0, [0, 2], meta)
-        assert list(arr_tag0["index"]) == [0, 0, 0, 1]
+        # Tag 0 (invalid/None) entries are left untouched
+        array = _switch_array([1, 0, 0, 1], [0, 0, 0, 0])
+        n.combine_cluster_arrays(array, [0, 2], meta)
+        assert array["index"].tolist() == [0, 0, 0, 1]
 
-        # Multicluster running offset accumulator scaling
+        # Tag 0 absent, tags not starting at 1
+        array = _switch_array([2, 3, 3, 2], [0, 0, 0, 0])
+        n.combine_cluster_arrays(array, [0, 2], meta)
+        assert array["index"].tolist() == [0, 0, 1, 1]
+
+        # Padding before the first cluster is left untouched
+        array = _switch_array([0, 0, 1, 1, 1], [0, 0, 0, 1, 0])
+        n.combine_cluster_arrays(array, [2, 4], meta)
+        assert array["index"].tolist() == [0, 0, 0, 1, 2]
+
+        # A single cluster is unchanged
+        array = _switch_array([1, 2, 1], [0, 0, 1])
+        n.combine_cluster_arrays(array, [0], meta)
+        assert array["index"].tolist() == [0, 0, 1]
+
+        # Many clusters
         n_clusters = 50
-        cluster_len = 4
-        total_len = n_clusters * cluster_len
-        arr_many = np.zeros(total_len, dtype=[("index", np.int64), ("tag", np.int32)])
-        arr_many["tag"] = np.tile([1, 2, 1, 2], n_clusters)
-        arr_many["index"] = np.tile([0, 0, 1, 1], n_clusters)
-        many_starts = [i * cluster_len for i in range(n_clusters)]
-        n.combine_cluster_arrays(arr_many, many_starts, meta)
-        assert list(arr_many["index"][arr_many["tag"] == 1]) == list(
-            range(2 * n_clusters)
+        array = _switch_array(
+            np.tile([1, 2, 1, 2], n_clusters), np.tile([0, 0, 1, 1], n_clusters)
         )
-        assert list(arr_many["index"][arr_many["tag"] == 2]) == list(
-            range(2 * n_clusters)
-        )
+        n.combine_cluster_arrays(array, list(range(0, 4 * n_clusters, 4)), meta)
+        assert array["index"][array["tag"] == 1].tolist() == list(range(2 * n_clusters))
+        assert array["index"][array["tag"] == 2].tolist() == list(range(2 * n_clusters))

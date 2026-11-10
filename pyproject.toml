@@ -35,7 +35,7 @@ test = [
 ]
 test-core = [
   "pytest-timeout",
-  "pytest>=6,<9.2.0",
+  "pytest>=6",
   "rangehttpserver",
   "requests",
   "scikit-hep-testdata>=0.6.9"
