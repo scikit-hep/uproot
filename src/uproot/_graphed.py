@@ -46,6 +46,9 @@ from uproot._util import no_filter, unset
 from uproot.behaviors.RNTuple import HasFields
 from uproot.behaviors.TBranch import HasBranches, TBranch
 
+#: An already-open TTree (``HasBranches``) or RNTuple (``HasFields``), given as ``files``.
+_open_tree_types = (HasBranches, HasFields)
+
 #: ``uproot.dask`` parameters ``uproot.graphed`` has no counterpart for, and where that concern
 #: lives instead; ``**options`` would otherwise swallow them silently.
 _DASK_ONLY = {
@@ -381,7 +384,7 @@ def _spellings(given, given_path, found):
     when that opens the same key, so a spelling only an opened file could equate stays apart.
     """
     paths = set()
-    if not isinstance(given, HasBranches):
+    if not isinstance(given, _open_tree_types):
         paths.add((given_path or "").lstrip("/") or None)
     if found is not None:
         tree, inner = _leaf_to_tree(found)[0], []
@@ -402,8 +405,8 @@ def _spellings(given, given_path, found):
 
 
 def _file_and_path(file_path, object_path):
-    """An already-open ``TTree`` given as a file is re-opened by path in the workers."""
-    if isinstance(file_path, HasBranches):
+    """An already-open ``TTree``/``RNTuple`` given as a file is re-opened by path in the workers."""
+    if isinstance(file_path, _open_tree_types):
         return file_path.file.file_path, file_path.object_path
     return file_path, object_path
 
@@ -421,9 +424,9 @@ def _open_directory(file_path, custom_classes, options):
 @contextlib.contextmanager
 def _opened_object(file_path, object_path, custom_classes, allow_missing, options):
     """The object at ``object_path`` (None when ``allow_missing`` and absent); a file opened here
-    closes with this context whatever it found, and a given ``TTree``'s file stays open.
+    closes with this context whatever it found, and a given ``TTree``/``RNTuple``'s file stays open.
     """
-    if isinstance(file_path, HasBranches):
+    if isinstance(file_path, _open_tree_types):
         yield file_path
         return
     with contextlib.closing(
@@ -466,7 +469,7 @@ def _resolve_entries(
     resolved = []
     for given, given_path, steps, canon in entries:
         file_path, object_path = _file_and_path(given, given_path)
-        if isinstance(given, HasBranches):
+        if isinstance(given, _open_tree_types):
             found = given
         elif (
             first_path is unset
@@ -786,7 +789,7 @@ def graphed(
         file_tree = [
             (
                 *_file_and_path(f, o),
-                _spellings(f, o, f if isinstance(f, HasBranches) else None),
+                _spellings(f, o, f if isinstance(f, _open_tree_types) else None),
             )
             for f, o, *_ in files
         ]
@@ -1042,8 +1045,9 @@ def read_graphed_partition(
 ):
     """Read a ``graphed.core.Partition``'s chunk of ``columns`` from its ROOT file, resolving a
     **blind** partition against the file's actual entry count. A partition with no object path
-    (``open_files=False`` over a bare file name) reads the file's single ``TTree``. Pass an
-    already-open ``tree`` to reuse a per-worker ``open_once`` handle."""
+    (``open_files=False`` over a bare file name) reads the file's single ``TTree`` or ``RNTuple``.
+    Pass an already-open ``tree``/``RNTuple`` to reuse a per-worker ``open_once`` handle.
+    """
     if tree is None:
         with uproot.open(partition.uri, **open_options) as directory:
             tree = uproot._util.object_in_directory(

@@ -64,6 +64,8 @@ def iterate(
     decompression_executor=None,
     interpretation_executor=None,
     library="ak",
+    backend="cpu",
+    interpreter="cpu",
     ak_add_doc=False,
     how=None,
     report=False,
@@ -74,16 +76,17 @@ def iterate(
     """
     Args:
         files: See below.
-        expressions (None, str, or list of str): Names of ``TBranches`` or
-            aliases to convert to arrays or mathematical expressions of them.
-            Uses the ``language`` to evaluate. If None, all ``TBranches``
-            selected by the filters are included.
+        expressions (None, str, or list of str): Names of ``TBranches`` (in a
+            TTree) or ``RFields`` (in an RNTuple), or aliases, to convert to
+            arrays or mathematical expressions of them.
+            Uses the ``language`` to evaluate. If None, all ``TBranches`` or
+            ``RFields`` selected by the filters are included.
         cut (None or str): If not None, this expression filters all of the
             ``expressions``.
         filter_name (None, glob string, regex string in ``"/pattern/i"`` syntax, function of str \u2192 bool, or iterable of the above): A
-            filter to select ``TBranches`` by name.
+            filter to select ``TBranches`` or ``RFields`` by name.
         filter_typename (None, glob string, regex string in ``"/pattern/i"`` syntax, function of str \u2192 bool, or iterable of the above): A
-            filter to select ``TBranches`` by type.
+            filter to select ``TBranches`` or ``RFields`` by type.
         filter_branch (None or function of :doc:`uproot.behaviors.TBranch.TBranch` \u2192 bool, :doc:`uproot.interpretation.Interpretation`, or None): A
             filter to select ``TBranches`` using the full
             :doc:`uproot.behaviors.TBranch.TBranch` object. If the function
@@ -96,11 +99,13 @@ def iterate(
             filter to select ``RFields`` using the full
             :doc:`uproot.models.RNTuple.RField` object. If the function
             returns False or None, the ``RField`` is excluded; if the function
-            returns True, it is included. Only used for RNTuples.
+            returns True, it is included. Only used for RNTuples; ignored for
+            TTrees.
         aliases (None or dict of str \u2192 str): Mathematical expressions that
             can be used in ``expressions`` or other aliases (without cycles).
             Uses the ``language`` engine to evaluate. If None, only the
             :ref:`uproot.behaviors.TBranch.TBranch.aliases` are available.
+            Only used for TTrees.
         language (:doc:`uproot.language.Language`): Language used to interpret
             the ``expressions`` and ``aliases``.
         step_size (int or str): If an integer, the maximum number of entries to
@@ -117,6 +122,13 @@ def iterate(
         library (str or :doc:`uproot.interpretation.library.Library`): The library
             that is used to represent arrays. Options are ``"np"`` for NumPy,
             ``"ak"`` for Awkward Array, and ``"pd"`` for Pandas.
+        backend (str): The backend Awkward Array will use. Only implemented for
+            RNTuples; a TTree only reads on the CPU, so any value other than
+            ``"cpu"`` raises ``NotImplementedError``.
+        interpreter (str): If ``"cpu"``, raw RNTuple data are interpreted on the
+            CPU; if ``"gpu"`` (with ``backend="cuda"``), KvikIO/nvCOMP are used
+            to interpret them on the GPU, if available. Only implemented for
+            RNTuples.
         ak_add_doc (bool | dict ): If True and ``library="ak"``, add the TBranch ``title``
             to the Awkward ``__doc__`` parameter of the array.
             if dict = {key:value} and ``library="ak"``, add the TBranch ``value`` to the
@@ -131,14 +143,17 @@ def iterate(
         report (bool): If True, this generator yields
             (arrays, :doc:`uproot.behaviors.TBranch.Report`) pairs; if False,
             it only yields arrays. The report has data about the ``TFile``,
-            ``TTree``, and global and local entry ranges.
+            the ``TTree`` or ``RNTuple``, and global and local entry ranges.
         custom_classes (None or dict): If a dict, override the classes from
             the :doc:`uproot.reading.ReadOnlyFile` or ``uproot.classes``.
         allow_missing (bool): If True, skip over any files that do not contain
-            the specified ``TTree``.
+            the specified ``TTree`` or ``RNTuple``.
         options: See below.
 
     Iterates through contiguous chunks of entries from a set of files.
+
+    TTrees are read through their ``TBranches`` and RNTuples through their
+    ``RFields``; each option above notes which of the two it applies to.
 
     For example:
 
@@ -162,7 +177,7 @@ def iterate(
       Examples: ``Path("rel/*.root")``, ``"/abs/*.root:tdirectory/ttree"``
     * dict: keys are filesystem paths, values are objects-within-ROOT paths.
       Example: ``{{"/data_v1/*.root": "ttree_v1", "/data_v2/*.root": "ttree_v2"}}``
-    * already-open TTree objects.
+    * already-open TTree or RNTuple objects.
     * iterables of the above.
 
     ..
@@ -189,16 +204,17 @@ def iterate(
     * minimal_ttree_metadata (bool; True): Skip rarely used metadata and defer reading of embedded TBaskets
     * http_max_header_bytes (int; 21784): Maximum size of HTTP packet in bytes when the source is http
 
-    See also :ref:`uproot.behaviors.TBranch.HasBranches.iterate` to iterate
-    within a single file.
+    See also :ref:`uproot.behaviors.TBranch.HasBranches.iterate` or
+    :ref:`uproot.behaviors.RNTuple.HasFields.iterate` to iterate within a single
+    file.
 
     Other file entry points:
 
     * :doc:`uproot.reading.open`: opens one file to read any of its objects.
     * :doc:`uproot.behaviors.TBranch.iterate` (this function): iterates through
-      chunks of contiguous entries in ``TTrees``.
+      chunks of contiguous entries in ``TTrees`` or ``RNTuples``.
     * :doc:`uproot.behaviors.TBranch.concatenate`: returns a single concatenated
-      array from ``TTrees``.
+      array from ``TTrees`` or ``RNTuples``.
     * :doc:`uproot._dask.dask`: returns an unevaluated Dask array from ``TTrees``.
     """
     uproot._util._check_unknown_options(options)
@@ -217,6 +233,9 @@ def iterate(
 
         if hasbranches_context is not None:
             with hasbranches_context as hasbranches:
+                backend_interpreter = _regularize_backend_interpreter(
+                    hasbranches, backend, interpreter
+                )
                 try:
                     for item in hasbranches.iterate(
                         expressions=expressions,
@@ -232,7 +251,10 @@ def iterate(
                         **(
                             {}
                             if isinstance(hasbranches, HasBranches)
-                            else {"filter_field": filter_field}
+                            else {
+                                "filter_field": filter_field,
+                                **backend_interpreter,
+                            }
                         ),
                         aliases=aliases,
                         language=language,
@@ -283,6 +305,8 @@ def concatenate(
     decompression_executor=None,
     interpretation_executor=None,
     library="ak",
+    backend="cpu",
+    interpreter="cpu",
     ak_add_doc=False,
     how=None,
     custom_classes=None,
@@ -292,16 +316,17 @@ def concatenate(
     """
     Args:
         files: See below.
-        expressions (None, str, or list of str): Names of ``TBranches`` or
-            aliases to convert to arrays or mathematical expressions of them.
-            Uses the ``language`` to evaluate. If None, all ``TBranches``
-            selected by the filters are included.
+        expressions (None, str, or list of str): Names of ``TBranches`` (in a
+            TTree) or ``RFields`` (in an RNTuple), or aliases, to convert to
+            arrays or mathematical expressions of them.
+            Uses the ``language`` to evaluate. If None, all ``TBranches`` or
+            ``RFields`` selected by the filters are included.
         cut (None or str): If not None, this expression filters all of the
             ``expressions``.
         filter_name (None, glob string, regex string in ``"/pattern/i"`` syntax, function of str \u2192 bool, or iterable of the above): A
-            filter to select ``TBranches`` by name.
+            filter to select ``TBranches`` or ``RFields`` by name.
         filter_typename (None, glob string, regex string in ``"/pattern/i"`` syntax, function of str \u2192 bool, or iterable of the above): A
-            filter to select ``TBranches`` by type.
+            filter to select ``TBranches`` or ``RFields`` by type.
         filter_branch (None or function of :doc:`uproot.behaviors.TBranch.TBranch` \u2192 bool, :doc:`uproot.interpretation.Interpretation`, or None): A
             filter to select ``TBranches`` using the full
             :doc:`uproot.behaviors.TBranch.TBranch` object. If the function
@@ -314,18 +339,21 @@ def concatenate(
             filter to select ``RFields`` using the full
             :doc:`uproot.models.RNTuple.RField` object. If the function
             returns False or None, the ``RField`` is excluded; if the function
-            returns True, it is included. Only used for RNTuples.
+            returns True, it is included. Only used for RNTuples; ignored for
+            TTrees.
         aliases (None or dict of str \u2192 str): Mathematical expressions that
             can be used in ``expressions`` or other aliases (without cycles).
             Uses the ``language`` engine to evaluate. If None, only the
             :ref:`uproot.behaviors.TBranch.TBranch.aliases` are available.
+            Only used for TTrees.
         language (:doc:`uproot.language.Language`): Language used to interpret
             the ``expressions`` and ``aliases``.
         entry_start (None or int): The first entry to include. If None, start
             at zero. If negative, count from the end, like a Python slice.
         entry_stop (None or int): The first entry to exclude (i.e. one greater
             than the last entry to include). If None, stop at
-            :ref:`uproot.behaviors.TTree.TTree.num_entries`. If negative,
+            :ref:`uproot.behaviors.TTree.TTree.num_entries` (or
+            :ref:`uproot.behaviors.RNTuple.HasFields.num_entries`). If negative,
             count from the end, like a Python slice.
         decompression_executor (None or Executor with a ``submit`` method): The
             executor that is used to decompress ``TBaskets``; if None, a
@@ -337,6 +365,13 @@ def concatenate(
         library (str or :doc:`uproot.interpretation.library.Library`): The library
             that is used to represent arrays. Options are ``"np"`` for NumPy,
             ``"ak"`` for Awkward Array, and ``"pd"`` for Pandas.
+        backend (str): The backend Awkward Array will use. Only implemented for
+            RNTuples; a TTree only reads on the CPU, so any value other than
+            ``"cpu"`` raises ``NotImplementedError``.
+        interpreter (str): If ``"cpu"``, raw RNTuple data are interpreted on the
+            CPU; if ``"gpu"`` (with ``backend="cuda"``), KvikIO/nvCOMP are used
+            to interpret them on the GPU, if available. Only implemented for
+            RNTuples.
         ak_add_doc (bool | dict ): If True and ``library="ak"``, add the TBranch ``title``
             to the Awkward ``__doc__`` parameter of the array.
             if dict = {key:value} and ``library="ak"``, add the TBranch ``value`` to the
@@ -351,10 +386,13 @@ def concatenate(
         custom_classes (None or dict): If a dict, override the classes from
             the :doc:`uproot.reading.ReadOnlyFile` or ``uproot.classes``.
         allow_missing (bool): If True, skip over any files that do not contain
-            the specified ``TTree``.
+            the specified ``TTree`` or ``RNTuple``.
         options: See below.
 
     Returns an array with data from a set of files concatenated into one.
+
+    TTrees are read through their ``TBranches`` and RNTuples through their
+    ``RFields``; each option above notes which of the two it applies to.
 
     For example:
 
@@ -362,9 +400,9 @@ def concatenate(
 
         >>> array = uproot.concatenate("files*.root:tree", ["x", "y"])
 
-    Depending on the number of files, the number of selected ``TBranches``, and
-    the size of your computer's memory, this function might not have enough
-    memory to run.
+    Depending on the number of files, the number of selected ``TBranches`` or
+    ``RFields``, and the size of your computer's memory, this function might not
+    have enough memory to run.
 
     Allowed types for the ``files`` parameter:
 
@@ -380,7 +418,7 @@ def concatenate(
       Examples: ``Path("rel/*.root")``, ``"/abs/*.root:tdirectory/ttree"``
     * dict: keys are filesystem paths, values are objects-within-ROOT paths.
       Example: ``{{"/data_v1/*.root": "ttree_v1", "/data_v2/*.root": "ttree_v2"}}``
-    * already-open TTree objects.
+    * already-open TTree or RNTuple objects.
     * iterables of the above.
 
     ..
@@ -411,9 +449,9 @@ def concatenate(
 
     * :doc:`uproot.reading.open`: opens one file to read any of its objects.
     * :doc:`uproot.behaviors.TBranch.iterate`: iterates through chunks of
-      contiguous entries in ``TTrees``.
+      contiguous entries in ``TTrees`` or ``RNTuples``.
     * :doc:`uproot.behaviors.TBranch.concatenate` (this function): returns a
-      single concatenated array from ``TTrees``.
+      single concatenated array from ``TTrees`` or ``RNTuples``.
     * :doc:`uproot._dask.dask`: returns an unevaluated Dask array from ``TTrees``.
     """
     uproot._util._check_unknown_options(options)
@@ -441,6 +479,9 @@ def concatenate(
     )
     for hasbranches_context in all_hasbranches:
         with hasbranches_context as hasbranches:
+            backend_interpreter = _regularize_backend_interpreter(
+                hasbranches, backend, interpreter
+            )
             nentries = hasbranches.num_entries
             global_stop += nentries
 
@@ -477,7 +518,10 @@ def concatenate(
                     **(
                         {}
                         if isinstance(hasbranches, HasBranches)
-                        else {"filter_field": filter_field}
+                        else {
+                            "filter_field": filter_field,
+                            **backend_interpreter,
+                        }
                     ),
                     aliases=aliases,
                     language=language,
@@ -3215,6 +3259,24 @@ def _regularize_aliases(hasbranches, aliases):
         new_aliases = dict(hasbranches.aliases)
         new_aliases.update(aliases)
         return new_aliases
+
+
+def _regularize_backend_interpreter(hasbranches, backend, interpreter):
+    """
+    The ``backend``/``interpreter`` keywords to pass on to an RNTuple's
+    ``iterate``/``arrays``. A TTree reads only on the CPU, so asking it for
+    anything else raises instead of silently falling back to CPU arrays.
+    """
+    if isinstance(hasbranches, HasBranches):
+        if backend != "cpu" or interpreter != "cpu":
+            raise NotImplementedError(
+                "'backend' and 'interpreter' are only implemented for RNTuples, not "
+                f"TTrees; the TTree in {hasbranches.file.file_path!r} would be read "
+                f"on the CPU. Got backend={backend!r} and interpreter={interpreter!r}."
+            )
+        return {}
+    else:
+        return {"backend": backend, "interpreter": interpreter}
 
 
 def _regularize_interpretation(interpretation):

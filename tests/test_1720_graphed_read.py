@@ -119,6 +119,16 @@ def test_an_open_tree_is_reopened_by_path_in_the_workers(tmp_path):
     assert (partition.uri, partition.tree) == (path, "/events;1")
 
 
+def test_an_open_rntuple_is_reopened_by_path_in_the_workers(tmp_path):
+    path = os.path.join(tmp_path, "nt.root")
+    with uproot.recreate(path) as f:
+        f["nt"] = ak.Array([{"x": float(i), "y": 2.0 * i} for i in range(10)])
+    g = uproot.graphed(uproot.open(path)["nt"])
+    (partition,) = _source_of(g).partitions(1)
+    assert (partition.uri, partition.tree) == (path, "/nt;1")
+    assert _run(_sum_plan(g.y, steps_per_file=3)) == 90.0
+
+
 def test_steps_for_some_but_not_all_files_are_refused(tmp_path):
     a = _make_tree(os.path.join(tmp_path, "a.root"))
     b = _make_tree(os.path.join(tmp_path, "b.root"))
@@ -195,7 +205,7 @@ def test_allow_missing_drops_a_file_without_the_tree(tmp_path):
     nott = os.path.join(tmp_path, "nott.root")
     with uproot.recreate(nott) as f:
         f["h"] = np.histogram(np.arange(10.0))
-    with pytest.raises(ValueError, match="no TTrees found"):
+    with pytest.raises(ValueError, match="no TTrees or RNTuples found"):
         uproot.graphed(nott)
     g = uproot.graphed([nott, a], allow_missing=True, name="g")
     assert len(_source_of(g).partitions(1)) == 1

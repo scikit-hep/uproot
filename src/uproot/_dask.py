@@ -192,7 +192,7 @@ def dask(
             "/data_v1/tree2.root": {"object_path": "ttree_v1", "steps": [0, 10000, 20000, ...]}}}
 
       (This ``files`` pattern is incompatible with ``step_size`` and ``steps_per_file``.)
-    * already-open TTree objects.
+    * already-open TTree or RNTuple objects.
     * iterables of the above.
 
     ..
@@ -1808,9 +1808,9 @@ def _trees_and_keys(
 
     if len(ttrees) == 0:
         raise ValueError(
-            "allow_missing=True and no TTrees found in\n\n    {}".format(
+            "allow_missing=True and no TTrees or RNTuples found in\n\n    {}".format(
                 "\n    ".join(
-                    f"{{{f.file_path if isinstance(f, HasBranches) else f!r}: {f.object_path if isinstance(f, HasBranches) else o!r}}}"
+                    f"{{{f.file.file_path if isinstance(f, (HasBranches, HasFields)) else f!r}: {f.object_path if isinstance(f, (HasBranches, HasFields)) else o!r}}}"
                     for f, o, *_ in files
                 )
             )
@@ -1828,7 +1828,7 @@ def _trees_and_keys(
         raise ValueError(
             "TTrees in\n\n    {}\n\nhave no TBranches in common".format(
                 "\n    ".join(
-                    f"{{{f.file_path if isinstance(f, HasBranches) else f!r}: {f.object_path if isinstance(f, HasBranches) else o!r}}}"
+                    f"{{{f.file.file_path if isinstance(f, (HasBranches, HasFields)) else f!r}: {f.object_path if isinstance(f, (HasBranches, HasFields)) else o!r}}}"
                     for f, o, *_ in files
                 )
             )
