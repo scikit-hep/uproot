@@ -216,6 +216,10 @@ class Profile(uproot.behaviors.TH1.Histogram):
         _values, errors = self._values_errors(flow, error_mode)
         return numpy.square(errors)
 
+    def _values_variances(self, flow):
+        values, errors = self._values_errors(flow, "")
+        return values, numpy.square(errors)
+
 
 class TProfile(Profile):
     """

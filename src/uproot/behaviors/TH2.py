@@ -66,8 +66,8 @@ class TH2(uproot.behaviors.TH1.Histogram):
                 positive = sumw2 > 0
                 variances[positive] = sumw2[positive]
             else:
-                positive = values > 0
-                variances[positive] = values[positive]
+                # like ROOT's TH1::GetBinError, the error is sqrt(|content|)
+                variances[...] = numpy.abs(values.astype(numpy.float64))
             self._variances = variances
 
         if flow:
