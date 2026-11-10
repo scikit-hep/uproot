@@ -52,7 +52,8 @@ _open_tree_types = (HasBranches, HasFields)
 
 _DASK = "which belongs to uproot.dask; "
 _ENTRY_RANGE = (
-    "but it takes whole TTrees; give a range as 'steps' in the files of uproot.graphed: "
+    "but it takes whole TTrees; give a range as 'steps' in the files of uproot.graphed, "
+    "without align_baskets: "
     "{path: {'object_path': tree, 'steps': [[start, stop]]}}"
 )
 #: Keywords of other ``uproot`` readers that the ``graphed`` entry points have no counterpart for,
