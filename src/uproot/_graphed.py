@@ -31,8 +31,6 @@ import hashlib
 import inspect
 import itertools
 
-import fsspec
-
 import uproot
 import uproot._util
 import uproot.interpretation.library
@@ -445,7 +443,7 @@ def _check_options(options, files=None):
         paths = (_file_and_path(file_path, None)[0] for file_path, *_ in files)
         all_local = all(
             not isinstance(path, str)  # a given file object has no URL
-            or fsspec.utils.get_protocol(path) in ("file", "local")
+            or uproot._util.is_local_path(path)
             for path in paths
         )
     uproot._util._check_unknown_options(

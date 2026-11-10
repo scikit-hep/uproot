@@ -289,6 +289,21 @@ def is_remote_url(file_path: str) -> bool:
     return parsed.scheme not in ("", "file", "local")
 
 
+def is_local_path(file_path: str) -> bool:
+    """
+    Returns True if fsspec reads file_path from the local filesystem alone: no remote
+    scheme and no ``protocol::`` chain, in which fsspec takes a ``::``-separated part as a
+    protocol when it is a known one or lowercase letters only.
+    """
+    if is_remote_url(file_path):
+        return False
+    protocols = set(fsspec.available_protocols())
+    return not any(
+        part in protocols or re.fullmatch("[a-z]*", part)
+        for part in file_path.split("::")[:-1]
+    )
+
+
 def _normalize_remote_url(file_path: str) -> str:
     # fsspec's own normal form keeps each protocol's semantics: object stores and HTTP servers
     # can hold different objects at "a//b" and "a/b", so no POSIX normalization on top of it
