@@ -1132,7 +1132,6 @@ in file {self.file.file_path}"""
         cluster_contents = FieldPayload(
             col_idx_orig,
             full_output_buffer,
-            False,
             algorithm_str,
             compression_level,
         )
@@ -1154,7 +1153,6 @@ in file {self.file.file_path}"""
             n_bytes = loc.num_bytes
 
             if algorithm_str is not None and n_bytes < page_bytes:
-                cluster_contents.page_is_compressed = True
                 # skip the 9 byte header; LZ4 has an additional 8-byte checksum
                 header_size = 9 if algorithm_str != "LZ4" else 9 + 8
                 offset = int(loc.offset + header_size)
@@ -2245,7 +2243,6 @@ class FieldPayload:
 
     key: str
     data: CupyArray  # Type: ignore
-    page_is_compressed: bool
     algorithm: str
     compression_level: int
     pages: list[CupyArray] = dataclasses.field(default_factory=list)
