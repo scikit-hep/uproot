@@ -28,6 +28,7 @@ import bisect
 import collections
 import contextlib
 import hashlib
+import inspect
 import itertools
 
 import fsspec
@@ -70,8 +71,12 @@ _REFUSED = {
     "entry_start": _ENTRY_RANGE,
     "entry_stop": _ENTRY_RANGE,
 }
-#: ``ReadOnlyFile`` keywords that ``_open_directory`` takes from ``**options``.
-_FILE_KEYWORDS = {"object_cache", "decompression_executor", "interpretation_executor"}
+#: ``uproot.open``'s own keywords, which ``_open_directory`` hands to ``ReadOnlyFile``.
+_FILE_KEYWORDS = frozenset(
+    name
+    for name, parameter in inspect.signature(uproot.reading.open).parameters.items()
+    if parameter.kind is parameter.KEYWORD_ONLY
+)
 
 
 class _GraphedTTreeSource:
@@ -454,9 +459,8 @@ def _open_directory(file_path, custom_classes, options):
     return uproot.reading.ReadOnlyFile(
         file_path,
         # the object cache keeps the TTree across a worker's partitions; arrays are not held
-        array_cache=None,
+        **{"array_cache": None, **options},
         custom_classes=custom_classes,
-        **options,
     ).root_directory
 
 
