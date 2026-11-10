@@ -431,16 +431,21 @@ def _refuse_options(function, options):
             raise TypeError(f"uproot.{function}() got {option}=, {instead}")
 
 
-def _check_options(options, files):
-    """Refuse or warn about ``options`` given regularized ``files``, for a public entry point."""
-    paths = (_file_and_path(file_path, None)[0] for file_path, *_ in files)
+def _check_options(options, files=None):
+    """Refuse or warn about ``options`` for a public entry point: before any I/O when ``files``
+    is ``None``, and once regularized ``files`` say whether every file is local."""
+    if files is None:
+        all_local = None
+    else:
+        paths = (_file_and_path(file_path, None)[0] for file_path, *_ in files)
+        all_local = all(
+            not isinstance(path, str)  # a given file object has no URL
+            or fsspec.utils.get_protocol(path) in ("file", "local")
+            for path in paths
+        )
     uproot._util._check_unknown_options(
         {k: v for k, v in options.items() if k not in _FILE_KEYWORDS},
-        all_local=not any(
-            isinstance(path, str)  # a given file object has no URL
-            and fsspec.utils.get_protocol(path) not in ("file", "local")
-            for path in paths
-        ),
+        all_local=all_local,
         stacklevel=4,
     )
 
@@ -743,6 +748,7 @@ def graphed(
     This is the ``graphed`` analogue of :doc:`uproot._dask.dask`.
     """
     _refuse_options("graphed", options)
+    _check_options(options)
     library = uproot.interpretation.library._regularize_library(library)
     if library.name != "ak":
         raise NotImplementedError(
@@ -761,8 +767,6 @@ def graphed(
             "uproot.graphed: session= records on that Session's backend; pass backend= or "
             "session=, not both"
         )
-    files = uproot._util.regularize_files(files, steps_allowed=True, **options)
-    _check_options(options, files)
 
     import awkward
 
@@ -785,6 +789,8 @@ def graphed(
     filter_branch = uproot._util.regularize_filter(filter_branch)
     interp_options = {"ak_add_doc": ak_add_doc}
 
+    files = uproot._util.regularize_files(files, steps_allowed=True, **options)
+    _check_options(options, files)
     is_3arg = [len(x) == 3 for x in files]
     if any(is_3arg) and not all(is_3arg):
         raise TypeError(
@@ -980,6 +986,9 @@ def graphed_partitions(
     other ``options`` are passed through to file opening.
     """
     _refuse_options("graphed_partitions", options)
+    _check_options(options)
+    graphed = uproot.extras.graphed()
+
     have_step_size = not isinstance(step_size, uproot._util._Unset)
     have_steps_per_file = not isinstance(steps_per_file, uproot._util._Unset)
     if align_baskets and not open_files:
@@ -1001,7 +1010,6 @@ def graphed_partitions(
 
     resolved = uproot._util.regularize_files(files, steps_allowed=False, **options)
     _check_options(options, resolved)
-    graphed = uproot.extras.graphed()
 
     real_options = options.copy()
     real_options.setdefault("num_workers", 1)
