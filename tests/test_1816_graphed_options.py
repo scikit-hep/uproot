@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import io
 import os
+import sys
 
 import numpy as np
 import pytest
@@ -91,6 +92,7 @@ def test_an_unknown_option_is_refused_when_every_file_is_local(local, read):
                 read(files, anon=True)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows names cannot hold ':'")
 def test_a_local_path_with_a_double_colon_is_local(tmp_path):
     os.mkdir(tmp_path / "run::1")
     path = _make_tree(os.path.join(tmp_path, "run::1", "f.root")) + ":events"
