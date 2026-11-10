@@ -49,32 +49,18 @@ def test_multidim_array():
     assert_eq(dak_array, ak_array)
 
 
-def test_chunking_single_num():
-    test_path = skhep_testdata.data_path("uproot-Zmumu.root") + ":events"
-    assert uproot.dask(test_path, step_size=10, library="ak").npartitions == 231
-
-
-def test_chunking_single_string():
-    test_path = skhep_testdata.data_path("uproot-Zmumu.root") + ":events"
-    assert uproot.dask(test_path, step_size="500B", library="ak").npartitions == 768
-
-
-def test_chunking_multiple_num():
-    filename1 = skhep_testdata.data_path("uproot-Zmumu.root") + ":events"
-    filename2 = skhep_testdata.data_path("uproot-Zmumu-uncompressed.root") + ":events"
-    assert (
-        uproot.dask([filename1, filename2], step_size=10, library="ak").npartitions
-        == 462
-    )
-
-
-def test_chunking_multiple_string():
-    filename1 = skhep_testdata.data_path("uproot-Zmumu.root") + ":events"
-    filename2 = skhep_testdata.data_path("uproot-Zmumu-uncompressed.root") + ":events"
-    assert (
-        uproot.dask([filename1, filename2], step_size="500B", library="ak").npartitions
-        == 1536
-    )
+@pytest.mark.parametrize("num_files", [1, 2])
+@pytest.mark.parametrize(
+    ("step_size", "partitions_per_file"), [(10, 231), ("500B", 768)]
+)
+def test_chunking(num_files, step_size, partitions_per_file):
+    files = [
+        skhep_testdata.data_path(name) + ":events"
+        for name in ("uproot-Zmumu.root", "uproot-Zmumu-uncompressed.root")
+    ][:num_files]
+    lazy = uproot.dask(files, step_size=step_size, library="ak")
+    assert lazy.npartitions == partitions_per_file * num_files
+    assert lazy.divisions[-1] == 2304 * num_files
 
 
 def test_delay_open():

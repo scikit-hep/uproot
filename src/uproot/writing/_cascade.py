@@ -1071,16 +1071,22 @@ class _ReadForUpdate:
     def class_named(self, classname, version=None):
         return uproot.reading.ReadOnlyFile.class_named(self, classname, version=version)
 
+    def _streamers(self):
+        # the list of streamers also has other things, such as a TList of
+        # schema evolution rules, which ROOT writes for some classes
+        return [
+            x
+            for x in self._tlist_of_streamers or ()
+            if isinstance(x, uproot.streamers.Model_TStreamerInfo)
+        ]
+
     def streamers_named(self, classname):
-        if self._tlist_of_streamers is None:
-            return []
-        else:
-            return [x for x in self._tlist_of_streamers if x.name == classname]
+        return [x for x in self._streamers() if x.name == classname]
 
     def streamer_named(self, classname, version="max"):
         out = None
         if self._tlist_of_streamers is not None:
-            for x in self._tlist_of_streamers:
+            for x in self._streamers():
                 if x.name == classname:
                     if version == "max":
                         if out is None or x.class_version > out.class_version:

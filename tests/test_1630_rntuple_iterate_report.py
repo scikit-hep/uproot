@@ -13,24 +13,13 @@ def test_rntuple_iterate_report():
     """
     path = skhep_testdata.data_path("ntpl001_staff_rntuple_v1-0-0-0.root")
     with uproot.open(path)["Staff"] as rntuple:
-        for i, (arrays, report) in enumerate(
-            rntuple.iterate("Age", step_size=1000, report=True)
-        ):
-            if i == 0:
-                assert report.tree_entry_start == 0
-                assert report.tree_entry_stop == 1000
-                assert report.file_path == path
-            elif i == 1:
-                assert report.tree_entry_start == 1000
-                assert report.tree_entry_stop == 2000
-                assert report.file_path == path
-            elif i == 2:
-                assert report.tree_entry_start == 2000
-                assert report.tree_entry_stop == 3000
-                assert report.file_path == path
-            elif i == 3:
-                assert report.tree_entry_start == 3000
-                assert report.tree_entry_stop == 3354
-                assert report.file_path == path
-            else:
-                assert False
+        out = list(rntuple.iterate("Age", step_size=1000, report=True))
+
+    assert [(report.tree_entry_start, report.tree_entry_stop) for _, report in out] == [
+        (0, 1000),
+        (1000, 2000),
+        (2000, 3000),
+        (3000, 3354),
+    ]
+    assert [report.file_path for _, report in out] == [path] * 4
+    assert [len(arrays) for arrays, _ in out] == [1000, 1000, 1000, 354]

@@ -23,6 +23,7 @@ def test_reading_into_numpy():
         assert isinstance(nmuon_ak_array, ak.Array)
         assert isinstance(nmuon_np_array, np.ndarray)
 
+        assert nmuon_np_array[:5].tolist() == [2, 2, 1, 4, 4]
         assert ak.array_equal(nmuon_ak_array, nmuon_np_array)
         assert ak.array_equal(ak_arrays["nMuon"], np_arrays["nMuon"])
         assert ak.array_equal(ak_arrays["nMuon"], nmuon_ak_array)

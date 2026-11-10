@@ -216,7 +216,7 @@ in file {self.file.file_path}"""
                     ancestor_stacks.append(tmp_stack)
 
                 while all(
-                    stack[-1] == ancestor_stacks[0][-1] for stack in ancestor_stacks[1:]
+                    stack[-1] is ancestor_stacks[0][-1] for stack in ancestor_stacks[1:]
                 ):
                     for stack in ancestor_stacks:
                         stack.pop()
@@ -726,7 +726,12 @@ in file {self.file.file_path}"""
             idx_type = (
                 "i32" if self._column_records_dict[cfid][0].nbits == 32 else "i64"
             )
-            if self._all_fields[cfid].record.type_name.startswith("std::optional"):
+            if (
+                self._all_fields[cfid].record.type_name.startswith("std::optional")
+                # uproot writes optional untyped records with an empty type
+                # name to work around a ROOT bug; see _cascadentuple.py
+                or self._all_fields[cfid].record.type_alias == "std::optional<>"
+            ):
                 keyname = keyname + "-optional"
                 return ak.forms.IndexedOptionForm(
                     idx_type, inner, form_key=keyname, parameters=parameters
@@ -791,8 +796,8 @@ in file {self.file.file_path}"""
                 f"Unsplit fields are not supported. {this_record}"
             )
         else:
-            # everything should recurse above this branch
-            raise AssertionError("this should be unreachable")
+            # a role from a newer version of the format, or a corrupted file
+            raise NotImplementedError(f"Unknown field role: {this_record}")
 
     def read_page(
         self,
@@ -815,18 +820,7 @@ in file {self.file.file_path}"""
         """
         page_desc = self._ntuple.page_link_list[cluster_idx][col_idx].pages[page_idx]
         loc = page_desc.locator
-        num_elements = len(destination)
-        # Pages storing bits, real32trunc, and real32quant need num_elements
-        # corrected
-        if field_metadata.isbit:
-            num_elements_toread = int(numpy.ceil(num_elements / 8))
-        elif field_metadata.dtype_str in ("real32trunc", "real32quant"):
-            num_elements_toread = int(
-                numpy.ceil((num_elements * 4 * field_metadata.nbits) / 32)
-            )
-        else:
-            num_elements_toread = num_elements
-
+        num_elements_toread = _page_num_toread(len(destination), field_metadata)
         uncomp_size = num_elements_toread * field_metadata.dtype_toread.itemsize
         decomp_chunk, cursor = self.read_locator(loc, uncomp_size)
         content = cursor.array(
@@ -1004,28 +998,34 @@ in file {self.file.file_path}"""
             return_buffer = False
             assert len(destination) == total_len
 
+        # The pages are decoded in the column's own dtype (zigzag and quantization
+        # depend on its width), and only then converted to the result's dtype, which
+        # is wider if the field has other column representations
+        if field_metadata.dtype == field_metadata.dtype_result:
+            column_buffer = destination
+        else:
+            column_buffer = numpy.empty(total_len, dtype=field_metadata.dtype)
+
         tracker = 0
         cumsum = 0
         for page_idx, page_desc in enumerate(pagelist):
             n_elements = page_desc.num_elements
             tracker_end = tracker + n_elements
             self.read_page(
-                destination[tracker:tracker_end],
+                column_buffer[tracker:tracker_end],
                 cluster_idx,
                 col_idx,
                 page_idx,
                 field_metadata,
             )
-            if field_metadata.dtype != field_metadata.dtype_result:
-                destination[tracker:tracker_end] = destination[
-                    tracker:tracker_end
-                ].view(field_metadata.dtype)[: tracker_end - tracker]
             if field_metadata.delta:
-                destination[tracker] -= cumsum
-                cumsum += numpy.sum(destination[tracker:tracker_end])
+                column_buffer[tracker] -= cumsum
+                cumsum += numpy.sum(column_buffer[tracker:tracker_end])
             tracker = tracker_end
 
-        self.post_process(destination, field_metadata)
+        self.post_process(column_buffer, field_metadata)
+        if column_buffer is not destination:
+            destination[:] = column_buffer
 
         # Save a copy in array_cache
         if array_cache is not None:
@@ -1113,7 +1113,13 @@ in file {self.file.file_path}"""
             compression = linklist_col.compression_settings
             compression_level = compression % 100
             algorithm = compression // 100
-            algorithm_str = compression_settings_dict[algorithm]
+            # like uproot.compression.Compression.from_code_pair, an algorithm or a
+            # level of 0 means that the pages are stored uncompressed
+            algorithm_str = (
+                None
+                if algorithm == 0 or compression_level == 0
+                else compression_settings_dict[algorithm]
+            )
         else:
             pagelist = []
             algorithm_str = None
@@ -1123,37 +1129,31 @@ in file {self.file.file_path}"""
         total_len = numpy.sum([desc.num_elements for desc in pagelist], dtype=int)
         full_output_buffer = cupy.empty(total_len, dtype=field_metadata.dtype)
 
-        # Check if field compressed/decompressed
-        if field_metadata.isbit:  # Need to correct length when dtype = bit
-            total_len = int(numpy.ceil(total_len / 8))
-        elif field_metadata.dtype_str in ("real32trunc", "real32quant"):
-            total_len = int(numpy.ceil((total_len * 4 * field_metadata.nbits) / 32))
-        total_raw_bytes = numpy.sum([desc.locator.num_bytes for desc in pagelist])
-        page_is_compressed = (
-            total_raw_bytes != total_len * field_metadata.dtype_toread.itemsize
-        )
-
         cluster_contents = FieldPayload(
             col_idx_orig,
             full_output_buffer,
-            page_is_compressed,
             algorithm_str,
             compression_level,
         )
         tracker = 0
         for page_desc in pagelist:
-            num_elements = page_desc.num_elements
+            # Like on the CPU (read_page), each page starts at its first element,
+            # its raw data fill the start of the page, and whether a page is
+            # compressed depends on its own size (ROOT doesn't compress a page
+            # that compression wouldn't make smaller)
+            tracker_end = tracker + page_desc.num_elements
+            page_bytes = (
+                _page_num_toread(page_desc.num_elements, field_metadata)
+                * field_metadata.dtype_toread.itemsize
+            )
+            out_buff = full_output_buffer[tracker:tracker_end].view(cupy.uint8)[
+                :page_bytes
+            ]
             loc = page_desc.locator
             n_bytes = loc.num_bytes
-            if field_metadata.isbit:  # Need to correct length when dtype = bit
-                num_elements = int(numpy.ceil(num_elements / 8))
 
-            tracker_end = tracker + num_elements
-            out_buff = full_output_buffer[tracker:tracker_end]
-
-            # If compressed, skip 9 byte header
-            if page_is_compressed:
-                # If LZ4, page contains additional 8-byte checksum
+            if algorithm_str is not None and n_bytes < page_bytes:
+                # skip the 9 byte header; LZ4 has an additional 8-byte checksum
                 header_size = 9 if algorithm_str != "LZ4" else 9 + 8
                 offset = int(loc.offset + header_size)
                 read_size = int(n_bytes - header_size)
@@ -1203,7 +1203,6 @@ in file {self.file.file_path}"""
                 if start_cluster_idx >= 0
                 else 0
             )
-        cluster_range = range(start_cluster_idx, stop_cluster_idx)
 
         col_arrays = {}  # collect content for each col
         for key_nr in clusters_datas.columns:
@@ -1217,36 +1216,23 @@ in file {self.file.file_path}"""
             )
 
             res = cupy.empty(total_length, field_metadata.dtype_result)
-            if len(starts) == 0:
-                # no clusters are read, so the array is only padding (and, for
-                # offsets, the leading zero)
-                res[:] = 0
-                col_arrays[key_nr] = res
-                continue
+            # clusters_datas only has columns if it read a cluster in the
+            # range, so ``starts`` is never empty here
             res[: starts[0]] = 0
-            # Get uncompressed array for key for each cluster, by cluster index
+            # Get uncompressed array for key for each cluster, by cluster index;
+            # ``starts`` only has entries for non-negative cluster indices (see
+            # _expected_array_length_starts_dtype), so start the pairing at 0
             col_decompressed_buffers = clusters_datas._grab_field_output(ncol)
-            # ``starts`` only contains entries for non-negative cluster indices
-            # (see _expected_array_length_starts_dtype), so skip negative ones
-            # here to keep the pairing between ``starts[i]`` and the cluster
-            # index aligned.
-            i = 0
-            for cluster_i in cluster_range:
-                if cluster_i < 0:
-                    continue
+            cluster_range = range(max(start_cluster_idx, 0), stop_cluster_idx)
+            for i, cluster_i in enumerate(cluster_range):
                 stop = starts[i + 1] if i + 1 < len(starts) else total_length
                 cluster_buffer = col_decompressed_buffers[cluster_i]
                 cluster_buffer = self.gpu_deserialize_pages(
                     cluster_buffer, ncol, cluster_i, field_metadata
                 )
-                # if field_metadata.dtype != field_metadata.dtype_result:
+                # assigning converts the values of a narrower representation to
+                # dtype_result (the CPU path reads raw bytes and has to view them)
                 res[starts[i] : stop] = cluster_buffer
-
-                if field_metadata.dtype != field_metadata.dtype_result:
-                    res[starts[i] : stop] = res[starts[i] : stop].view(
-                        field_metadata.dtype
-                    )[: stop - starts[i]]
-                i += 1
 
             self.combine_cluster_arrays(res, starts, field_metadata)
             col_arrays[key_nr] = res
@@ -1379,6 +1365,13 @@ in file {self.file.file_path}"""
                 res[5::8] = content[length * 5 // 8 : length * 6 // 8]
                 res[6::8] = content[length * 6 // 8 : length * 7 // 8]
                 res[7::8] = content[length * 7 // 8 : length * 8 // 8]
+
+            else:
+                # the bit width of a column is in the file, apart from its type
+                raise ValueError(
+                    f"split column {field_metadata.ncol} has {field_metadata.nbits} "
+                    "bits, but split columns can only have 16, 32, or 64 bits"
+                )
             destination.view(field_metadata.dtype)[:num_elements] = res.view(
                 field_metadata.dtype
             )
@@ -1489,6 +1482,44 @@ in file {self.file.file_path}"""
                 if start == stop:
                     continue
                 array[start:stop] += array[start - 1]
+        elif (
+            field_metadata.dtype_byte
+            == uproot.const.rntuple_col_type_to_num_dict["switch"]
+        ):
+            # Switch indices are cluster-local and counted per tag, so each
+            # entry's index is shifted by the number of entries with the same
+            # tag in the preceding clusters. Tag 0 marks an invalid/None entry.
+            # This only runs on NumPy arrays: CuPy has no structured dtypes, so
+            # the GPU interpreter cannot read switch columns.
+            if len(starts) < 2:
+                return
+            starts = numpy.asarray(starts, dtype=numpy.int64)
+            tags = array["tag"][starts[0] :]
+            indices = array["index"][starts[0] :]
+            starts = starts - starts[0]
+            cluster_ids = numpy.repeat(
+                numpy.arange(len(starts)), numpy.diff(starts, append=len(tags))
+            )
+            tag_counts = numpy.bincount(tags)
+            tag_counts[:1] = 0  # skip tag 0
+            for tag in numpy.flatnonzero(tag_counts):
+                mask = tags == tag
+                counts = numpy.bincount(cluster_ids[mask], minlength=len(starts))
+                offsets = numpy.cumsum(counts) - counts
+                indices[mask] += offsets[cluster_ids[mask]]
+
+
+def _page_num_toread(num_elements, field_metadata):
+    """
+    Returns the number of items of ``field_metadata.dtype_toread`` that hold a page
+    of ``num_elements`` elements: bits and truncated or quantized floats are packed.
+    """
+    if field_metadata.isbit:
+        return int(numpy.ceil(num_elements / 8))
+    elif field_metadata.dtype_str in ("real32trunc", "real32quant"):
+        return int(numpy.ceil((num_elements * 4 * field_metadata.nbits) / 32))
+    else:
+        return num_elements
 
 
 def _extract_bits(packed, nbits):
@@ -1640,10 +1671,13 @@ class MetaData:
         return f"MetaData({self.name!r}, {kwargs})"
 
     def __getattr__(self, name):
-        if not name.startswith("_"):
-            return self.__dict__["_fields"][name]
-        else:
-            return self.__dict__[name]
+        try:
+            if not name.startswith("_"):
+                return self.__dict__["_fields"][name]
+            else:
+                return self.__dict__[name]
+        except KeyError:
+            raise AttributeError(name) from None
 
     def __setattr__(self, name, val):
         self.__dict__["_fields"][name] = val
@@ -1838,7 +1872,8 @@ class LinkedAttributeSetRecordReader:
             out.anchor_uncompressed_size,
         ) = cursor.fields(chunk, _rntuple_linked_attribute_set_format, context)
         out.locator = LocatorReader().read(chunk, cursor, context)
-        out.name = cursor.rntuple_string(chunk, context)
+        # not "name", which is the name of the MetaData itself
+        out.attribute_set_name = cursor.rntuple_string(chunk, context)
         return out
 
 
@@ -2027,7 +2062,9 @@ class RField(uproot.behaviors.RNTuple.HasFields):
             if field is self:
                 return i
         else:
-            raise AssertionError
+            raise ValueError(
+                f"RField {self.name!r} is anonymous, so its parent does not list it"
+            )
 
     @property
     def field_id(self):
@@ -2206,7 +2243,6 @@ class FieldPayload:
 
     key: str
     data: CupyArray  # Type: ignore
-    page_is_compressed: bool
     algorithm: str
     compression_level: int
     pages: list[CupyArray] = dataclasses.field(default_factory=list)
@@ -2219,16 +2255,29 @@ class FieldPayload:
         self.output.append(buffer)
 
     def _decompress(self):
-        if self.page_is_compressed and self.algorithm is not None:
+        pages, outputs = self._compressed_pages()
+        if pages:
             nvcomp = uproot.extras.nvcomp()
             cupy = uproot.extras.cupy()
             codec = nvcomp.Codec(
                 algorithm=self.algorithm, bitstream_kind=nvcomp.BitstreamKind.RAW
             )
-            batch_nv = nvcomp.as_arrays(self.pages)
+            batch_nv = nvcomp.as_arrays(pages)
             batch = codec.decode(batch_nv)
-            for i, _array in enumerate(batch):
-                self.output[i][:] = cupy.array(_array).view(self.output[i].dtype)
+            for output, _array in zip(outputs, batch, strict=True):
+                output[:] = cupy.array(_array).view(output.dtype)
+
+    def _compressed_pages(self):
+        """
+        Returns the compressed pages and their decompression targets (the pages
+        that are stored uncompressed were read directly into their targets).
+        """
+        pairs = [
+            (page, output)
+            for page, output in zip(self.pages, self.output, strict=True)
+            if page is not None
+        ]
+        return [page for page, _ in pairs], [output for _, output in pairs]
 
 
 @dataclasses.dataclass
@@ -2283,9 +2332,9 @@ class ClusterRefs:
                     if fieldpayload.algorithm not in to_decompress.keys():
                         to_decompress[fieldpayload.algorithm] = []
                         target[fieldpayload.algorithm] = []
-                    if fieldpayload.page_is_compressed:
-                        to_decompress[fieldpayload.algorithm].extend(fieldpayload.pages)
-                        target[fieldpayload.algorithm].extend(fieldpayload.output)
+                    pages, outputs = fieldpayload._compressed_pages()
+                    to_decompress[fieldpayload.algorithm].extend(pages)
+                    target[fieldpayload.algorithm].extend(outputs)
 
         # batch decompress
         nvcomp = uproot.extras.nvcomp()

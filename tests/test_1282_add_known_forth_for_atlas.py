@@ -23,7 +23,13 @@ def test_pickup_vector_vector_elementlink(key):
     ) as tree:
         branch = tree[key]
         assert branch.interpretation._complete_forth_code is not None
-        assert branch.interpretation._form is not None
+        form = branch.interpretation._form
+        assert form["class"] == "ListOffsetArray"
+        assert form["content"]["class"] == "ListOffsetArray"
+        assert form["content"]["content"]["fields"] == ["m_persKey", "m_persIndex"]
+        assert form["content"]["content"]["parameters"]["__record__"].startswith(
+            "ElementLink<DataVector<"
+        )
 
 
 def test_consistent_library_np_vector_vector_elementlink():

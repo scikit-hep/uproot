@@ -8,69 +8,50 @@ import uproot
 import awkward as ak
 import numpy as np
 
+TUPLE_DTYPES = [
+    (("int32", (2,)), np.int32, (5, 2)),
+    (("int32", (2, 4, 1)), np.int32, (5, 2, 4, 1)),
+    # int32 that can also be viewed as 4 int8: the values are still one int32 each
+    (("int32", ("int8", 4)), np.int32, (5,)),
+    ("2i4", np.int32, (5, 2)),
+    ("(2,3,4)f4", np.float32, (5, 2, 3, 4)),
+]
 
-def test_mktree_tuple_dtype(tmp_path):
+
+def tuple_dtype_data(dtype, primitive, shape):
+    data = np.zeros(5, dtype=dtype)
+    data[...] = np.arange(np.prod(shape), dtype=primitive).reshape(shape)
+    return data
+
+
+@pytest.mark.parametrize("dtype, primitive, shape", TUPLE_DTYPES)
+def test_mktree_tuple_dtype(tmp_path, dtype, primitive, shape):
     filepath = os.path.join(tmp_path, "test.root")
+    data = tuple_dtype_data(dtype, primitive, shape)
 
     with uproot.recreate(filepath) as file:
-        dt1 = ("int32", (2,))
-        t1 = file.mktree("tree1", {"x": dt1})
-        t1.extend({"x": np.zeros(5, dtype=dt1)})
-        dt2 = ("int32", (2, 4, 1))
-        t2 = file.mktree("tree2", {"y": dt2})
-        t2.extend({"y": np.zeros(5, dtype=dt2)})
-        dt3 = ("int32", ("int8", 4))
-        t3 = file.mktree("tree3", {"z": dt3})
-        t3.extend({"z": np.zeros(5, dtype=dt3)})
-        dt4 = "2i4"
-        t4 = file.mktree("tree4", {"w": dt4})
-        t4.extend({"w": np.zeros(5, dtype=dt4)})
-        dt5 = "(2,3,4)f4"
-        t5 = file.mktree("tree5", {"v": dt5})
-        t5.extend({"v": np.zeros(5, dtype=dt5)})
+        tree = file.mktree("tree", {"x": dtype})
+        tree.extend({"x": data})
 
     with uproot.open(filepath) as file:
-        assert file.keys(cycle=False) == ["tree1", "tree2", "tree3", "tree4", "tree5"]
-        assert file["tree1"].num_entries == 5
-        assert file["tree2"].num_entries == 5
-        assert file["tree3"].num_entries == 5
-        assert file["tree4"].num_entries == 5
-        assert file["tree5"].num_entries == 5
+        assert file["tree"].num_entries == 5
+        array = file["tree/x"].array(library="np")
+        assert array.shape == data.shape
+        assert array.tolist() == data.tolist()
 
 
-def test_mkrntuple_tuple_dtype(tmp_path):
+@pytest.mark.parametrize("dtype, primitive, shape", TUPLE_DTYPES)
+def test_mkrntuple_tuple_dtype(tmp_path, dtype, primitive, shape):
     filepath = os.path.join(tmp_path, "test.root")
+    data = tuple_dtype_data(dtype, primitive, shape)
 
     with uproot.recreate(filepath) as file:
-        dt1 = ("int32", (2,))
-        t1 = file.mkrntuple("ntuple1", {"x": dt1})
-        t1.extend({"x": np.zeros(5, dtype=dt1)})
-        dt2 = ("int32", (2, 4, 1))
-        t2 = file.mkrntuple("ntuple2", {"y": dt2})
-        t2.extend({"y": np.zeros(5, dtype=dt2)})
-        dt3 = ("int32", ("int8", 4))
-        t3 = file.mkrntuple("ntuple3", {"z": dt3})
-        t3.extend({"z": np.zeros(5, dtype=dt3)})
-        dt4 = "2i4"
-        t4 = file.mkrntuple("ntuple4", {"w": dt4})
-        t4.extend({"w": np.zeros(5, dtype=dt4)})
-        dt5 = "(2,3,4)f4"
-        t5 = file.mkrntuple("ntuple5", {"v": dt5})
-        t5.extend({"v": np.zeros(5, dtype=dt5)})
+        ntuple = file.mkrntuple("ntuple", {"x": dtype})
+        ntuple.extend({"x": data})
 
     with uproot.open(filepath) as file:
-        assert file.keys(cycle=False) == [
-            "ntuple1",
-            "ntuple2",
-            "ntuple3",
-            "ntuple4",
-            "ntuple5",
-        ]
-        assert file["ntuple1"].num_entries == 5
-        assert file["ntuple2"].num_entries == 5
-        assert file["ntuple3"].num_entries == 5
-        assert file["ntuple4"].num_entries == 5
-        assert file["ntuple5"].num_entries == 5
+        assert file["ntuple"].num_entries == 5
+        assert file["ntuple"].arrays()["x"].tolist() == data.tolist()
 
 
 def test_unsupported_numpy_dtypes(tmp_path):
@@ -83,41 +64,41 @@ def test_unsupported_numpy_dtypes(tmp_path):
 
         # structured dtypes are not supported
         complex_dtype = np.dtype([("real", "float32"), ("imag", "float32")])
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError, match="cannot write NumPy dtype .* in TTree"):
             file.mktree("tree1", {"x": complex_dtype})
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError, match="Cannot construct an Awkward Form from"):
             file.mkrntuple("ntuple1", {"x": complex_dtype})
 
         # structured dtypes specified as strings are also not supported
         dt_str = "i4, (2,3)f8, f4"
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError, match="cannot write NumPy dtype .* in TTree"):
             file.mktree("tree2", {"x": dt_str})
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError, match="Cannot construct an Awkward Form from"):
             file.mkrntuple("ntuple2", {"x": dt_str})
 
         # using tuples to specify structured dtypes is not supported
         dt_tuple = ("int32", [("real", "float32"), ("imag", "float32")])
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError, match="cannot write Awkward Array type"):
             file.mktree("tree3", {"x": dt_tuple})
         # this should work, but it is interpreted as data, not a dtype
         file.mkrntuple("ntuple3", {"x": dt_tuple})
 
         # using some random type should not work
         dt_unknown = frozenset
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError, match="cannot write NumPy dtype object"):
             file.mktree("tree4", {"x": dt_unknown})
-        with pytest.raises(TypeError):
+        with pytest.raises(TypeError, match="Cannot construct a NumPy dtype"):
             file.mkrntuple("ntuple4", {"x": dt_unknown})
 
         with pytest.raises(AttributeError):
             file.mktree("tree5", {1: "unknown type"})
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="JSON syntax error"):
             file.mkrntuple("ntuple5", {1: "unknown type"})
 
         with pytest.raises(TypeError):
             # this one ends up creating a tree, but fails when writing the data
             file.mktree("tree6", {"x": "unknown type"})
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="JSON syntax error"):
             file.mkrntuple("ntuple6", {"x": "unknown type"})
 
     # make sure that things were written as data instead of being interpreted as dtypes
@@ -141,11 +122,11 @@ def test_type_specification_to_awkward_form():
         ak.types.NumpyType("int32")
     ) == ak.forms.NumpyForm("int32")
 
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="Cannot construct a NumPy dtype"):
         uproot.writing.writable._type_specification_to_awkward_form(frozenset)
 
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match=r"from the tuple \(1, 2, 3\)"):
         uproot.writing.writable._type_specification_to_awkward_form((1, 2, 3))
 
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="Cannot construct an Awkward Form from int"):
         uproot.writing.writable._type_specification_to_awkward_form(0)

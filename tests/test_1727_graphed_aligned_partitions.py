@@ -119,7 +119,9 @@ def test_the_contract_examples():
     assert _ranges(graphed_partitions(ZMUMU, align_baskets=True, steps_per_file=5)) == [
         (0, 2304)
     ]
-    assert len(graphed_partitions(HEPDATA, align_baskets=True, steps_per_file=5)) == 1
+    assert _ranges(
+        graphed_partitions(HEPDATA, align_baskets=True, steps_per_file=5)
+    ) == [(0, 75000)]
     assert _ranges(
         graphed_partitions(FULLSPLIT, align_baskets=True, steps_per_file=4)
     ) == [(0, 100)]

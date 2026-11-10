@@ -540,7 +540,7 @@ Functions that accept many files (uproot.iterate, etc.) also allow:
          Examples: Path("rel/*.root"), "/abs/*.root:tdirectory/ttree"
    * dict: keys are filesystem paths, values are objects-within-ROOT paths.
          Example: {{"/data_v1/*.root": "ttree_v1", "/data_v2/*.root": "ttree_v2"}}
-   * already-open TTree objects.
+   * already-open TTree or RNTuple objects.
    * iterables of the above.
 """)
 
@@ -1001,7 +1001,7 @@ def regularize_steps(steps):
 
 
 def _regularize_files_inner(
-    files, parse_colon, counter, HasBranches, steps_allowed, **options
+    files, parse_colon, counter, hasbranches_types, steps_allowed, **options
 ):
     files2 = regularize_path(files)
 
@@ -1058,7 +1058,7 @@ def _regularize_files_inner(
                             yield match, object_path, maybe_steps
                             seen.add(match)
 
-    elif isinstance(files, HasBranches):
+    elif isinstance(files, hasbranches_types):
         yield files, None, maybe_steps
 
     elif isinstance(files, dict):
@@ -1081,7 +1081,7 @@ def _regularize_files_inner(
                 key,
                 False,
                 counter,
-                HasBranches,
+                hasbranches_types,
                 steps_allowed,
                 **options,
             ):
@@ -1091,7 +1091,7 @@ def _regularize_files_inner(
         for file in files:
             counter[0] += 1
             for file_path, object_path, maybe_steps in _regularize_files_inner(
-                file, parse_colon, counter, HasBranches, steps_allowed, **options
+                file, parse_colon, counter, hasbranches_types, steps_allowed, **options
             ):
                 yield file_path, object_path, maybe_steps
 
@@ -1099,8 +1099,8 @@ def _regularize_files_inner(
         raise TypeError(
             "'files' must be a file path/URL (string or Path), possibly with "
             "a glob pattern (for local files), a dict of "
-            "{path/URL: TTree/TBranch name}, actual TTree/TBranch objects, or "
-            f"an iterable of such things, not {files!r}"
+            "{path/URL: TTree/TBranch/RNTuple name}, actual TTree/TBranch/RNTuple "
+            f"objects, or an iterable of such things, not {files!r}"
         )
 
 
@@ -1108,13 +1108,14 @@ def regularize_files(files, steps_allowed, **options):
     """
     Common code for regularizing the possible file inputs accepted by uproot so they can be used by uproot internal functions.
     """
+    from uproot.behaviors.RNTuple import HasFields
     from uproot.behaviors.TBranch import HasBranches
 
     out = []
     seen = set()
     counter = [0]
     for file_path, object_path, maybe_steps in _regularize_files_inner(
-        files, True, counter, HasBranches, steps_allowed, **options
+        files, True, counter, (HasBranches, HasFields), steps_allowed, **options
     ):
         if isinstance(file_path, str):
             key = (counter[0], file_path, object_path)
@@ -1139,12 +1140,13 @@ def regularize_object_path(
     file_path, object_path, custom_classes, allow_missing, options
 ):
     """
-    Returns the TTree object from given object and file paths.
+    Returns the TTree or RNTuple object from given object and file paths.
     """
+    from uproot.behaviors.RNTuple import HasFields
     from uproot.behaviors.TBranch import HasBranches, _NoClose
     from uproot.reading import ReadOnlyFile
 
-    if isinstance(file_path, HasBranches):
+    if isinstance(file_path, (HasBranches, HasFields)):
         return _NoClose(file_path)
 
     directory = ReadOnlyFile(
@@ -1159,27 +1161,27 @@ def regularize_object_path(
 
 def object_in_directory(directory, object_path, allow_missing):
     """
-    Returns the object at ``object_path`` in an open ``directory`` — the file's single ``TTree``
+    Returns the object at ``object_path`` in an open ``directory`` — the file's single ``TTree`` or ``RNTuple``
     when ``object_path`` is None — or None when ``allow_missing`` and it is absent.
     """
     file_path = directory.file.file_path
     if object_path is None:
-        trees = directory.keys(filter_classname="TTree", cycle=False)
-        if len(trees) == 0:
+        objs = directory.keys(filter_classname=["TTree", "ROOT::RNTuple"], cycle=False)
+        if len(objs) == 0:
             if allow_missing:
                 return None
             else:
-                raise ValueError(f"no TTrees found\nin file {file_path}")
-        elif len(trees) == 1:
-            return directory[trees[0]]
+                raise ValueError(f"no TTrees or RNTuples found\nin file {file_path}")
+        elif len(objs) == 1:
+            return directory[objs[0]]
         else:
-            ttree_str = ", ".join(repr(x) for x in trees)
+            obj_str = ", ".join(repr(x) for x in objs)
             raise ValueError(
-                """TTree object paths must be specified in the 'files' """
+                """TTree or RNTuple object paths must be specified in the 'files' """
                 """as {"filenames*.root": "path"} if any files have """
-                f"""more than one TTree
+                f"""more than one TTree or RNTuple
 
-    TTrees: {ttree_str}
+    TTrees/RNTuples: {obj_str}
 
 in file {file_path}"""
             )

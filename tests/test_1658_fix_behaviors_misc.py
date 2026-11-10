@@ -17,7 +17,7 @@ def test_rfield_getitem_nonexistent_raises_key_in_file_error():
     with uproot.open(filename) as f:
         ntuple = f["ntuple"]
         field = next(iter(ntuple.values()))
-        with pytest.raises(uproot.KeyInFileError):
+        with pytest.raises(uproot.KeyInFileError, match="not found: '.nonexistent'"):
             field[".nonexistent"]
 
 
@@ -32,7 +32,9 @@ def test_rntuple_iterate_multifile_global_offsets():
     _, rep1 = results[1]
     # Second file's global start must equal first file's global stop
     assert rep0.global_entry_start == 0
-    assert rep1.global_entry_start == rep0.global_entry_stop
+    assert rep0.global_entry_stop == 10
+    assert rep1.global_entry_start == 10
+    assert rep1.global_entry_stop == 20
     # Per-file (tree) entries restart at 0 for each file
     assert rep0.tree_entry_start == 0
     assert rep1.tree_entry_start == 0

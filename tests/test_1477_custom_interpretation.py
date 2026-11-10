@@ -88,14 +88,21 @@ def test_entry_range():
         br = f["Events/Info/evtNum"]
         assert isinstance(br.interpretation, AsUint32)
 
-        runNo_custom = br.array(entry_start=0, entry_stop=6)
-        assert len(runNo_custom) == 6
-
-        runNo_custom = br.array(entry_start=6, entry_stop=10)
-        assert len(runNo_custom) == 4
-
-        runNo_custom = br.array(entry_start=0, entry_stop=10)
-        assert len(runNo_custom) == 10
+        expected = [
+            135353219,
+            135353222,
+            135353225,
+            135353230,
+            135353239,
+            135353242,
+            135353244,
+            135353247,
+            135353252,
+            135353256,
+        ]
+        for start, stop in [(0, 6), (6, 10), (0, 10)]:
+            array = br.array(entry_start=start, entry_stop=stop)
+            assert array.tolist() == expected[start:stop]
 
 
 def test_unregister():
@@ -106,7 +113,7 @@ def test_unregister():
     uproot.unregister_interpretation(AsUint32)
     with uproot.open(skhep_testdata.data_path("uproot-mc10events.root")) as f:
         br = f["Events/Info/evtNum"]
-        assert not isinstance(br.interpretation, AsUint32)
+        assert repr(br.interpretation) == "AsDtype('>u4')"
 
 
 def test_AsBinary():
