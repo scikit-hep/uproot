@@ -3533,14 +3533,12 @@ class WritableNTuple:
 
         import uproot.writing._cascadentuple as cnt
 
-        if not hasattr(self._cascading, "_existing_footer"):
-            # this RNTuple was created in this same session (e.g. via mkrntuple or
-            # directory assignment) rather than loaded from an existing file by
-            # _load_existing_ntuple, so it never got the _existing_* attributes
-            # add_fields needs. Whatever has been written so far is already on
-            # disk (mkrntuple/assignment/extend all flush immediately), so it can
-            # be loaded the same way a preexisting RNTuple opened via
-            # uproot.update() would be.
+        # Newly created RNTuples have no read-side metadata yet. An intervening
+        # extend() appends a cluster group to the write-side footer without
+        # refreshing the read-side footer and page lists used below.
+        if not hasattr(self._cascading, "_existing_footer") or len(
+            self._cascading._existing_footer.cluster_group_records
+        ) != len(self._cascading._footer.cluster_group_record_frames):
             self._reload_cascading()
 
         compression_code = cnt._compression_code(
