@@ -166,3 +166,19 @@ def test_rntuple_variant_combine_cluster_arrays_unit(tmp_path):
         arr_tag0["tag"] = [1, 0, 0, 1]
         n.combine_cluster_arrays(arr_tag0, [0, 2], meta)
         assert list(arr_tag0["index"]) == [0, 0, 0, 1]
+
+        # Multicluster running offset accumulator scaling
+        n_clusters = 50
+        cluster_len = 4
+        total_len = n_clusters * cluster_len
+        arr_many = np.zeros(total_len, dtype=[("index", np.int64), ("tag", np.int32)])
+        arr_many["tag"] = np.tile([1, 2, 1, 2], n_clusters)
+        arr_many["index"] = np.tile([0, 0, 1, 1], n_clusters)
+        many_starts = [i * cluster_len for i in range(n_clusters)]
+        n.combine_cluster_arrays(arr_many, many_starts, meta)
+        assert list(arr_many["index"][arr_many["tag"] == 1]) == list(
+            range(2 * n_clusters)
+        )
+        assert list(arr_many["index"][arr_many["tag"] == 2]) == list(
+            range(2 * n_clusters)
+        )

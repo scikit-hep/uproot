@@ -1500,19 +1500,24 @@ in file {self.file.file_path}"""
         ):
             tags = array["tag"]
             indices = array["index"]
-            for i in range(1, len(starts)):
+            tag_offsets = defaultdict(int)
+            for i in range(len(starts)):
                 start = starts[i]
                 stop = starts[i + 1] if i + 1 < len(starts) else None
                 if stop is not None and start == stop:
                     continue
-                prev_tags = tags[:start]
-                curr_tags = tags[start:stop]
-                for t in set(curr_tags.tolist()):
-                    if t == 0:
+                curr_slice = slice(start, stop)
+                curr_tags = tags[curr_slice]
+                curr_u_tags, curr_cnts = numpy.unique(curr_tags, return_counts=True)
+                for t, cnt in zip(curr_u_tags, curr_cnts, strict=True):
+                    t_int = int(t)
+                    if t_int == 0:
                         continue
-                    tag_offset = int((prev_tags == t).sum())
-                    if tag_offset > 0:
-                        indices[start:stop][curr_tags == t] += tag_offset
+                    if i > 0:
+                        offset = tag_offsets[t_int]
+                        if offset > 0:
+                            indices[curr_slice][curr_tags == t] += offset
+                    tag_offsets[t_int] += int(cnt)
 
 
 def _extract_bits(packed, nbits):
