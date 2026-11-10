@@ -64,6 +64,8 @@ def iterate(
     decompression_executor=None,
     interpretation_executor=None,
     library="ak",
+    backend="cpu",
+    interpreter="cpu",
     ak_add_doc=False,
     how=None,
     report=False,
@@ -117,6 +119,13 @@ def iterate(
         library (str or :doc:`uproot.interpretation.library.Library`): The library
             that is used to represent arrays. Options are ``"np"`` for NumPy,
             ``"ak"`` for Awkward Array, and ``"pd"`` for Pandas.
+        backend (str): The backend Awkward Array will use. Only implemented for
+            RNTuples; a TTree only reads on the CPU, so any value other than
+            ``"cpu"`` raises ``NotImplementedError``.
+        interpreter (str): If ``"cpu"``, raw RNTuple data are interpreted on the
+            CPU; if ``"gpu"`` (with ``backend="cuda"``), KvikIO/nvCOMP are used
+            to interpret them on the GPU, if available. Only implemented for
+            RNTuples.
         ak_add_doc (bool | dict ): If True and ``library="ak"``, add the TBranch ``title``
             to the Awkward ``__doc__`` parameter of the array.
             if dict = {key:value} and ``library="ak"``, add the TBranch ``value`` to the
@@ -162,7 +171,7 @@ def iterate(
       Examples: ``Path("rel/*.root")``, ``"/abs/*.root:tdirectory/ttree"``
     * dict: keys are filesystem paths, values are objects-within-ROOT paths.
       Example: ``{{"/data_v1/*.root": "ttree_v1", "/data_v2/*.root": "ttree_v2"}}``
-    * already-open TTree objects.
+    * already-open TTree or RNTuple objects.
     * iterables of the above.
 
     ..
@@ -217,6 +226,9 @@ def iterate(
 
         if hasbranches_context is not None:
             with hasbranches_context as hasbranches:
+                backend_interpreter = _regularize_backend_interpreter(
+                    hasbranches, backend, interpreter
+                )
                 try:
                     for item in hasbranches.iterate(
                         expressions=expressions,
@@ -232,7 +244,10 @@ def iterate(
                         **(
                             {}
                             if isinstance(hasbranches, HasBranches)
-                            else {"filter_field": filter_field}
+                            else {
+                                "filter_field": filter_field,
+                                **backend_interpreter,
+                            }
                         ),
                         aliases=aliases,
                         language=language,
@@ -283,6 +298,8 @@ def concatenate(
     decompression_executor=None,
     interpretation_executor=None,
     library="ak",
+    backend="cpu",
+    interpreter="cpu",
     ak_add_doc=False,
     how=None,
     custom_classes=None,
@@ -337,6 +354,13 @@ def concatenate(
         library (str or :doc:`uproot.interpretation.library.Library`): The library
             that is used to represent arrays. Options are ``"np"`` for NumPy,
             ``"ak"`` for Awkward Array, and ``"pd"`` for Pandas.
+        backend (str): The backend Awkward Array will use. Only implemented for
+            RNTuples; a TTree only reads on the CPU, so any value other than
+            ``"cpu"`` raises ``NotImplementedError``.
+        interpreter (str): If ``"cpu"``, raw RNTuple data are interpreted on the
+            CPU; if ``"gpu"`` (with ``backend="cuda"``), KvikIO/nvCOMP are used
+            to interpret them on the GPU, if available. Only implemented for
+            RNTuples.
         ak_add_doc (bool | dict ): If True and ``library="ak"``, add the TBranch ``title``
             to the Awkward ``__doc__`` parameter of the array.
             if dict = {key:value} and ``library="ak"``, add the TBranch ``value`` to the
@@ -380,7 +404,7 @@ def concatenate(
       Examples: ``Path("rel/*.root")``, ``"/abs/*.root:tdirectory/ttree"``
     * dict: keys are filesystem paths, values are objects-within-ROOT paths.
       Example: ``{{"/data_v1/*.root": "ttree_v1", "/data_v2/*.root": "ttree_v2"}}``
-    * already-open TTree objects.
+    * already-open TTree or RNTuple objects.
     * iterables of the above.
 
     ..
@@ -441,6 +465,9 @@ def concatenate(
     )
     for hasbranches_context in all_hasbranches:
         with hasbranches_context as hasbranches:
+            backend_interpreter = _regularize_backend_interpreter(
+                hasbranches, backend, interpreter
+            )
             nentries = hasbranches.num_entries
             global_stop += nentries
 
@@ -477,7 +504,10 @@ def concatenate(
                     **(
                         {}
                         if isinstance(hasbranches, HasBranches)
-                        else {"filter_field": filter_field}
+                        else {
+                            "filter_field": filter_field,
+                            **backend_interpreter,
+                        }
                     ),
                     aliases=aliases,
                     language=language,
@@ -3215,6 +3245,24 @@ def _regularize_aliases(hasbranches, aliases):
         new_aliases = dict(hasbranches.aliases)
         new_aliases.update(aliases)
         return new_aliases
+
+
+def _regularize_backend_interpreter(hasbranches, backend, interpreter):
+    """
+    The ``backend``/``interpreter`` keywords to pass on to an RNTuple's
+    ``iterate``/``arrays``. A TTree reads only on the CPU, so asking it for
+    anything else raises instead of silently falling back to CPU arrays.
+    """
+    if isinstance(hasbranches, HasBranches):
+        if backend != "cpu" or interpreter != "cpu":
+            raise NotImplementedError(
+                "'backend' and 'interpreter' are only implemented for RNTuples, not "
+                f"TTrees; the TTree in {hasbranches.file.file_path!r} would be read "
+                f"on the CPU. Got backend={backend!r} and interpreter={interpreter!r}."
+            )
+        return {}
+    else:
+        return {"backend": backend, "interpreter": interpreter}
 
 
 def _regularize_interpretation(interpretation):
