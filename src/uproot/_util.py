@@ -474,20 +474,27 @@ def _check_unknown_options(
     fsspec_source = issubclass(source_cls, uproot.source.fsspec.FSSpecSource)
     if fsspec_source and all_local is None:
         return
+    matches = {
+        key: [k for k in sorted(known) if _edit_distance(key, k) <= 2]
+        for key in unknown
+    }
     if fsspec_source and not all_local:
-        for key in unknown:
-            matches = [k for k in sorted(known) if _edit_distance(key, k) <= 2]
-            if matches:
+        for key, near in matches.items():
+            if near:
                 warnings.warn(
                     f"option {key!r} is passed to fsspec as a storage option; "
-                    f"did you mean the uproot option {matches[0]!r}?",
+                    f"did you mean the uproot option {near[0]!r}?",
                     stacklevel=stacklevel,
                 )
     else:
+        named = ", ".join(
+            repr(key) + (f" (did you mean {near[0]!r}?)" if near else "")
+            for key, near in matches.items()
+        )
         raise TypeError(
             f"unrecognized option(s) for "
             f"{'local files' if fsspec_source else source_cls.__name__}: "
-            f"{', '.join(map(repr, unknown))}; valid options are {sorted(known)}"
+            f"{named}; valid options are {sorted(known)}"
         )
 
 
