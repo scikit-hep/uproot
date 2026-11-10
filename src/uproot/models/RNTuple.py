@@ -1494,6 +1494,31 @@ in file {self.file.file_path}"""
                 if start == stop:
                     continue
                 array[start:stop] += array[start - 1]
+        elif (
+            field_metadata.dtype_byte
+            == uproot.const.rntuple_col_type_to_num_dict["switch"]
+        ):
+            # Switch indices are cluster-local and counted per tag, so each
+            # entry's index is shifted by the number of entries with the same
+            # tag in the preceding clusters. Tag 0 marks an invalid/None entry.
+            # This only runs on NumPy arrays: CuPy has no structured dtypes, so
+            # the GPU interpreter cannot read switch columns.
+            if len(starts) < 2:
+                return
+            starts = numpy.asarray(starts, dtype=numpy.int64)
+            tags = array["tag"][starts[0] :]
+            indices = array["index"][starts[0] :]
+            starts = starts - starts[0]
+            cluster_ids = numpy.repeat(
+                numpy.arange(len(starts)), numpy.diff(starts, append=len(tags))
+            )
+            tag_counts = numpy.bincount(tags)
+            tag_counts[:1] = 0  # skip tag 0
+            for tag in numpy.flatnonzero(tag_counts):
+                mask = tags == tag
+                counts = numpy.bincount(cluster_ids[mask], minlength=len(starts))
+                offsets = numpy.cumsum(counts) - counts
+                indices[mask] += offsets[cluster_ids[mask]]
 
 
 def _extract_bits(packed, nbits):
