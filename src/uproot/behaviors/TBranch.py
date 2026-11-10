@@ -3695,6 +3695,9 @@ def _regularize_expressions(
             None,
         )
 
+    else:
+        raise TypeError(f"cut must be None or a string, not {cut!r}")
+
     return arrays, expression_context, branchid_interpretation
 
 
@@ -3845,7 +3848,9 @@ def _ranges_or_baskets_to_arrays(
         return
 
     # Request all chunks and then poll notifications queue until we have all the arrays we expect
-    hasbranches._file.source.chunks(ranges, notifications=notifications)
+    # (a step within baskets that have already been read has nothing to request)
+    if len(ranges) != 0:
+        hasbranches._file.source.chunks(ranges, notifications=notifications)
 
     while len(arrays) < len(branchid_interpretation):
         obj = notifications.get()

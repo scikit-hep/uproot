@@ -466,6 +466,13 @@ class ResourceTrivialExecutor(TrivialExecutor):
         self.__exit__(None, None, None)
 
     @property
+    def num_workers(self) -> int:
+        """
+        Always 0: tasks run in the thread that submits them.
+        """
+        return 0
+
+    @property
     def closed(self) -> bool:
         """
         True if the :doc:`uproot.source.futures.ResourceTrivialExecutor` has
