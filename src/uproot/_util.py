@@ -697,7 +697,7 @@ def awkward_form(model, file, context):
                 # directly return; don't cache RecordForms in _primitive_awkward_form
                 return awkward.forms.RecordForm(contents, fields)
             else:
-                raise AssertionError(f"{model!r}: {type(model)}")
+                raise TypeError(f"no Awkward Form for NumPy dtype {model!r}")
 
         return _primitive_awkward_form[model]
 
@@ -725,10 +725,7 @@ def recursively_fix_awkward_form_of_iter(awkward, interpretation, form):
             parameters=form.parameters,
         )
     elif isinstance(interpretation, uproot.interpretation.objects.AsObjects):
-        if uproot.interpretation.objects.awkward_can_optimize(interpretation, form):
-            return form
-        else:
-            return uproot._util.awkward_form_of_iter(awkward, form)
+        return uproot._util.awkward_form_of_iter(awkward, form)
     else:
         return form
 
@@ -800,12 +797,9 @@ def awkward_form_of_iter(awkward, form):
         )
         return out
     elif isinstance(form, awkward.forms.RecordForm):
-        contents = {
-            k: awkward_form_of_iter(awkward, v) for k, v in form.contents.items()
-        }
         return awkward.forms.RecordForm(
-            list(contents.values()),
-            list(contents.keys()),
+            [awkward_form_of_iter(awkward, v) for v in form.contents],
+            None if form.is_tuple else form.fields,
             parameters=form.parameters,
         )
     elif isinstance(form, awkward.forms.RegularForm):
@@ -1188,14 +1182,14 @@ in file {file_path}"""
 
 
 def _content_cls_from_name(awkward, name):
-    if name.endswith(("32", "64")):
-        name = name[-2:]
-    elif name.endswith("U32"):
-        name = name[-3:]
+    if name.endswith("8_U32"):
+        name = name[:-5]
     elif name.endswith(("8_32", "8_64")):
-        name = name[-4:]
-    elif name.endswith("8_U32"):
-        name = name[-5:]
+        name = name[:-4]
+    elif name.endswith("U32"):
+        name = name[:-3]
+    elif name.endswith(("32", "64")):
+        name = name[:-2]
     return getattr(awkward.contents, name)
 
 

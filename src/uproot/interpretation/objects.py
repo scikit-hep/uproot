@@ -240,6 +240,8 @@ class AsObjects(uproot.interpretation.Interpretation):
             with self._forth_lock:
                 # another thread might have concluded that this can't be Forth
                 if not self._forth:
+                    context["forth"].gen = None
+                    context["forth"].vm = None
                     return self.basket_array(
                         data,
                         byte_offsets,
@@ -507,12 +509,15 @@ input stream
                             uproot.interpretation.library._process_array_for_pandas(
                                 to_append,
                                 False,
-                                branch.file.interpretation,
+                                self,
                                 form=self._form,
                             )
                         )
                     else:
                         trimmed.append(to_append)
+
+                else:
+                    raise AssertionError(f"there are no other libraries, not {library}")
 
             elif to_append is not None:
                 trimmed.append(to_append)
@@ -865,7 +870,7 @@ class AsStridedObjects(uproot.interpretation.numerical.AsDtype):
             if basket_array.dtype.names is not None and "@headers" in (
                 basket_array.dtype.names
             ):
-                to_dtype = basket_array.dtype
+                to_dtype = basket_array.dtype.newbyteorder("=")
                 break
 
         if entry_start >= entry_stop:
@@ -981,7 +986,7 @@ class AsStridedObjects(uproot.interpretation.numerical.AsDtype):
                 ]
                 + [
                     (x, str(y[0]))
-                    for x, y in sorted(dtype.fields.items(), key=lambda k: k[1])
+                    for x, y in sorted(dtype.fields.items(), key=lambda k: k[1][1])
                 ]
             )
         try:
@@ -1138,6 +1143,8 @@ class ObjectArray:
 
     def __getitem__(self, where):
         if uproot._util.isint(where):
+            # negative and out-of-range indexes, like a list's
+            where = range(len(self))[where]
             byte_start = self._byte_offsets[where]
             byte_stop = self._byte_offsets[where + 1]
             data = self._byte_content[byte_start:byte_stop]
@@ -1155,11 +1162,14 @@ class ObjectArray:
             )
 
         elif isinstance(where, slice):
+            start, stop, step = where.indices(len(self))
+            if step != 1:
+                raise NotImplementedError(repr(where))
             return ObjectArray(
                 self._model,
                 self._branch,
                 self._context,
-                self._byte_offsets[where],
+                self._byte_offsets[start : max(start, stop) + 1],
                 self._byte_content,
                 self._cursor_offset,
             )
@@ -1177,7 +1187,9 @@ class ObjectArray:
         for byte_stop in self._byte_offsets[1:]:
             data = self._byte_content[byte_start:byte_stop]
             chunk = uproot.source.chunk.Chunk.wrap(source, data)
-            cursor = uproot.source.cursor.Cursor(0, origin=-self._cursor_offset)
+            cursor = uproot.source.cursor.Cursor(
+                0, origin=-(byte_start + self._cursor_offset)
+            )
             yield self._model.read(chunk, cursor, context, file, selffile, branch)
             byte_start = byte_stop
 
@@ -1244,14 +1256,14 @@ class StridedObjectArray:
 
     def __getitem__(self, where):
         out = self._array[where]
-        if isinstance(out, tuple):
+        if isinstance(out, numpy.void):
             return _strided_object("", self._interpretation, out)
         else:
             return StridedObjectArray(self._interpretation, out)
 
     def __iter__(self):
         for x in self._array:
-            if isinstance(x, tuple):
+            if isinstance(x, numpy.void):
                 yield _strided_object("", self._interpretation, x)
             else:
                 yield StridedObjectArray(self._interpretation, x)

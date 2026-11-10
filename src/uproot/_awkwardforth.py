@@ -160,7 +160,7 @@ class Node:
         self._children = [] if children is None else children
 
     def __str__(self, indent="") -> str:
-        children = (",\n" + indent).join(
+        children = (",\n" + indent + "  ").join(
             x.__str__(indent + "  ") for x in self._children
         )
         if len(self._children) != 0:
