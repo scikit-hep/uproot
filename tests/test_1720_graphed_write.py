@@ -103,10 +103,38 @@ def test_executor_is_a_name_an_instance_or_a_class(tmp_path):
     out = os.path.join(tmp_path, "out")
     paths = uproot.graphed_write(g, out, executor=SequentialRunner())
     assert _back(paths).x.tolist() == list(range(20))
-    paths = uproot.graphed_write(g, out, executor=ThreadExecutor, max_workers=2)
+    paths = uproot.graphed_write(
+        g, out, steps_per_file=2, executor=ThreadExecutor, max_workers=2
+    )
     assert _back(paths).x.tolist() == list(range(20))
     with pytest.raises(ValueError, match="executor must be 'process' or 'thread'"):
         uproot.graphed_write(g, out, executor="threads")
+
+
+def test_an_executor_class_gets_one_worker_per_task_by_its_own_keyword(tmp_path):
+    g = uproot.graphed(_make_tree(os.path.join(tmp_path, "in.root")))
+    seen = {}
+
+    class Workers(SequentialRunner):
+        def __init__(self, workers=None):
+            super().__init__()
+            seen["workers"] = workers
+
+    class MaxWorkers(SequentialRunner):
+        def __init__(self, max_workers=None):
+            super().__init__()
+            seen["max_workers"] = max_workers
+
+    for cls in (Workers, MaxWorkers):
+        uproot.graphed_write(
+            g, os.path.join(tmp_path, cls.__name__), steps_per_file=2, executor=cls
+        )
+    expected = min(os.cpu_count() or 1, 2)
+    assert seen == {"workers": expected, "max_workers": expected}
+    uproot.graphed_write(
+        g, os.path.join(tmp_path, "five"), executor=MaxWorkers, max_workers=5
+    )
+    assert seen["max_workers"] == 5
 
 
 def test_process_pool_with_a_behavior_backend_by_import_ref(tmp_path):

@@ -23,6 +23,7 @@ them.
 from __future__ import annotations
 
 import functools
+import inspect
 import os
 from dataclasses import dataclass
 
@@ -189,7 +190,7 @@ def root_write(
     )
 
 
-def _select_executor(executor, max_workers):
+def _select_executor(executor, max_workers, tasks):
     if isinstance(executor, str):
         graphed_executors = uproot.extras.graphed_executors()
 
@@ -202,10 +203,18 @@ def _select_executor(executor, max_workers):
                 f"executor must be 'process' or 'thread', an executor instance, or an executor "
                 f"class; got {executor!r}"
             )
-        return classes[executor](max_workers=max_workers)
-    if isinstance(executor, type):
-        return executor(max_workers=max_workers)
-    return executor  # an instance, used as-is
+        executor = classes[executor]
+    elif not isinstance(executor, type):
+        return executor  # an instance, used as-is
+    if max_workers is None:
+        max_workers = max(1, min(os.cpu_count() or 1, tasks))
+    # graphed-executors renamed max_workers= to workers= after 0.0.7
+    keyword = (
+        "workers"
+        if "workers" in inspect.signature(executor).parameters
+        else "max_workers"
+    )
+    return executor(**{keyword: max_workers})
 
 
 def graphed_write(
@@ -249,8 +258,9 @@ def graphed_write(
             return the ``graphed.core.Plan`` **without writing** — run it later with an executor.
         executor (str, executor instance or class): ``"process"`` (default,
             ``ProcessPoolExecutor``) or ``"thread"`` (``ThreadExecutor``); an executor **instance**
-            is used as-is, a class is called as ``executor(max_workers=max_workers)``.
-        max_workers (int or None): Worker count for an executor built here.
+            is used as-is, a class is called with ``max_workers`` as its worker count.
+        max_workers (int or None): Worker count for an executor built here; ``None`` gives one
+            worker per write task, up to the CPU count.
         backend (callable, str or None): The workers' evaluation backend, as in
             ``graphed.aggregate_plan``: a zero-arg factory/class or an importable ``"module:attr"``
             reference, resolved in the worker; default the session backend's type, with its
@@ -334,4 +344,6 @@ def graphed_write(
 
     if not compute:
         return plan
-    return list(_select_executor(executor, max_workers).run(plan).value)
+    return list(
+        _select_executor(executor, max_workers, len(plan.tasks)).run(plan).value
+    )
