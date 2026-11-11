@@ -148,6 +148,16 @@ def test_an_executor_class_gets_one_worker_per_task_by_its_own_keyword(
     )
     assert seen["max_workers"] == 5
 
+    class Labelled(SequentialRunner):
+        def __init__(self, label="x", max_workers=None):
+            super().__init__()
+            seen["labelled"] = (label, max_workers)
+
+    uproot.graphed_write(
+        g, os.path.join(tmp_path, "lab"), steps_per_file=2, executor=Labelled
+    )
+    assert seen["labelled"] == ("x", 2)
+
 
 def test_process_pool_with_a_behavior_backend_by_import_ref(tmp_path):
     vector = pytest.importorskip("vector")
