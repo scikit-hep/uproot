@@ -60,8 +60,9 @@ _ENTRY_RANGE = (
 #: and where that concern lives instead; ``**options`` would otherwise swallow them silently.
 _REFUSED = {
     "step_size": _DASK
-    + "chunk the plan by entries with events_per_task= (graphed.aggregate_plan, h.plan), "
-    "or partition with uproot.graphed_partitions(step_size=...)",
+    + "partition with uproot.graphed_partitions(step_size=...) and pass the result to "
+    "graphed.aggregate_plan(partitions=...), or, from graphed 0.0.11, chunk the plan by "
+    "entries with events_per_task= (graphed.aggregate_plan, h.plan)",
     "steps_per_file": _DASK + "pass steps_per_file= where the plan is built: "
     "graphed.aggregate_plan, graphed.awkward.to_parquet or uproot.graphed_write",
     "allow_read_errors_with_report": _DASK
