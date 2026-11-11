@@ -208,13 +208,19 @@ def _select_executor(executor, max_workers, tasks):
         return executor  # an instance, used as-is
     if max_workers is None:
         max_workers = max(1, min(os.cpu_count() or 1, tasks))
-    # graphed-executors renamed max_workers= to workers= after 0.0.7
-    keyword = (
-        "workers"
-        if "workers" in inspect.signature(executor).parameters
-        else "max_workers"
-    )
-    return executor(**{keyword: max_workers})
+    return executor(**{_worker_keyword(executor): max_workers})
+
+
+def _worker_keyword(cls):
+    # graphed-executors renamed max_workers= to workers= after 0.0.7; an __init__ forwarding
+    # **kwargs names neither, so the first __init__ in the MRO that names one decides
+    for base in cls.__mro__[:-1]:
+        if "__init__" in vars(base):
+            parameters = inspect.signature(vars(base)["__init__"]).parameters
+            for name in ("workers", "max_workers"):
+                if name in parameters:
+                    return name
+    return "max_workers"
 
 
 def graphed_write(

@@ -111,7 +111,10 @@ def test_executor_is_a_name_an_instance_or_a_class(tmp_path):
         uproot.graphed_write(g, out, executor="threads")
 
 
-def test_an_executor_class_gets_one_worker_per_task_by_its_own_keyword(tmp_path):
+def test_an_executor_class_gets_one_worker_per_task_by_its_own_keyword(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(os, "cpu_count", lambda: 8)
     g = uproot.graphed(_make_tree(os.path.join(tmp_path, "in.root")))
     seen = {}
 
@@ -129,8 +132,17 @@ def test_an_executor_class_gets_one_worker_per_task_by_its_own_keyword(tmp_path)
         uproot.graphed_write(
             g, os.path.join(tmp_path, cls.__name__), steps_per_file=2, executor=cls
         )
-    expected = min(os.cpu_count() or 1, 2)
-    assert seen == {"workers": expected, "max_workers": expected}
+    assert seen == {"workers": 2, "max_workers": 2}
+
+    class Forwarding(Workers):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+
+    seen.clear()
+    uproot.graphed_write(
+        g, os.path.join(tmp_path, "fwd"), steps_per_file=2, executor=Forwarding
+    )
+    assert seen == {"workers": 2}
     uproot.graphed_write(
         g, os.path.join(tmp_path, "five"), executor=MaxWorkers, max_workers=5
     )
