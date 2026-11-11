@@ -111,42 +111,30 @@ def test_executor_is_a_name_an_instance_or_a_class(tmp_path):
         uproot.graphed_write(g, out, executor="threads")
 
 
-def test_an_executor_class_gets_one_worker_per_task_by_its_own_keyword(
+def test_an_executor_class_gets_one_worker_per_task_as_its_first_argument(
     tmp_path, monkeypatch
 ):
     monkeypatch.setattr(os, "cpu_count", lambda: 8)
     g = uproot.graphed(_make_tree(os.path.join(tmp_path, "in.root")))
-    seen = {}
+    seen = []
 
-    class Workers(SequentialRunner):
+    class Recorder(SequentialRunner):
         def __init__(self, workers=None):
             super().__init__()
-            seen["workers"] = workers
+            seen.append(workers)
 
-    class MaxWorkers(SequentialRunner):
-        def __init__(self, max_workers=None):
-            super().__init__()
-            seen["max_workers"] = max_workers
-
-    for cls in (Workers, MaxWorkers):
-        uproot.graphed_write(
-            g, os.path.join(tmp_path, cls.__name__), steps_per_file=2, executor=cls
-        )
-    assert seen == {"workers": 2, "max_workers": 2}
-
-    class Forwarding(Workers):
+    class Forwarding(Recorder):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
 
-    seen.clear()
+    for cls in (Recorder, Forwarding):
+        uproot.graphed_write(
+            g, os.path.join(tmp_path, cls.__name__), steps_per_file=2, executor=cls
+        )
     uproot.graphed_write(
-        g, os.path.join(tmp_path, "fwd"), steps_per_file=2, executor=Forwarding
+        g, os.path.join(tmp_path, "five"), executor=Recorder, max_workers=5
     )
-    assert seen == {"workers": 2}
-    uproot.graphed_write(
-        g, os.path.join(tmp_path, "five"), executor=MaxWorkers, max_workers=5
-    )
-    assert seen["max_workers"] == 5
+    assert seen == [2, 2, 5]
 
 
 def test_process_pool_with_a_behavior_backend_by_import_ref(tmp_path):

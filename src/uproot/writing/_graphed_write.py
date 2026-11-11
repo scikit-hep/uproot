@@ -23,7 +23,6 @@ them.
 from __future__ import annotations
 
 import functools
-import inspect
 import os
 from dataclasses import dataclass
 
@@ -208,19 +207,8 @@ def _select_executor(executor, max_workers, tasks):
         return executor  # an instance, used as-is
     if max_workers is None:
         max_workers = max(1, min(os.cpu_count() or 1, tasks))
-    return executor(**{_worker_keyword(executor): max_workers})
-
-
-def _worker_keyword(cls):
-    # graphed-executors renamed max_workers= to workers= after 0.0.7; an __init__ forwarding
-    # **kwargs names neither, so the first __init__ in the MRO that names one decides
-    for base in cls.__mro__[:-1]:
-        if "__init__" in vars(base):
-            parameters = inspect.signature(vars(base)["__init__"]).parameters
-            for name in ("workers", "max_workers"):
-                if name in parameters:
-                    return name
-    return "max_workers"
+    # positional, since graphed-executors after 0.0.7 renamed max_workers= to workers=
+    return executor(max_workers)
 
 
 def graphed_write(
@@ -264,7 +252,7 @@ def graphed_write(
             return the ``graphed.core.Plan`` **without writing** — run it later with an executor.
         executor (str, executor instance or class): ``"process"`` (default,
             ``ProcessPoolExecutor``) or ``"thread"`` (``ThreadExecutor``); an executor **instance**
-            is used as-is, a class is called with ``max_workers`` as its worker count.
+            is used as-is, a class is called as ``executor(max_workers)``.
         max_workers (int or None): Worker count for an executor built here; ``None`` gives one
             worker per write task, up to the CPU count.
         backend (callable, str or None): The workers' evaluation backend, as in
