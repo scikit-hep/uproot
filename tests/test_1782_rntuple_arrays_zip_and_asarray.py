@@ -128,6 +128,10 @@ def test_rntuple_numpy_asarray_fields(tmp_path):
         assert arr_x.dtype == np.int64
         assert arr_x.tolist() == [1, 2, 3]
 
+        arr_x_float = np.asarray(ntuple["x"], dtype=np.float64)
+        assert arr_x_float.dtype == np.float64
+        assert arr_x_float.tolist() == [1.0, 2.0, 3.0]
+
         arr_jet = np.asarray(ntuple["jet_pt"])
         assert isinstance(arr_jet, np.ndarray)
         assert arr_jet.shape == (3,)
