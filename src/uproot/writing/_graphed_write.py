@@ -216,7 +216,12 @@ def _worker_keyword(cls):
     # **kwargs names neither, so the first __init__ in the MRO that names one decides
     for base in cls.__mro__[:-1]:
         if "__init__" in vars(base):
-            parameters = inspect.signature(vars(base)["__init__"]).parameters
+            # a signature that can't be read (3.14 lazy annotations, C __init__) is skipped;
+            # max_workers= is the fallback
+            try:
+                parameters = inspect.signature(vars(base)["__init__"]).parameters
+            except Exception:
+                continue
             for name in ("workers", "max_workers"):
                 if name in parameters:
                     return name

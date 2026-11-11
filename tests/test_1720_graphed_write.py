@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import pickle
+import sys
 
 import awkward as ak
 import numpy as np
@@ -172,6 +173,37 @@ def test_an_executor_class_gets_one_worker_per_task_by_its_own_keyword(
             g, os.path.join(tmp_path, cls.__name__), steps_per_file=2, executor=cls
         )
     assert seen == {"workers": 2, "only": {"max_workers": 2}}
+
+
+def test_an_executor_class_whose_signature_cannot_be_read_gets_max_workers(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(os, "cpu_count", lambda: 8)
+    g = uproot.graphed(_make_tree(os.path.join(tmp_path, "in.root")))
+    seen = {}
+
+    class Unreadable(SequentialRunner):
+        def __init__(self, max_workers=None):
+            super().__init__()
+            seen[type(self).__name__] = max_workers
+
+    Unreadable.__init__.__signature__ = "not a Signature"
+    executors = [Unreadable]
+    if sys.version_info >= (3, 14):
+        # compiled without this module's __future__ import, so 3.14 evaluates the annotation lazily
+        source = (
+            "class ForwardRef(Unreadable):\n"
+            "    def __init__(self, max_workers=None, monitor: Missing | None = None):\n"
+            "        Unreadable.__init__(self, max_workers)\n"
+        )
+        namespace = {"Unreadable": Unreadable}
+        exec(compile(source, "<forward-ref>", "exec", dont_inherit=True), namespace)
+        executors.append(namespace["ForwardRef"])
+    for cls in executors:
+        uproot.graphed_write(
+            g, os.path.join(tmp_path, cls.__name__), steps_per_file=2, executor=cls
+        )
+    assert seen == {cls.__name__: 2 for cls in executors}
 
 
 def test_process_pool_with_a_behavior_backend_by_import_ref(tmp_path):
