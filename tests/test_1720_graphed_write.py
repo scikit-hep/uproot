@@ -158,6 +158,21 @@ def test_an_executor_class_gets_one_worker_per_task_by_its_own_keyword(
     )
     assert seen["labelled"] == ("x", 2)
 
+    class Inherits(Workers):
+        pass
+
+    class OnlyKwargs(SequentialRunner):
+        def __init__(self, **kwargs):
+            super().__init__()
+            seen["only"] = kwargs
+
+    seen.clear()
+    for cls in (Inherits, OnlyKwargs):
+        uproot.graphed_write(
+            g, os.path.join(tmp_path, cls.__name__), steps_per_file=2, executor=cls
+        )
+    assert seen == {"workers": 2, "only": {"max_workers": 2}}
+
 
 def test_process_pool_with_a_behavior_backend_by_import_ref(tmp_path):
     vector = pytest.importorskip("vector")
