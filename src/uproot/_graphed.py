@@ -334,7 +334,7 @@ class _GraphedTTreeSource:
                 _mapped_buffer_keys(
                     self._expected_form,
                     path,
-                    need is graphed.BufferNeed.DATA,
+                    need is graphed.projection.BufferNeed.DATA,
                     info.buffer_key,
                 )
             )
