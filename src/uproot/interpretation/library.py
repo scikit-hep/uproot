@@ -643,7 +643,12 @@ class Awkward(Library):
             renamed_arrays = {}
             for name, context in expression_context:
                 array = renamed_arrays[_rename(name, context)] = arrays[name]
-                if context["is_jagged"]:
+                is_jagged = (
+                    context["is_jagged"]
+                    if (context is not None and "is_jagged" in context)
+                    else getattr(array.layout, "is_list", False)
+                )
+                if is_jagged:
                     if (
                         isinstance(array.layout, awkward.contents.ListArray)
                         or array.layout.offsets[0] != 0
