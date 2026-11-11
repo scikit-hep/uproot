@@ -289,6 +289,21 @@ def is_remote_url(file_path: str) -> bool:
     return parsed.scheme not in ("", "file", "local")
 
 
+def is_local_path(file_path: str) -> bool:
+    """
+    Returns True if fsspec reads file_path from the local filesystem alone: no remote
+    scheme and no ``protocol::`` chain, in which fsspec takes a ``::``-separated part as a
+    protocol when it is a known one or lowercase letters only.
+    """
+    if is_remote_url(file_path):
+        return False
+    protocols = set(fsspec.available_protocols())
+    return not any(
+        part in protocols or re.fullmatch("[a-z]*", part)
+        for part in file_path.split("::")[:-1]
+    )
+
+
 def _normalize_remote_url(file_path: str) -> str:
     # fsspec's own normal form keeps each protocol's semantics: object stores and HTTP servers
     # can hold different objects at "a//b" and "a/b", so no POSIX normalization on top of it
@@ -424,10 +439,13 @@ def _edit_distance(a: str, b: str) -> int:
     return rows[len(a)][len(b)]
 
 
-def _check_unknown_options(options: dict, file_path=None, stacklevel: int = 3) -> None:
+def _check_unknown_options(
+    options: dict, file_path=None, stacklevel: int = 3, all_local: bool | None = False
+) -> None:
     """
     Raise on unrecognized options for uproot's own sources and warn about likely
-    misspellings of uproot options for fsspec, whose storage options are open-ended.
+    misspellings of uproot options for fsspec, whose storage options are open-ended;
+    ``all_local`` refuses those too, and ``None`` (files not resolved yet) defers them.
     Handlers that are not uproot Sources are skipped here and rejected later by
     ``file_path_to_source_class``.
 
@@ -453,19 +471,30 @@ def _check_unknown_options(options: dict, file_path=None, stacklevel: int = 3) -
     ):
         return
 
-    if issubclass(source_cls, uproot.source.fsspec.FSSpecSource):
-        for key in unknown:
-            matches = [k for k in sorted(known) if _edit_distance(key, k) <= 2]
-            if matches:
+    fsspec_source = issubclass(source_cls, uproot.source.fsspec.FSSpecSource)
+    if fsspec_source and all_local is None:
+        return
+    matches = {
+        key: [k for k in sorted(known) if _edit_distance(key, k) <= 2]
+        for key in unknown
+    }
+    if fsspec_source and not all_local:
+        for key, near in matches.items():
+            if near:
                 warnings.warn(
                     f"option {key!r} is passed to fsspec as a storage option; "
-                    f"did you mean the uproot option {matches[0]!r}?",
+                    f"did you mean the uproot option {near[0]!r}?",
                     stacklevel=stacklevel,
                 )
     else:
+        named = ", ".join(
+            repr(key) + (f" (did you mean {near[0]!r}?)" if near else "")
+            for key, near in matches.items()
+        )
         raise TypeError(
-            f"unrecognized option(s) for {source_cls.__name__}: "
-            f"{', '.join(map(repr, unknown))}; valid options are {sorted(known)}"
+            f"unrecognized option(s) for "
+            f"{'local files' if fsspec_source else source_cls.__name__}: "
+            f"{named}; valid options are {sorted(known)}"
         )
 
 
