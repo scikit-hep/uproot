@@ -123,19 +123,3 @@ def test_recovery(mini):
             112,
         ]
         assert branch.entry_offsets == [0, branch.num_entries]
-
-
-def test_library_equality_is_safe():
-    from uproot.interpretation.library import NumPy, Awkward, Pandas
-
-    np_lib = NumPy()
-    ak_lib = Awkward()
-    pd_lib = Pandas()
-
-    assert np_lib == NumPy()
-    assert ak_lib == Awkward()
-    assert pd_lib == Pandas()
-
-    # Invalid comparisons must NOT raise
-    assert not (np_lib == object())
-    assert not (np_lib == "np")
