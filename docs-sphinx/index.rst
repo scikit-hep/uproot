@@ -62,10 +62,10 @@
 
     <br/>
 
-.. image:: https://github.com/scikit-hep/uproot5/raw/main/docs-img/logo/logo.svg
+.. image:: https://github.com/scikit-hep/uproot/raw/main/docs-img/logo/logo.svg
     :width: 300px
     :alt: Uproot
-    :target: https://github.com/scikit-hep/uproot5
+    :target: https://github.com/scikit-hep/uproot
 
 .. role:: raw-html(raw)
     :format: html
@@ -90,9 +90,9 @@
    :alt: BSD-3 Clause License
    :target: https://opensource.org/licenses/BSD-3-Clause
 
-.. image:: https://github.com/scikit-hep/uproot5/actions/workflows/build-test.yml/badge.svg
+.. image:: https://github.com/scikit-hep/uproot/actions/workflows/build-test.yml/badge.svg
    :alt: Continuous integration tests
-   :target: https://github.com/scikit-hep/uproot5/actions
+   :target: https://github.com/scikit-hep/uproot/actions
 
 :raw-html:`</p><p>`
 
@@ -118,7 +118,7 @@
 
 Unlike the standard C++ ROOT implementation, Uproot is only an I/O library, primarily intended to stream data into machine learning libraries in Python. Unlike PyROOT and root_numpy, Uproot does not depend on C++ ROOT. Instead, it uses Numpy to cast blocks of data from the ROOT file as Numpy arrays.
 
-:raw-html:`<p align="center"><img src="https://raw.githubusercontent.com/scikit-hep/uproot5/main/docs-img/diagrams/abstraction-layers.svg" width="700px"></p>`
+:raw-html:`<p align="center"><img src="https://raw.githubusercontent.com/scikit-hep/uproot/main/docs-img/diagrams/abstraction-layers.svg" width="700px"></p>`
 
 How to install
 ==============
@@ -157,6 +157,6 @@ Documentation
 Getting help
 ============
 
-- Report bugs, request features, and ask for additional documentation on `GitHub Issues <https://github.com/scikit-hep/uproot5/issues>`__.
-- If you have a "How do I...?" question, start a `GitHub Discussion <https://github.com/scikit-hep/uproot5/discussions>`__ with category "Q&A".
+- Report bugs, request features, and ask for additional documentation on `GitHub Issues <https://github.com/scikit-hep/uproot/issues>`__.
+- If you have a "How do I...?" question, start a `GitHub Discussion <https://github.com/scikit-hep/uproot/discussions>`__ with category "Q&A".
 - Alternatively, ask about it on `StackOverflow with the [uproot] tag <https://stackoverflow.com/questions/tagged/uproot>`__. Be sure to include tags for any other libraries that you use, such as Pandas or PyTorch.

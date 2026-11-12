@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """A miniature NanoAOD schema as a ``form_mapping``: the smallest object that is both halves of
 ``uproot._dask``'s ``ImplementsFormMapping`` / ``ImplementsFormMappingInfo`` protocol and actually
 RESTRUCTURES the tree — a counter branch ``nJet`` plus flat ``Jet_*`` branches become one field

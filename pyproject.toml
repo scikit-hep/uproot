@@ -118,8 +118,8 @@ s3 = ["s3fs"]
 xrootd = ["fsspec-xrootd>=0.5.0"]
 
 [project.urls]
-Download = "https://github.com/scikit-hep/uproot5/releases"
-Homepage = "https://github.com/scikit-hep/uproot5"
+Download = "https://github.com/scikit-hep/uproot/releases"
+Homepage = "https://github.com/scikit-hep/uproot"
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/uproot/version.py"

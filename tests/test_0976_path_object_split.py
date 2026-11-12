@@ -77,7 +77,7 @@ import pathlib
                 "Events",
             ),
         ),
-        # https://github.com/scikit-hep/uproot5/issues/975
+        # https://github.com/scikit-hep/uproot/issues/975
         (
             "DAOD_PHYSLITE_2023-09-13T1230.art.rntuple.root:RNT:CollectionTree",
             (

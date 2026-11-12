@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines functions that import external libraries used by Uproot, but not
@@ -66,7 +66,7 @@ def XRootD_client():
             """Clean up any open xrootd file objects at exit
 
             Required to avoid deadlocks from XRootD, for details see:
-            * https://github.com/scikit-hep/uproot/issues/504
+            * https://github.com/scikit-hep/uproot3/issues/504
             * https://github.com/xrootd/xrootd/pull/1260
             """
             import gc

@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """
 This module defines :doc:`uproot.writing._graphed_write.graphed_write`, the ``graphed`` analogue of
 :doc:`uproot.writing._dask_write.dask_write` — and a SPECIALIZATION of the ``graphed.write``

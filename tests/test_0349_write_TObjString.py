@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import os
 
@@ -86,7 +86,7 @@ def test_serialization(tmp_path):
     tobjstring = uproot.writing.identify.to_TObjString(string)
     assert (
         tobjstring.tojson()["_typename"] == "TObjString"
-    )  # https://github.com/scikit-hep/uproot5/issues/762
+    )  # https://github.com/scikit-hep/uproot/issues/762
     assert tobjstring.tojson()["fString"] == str(tobjstring)
 
     with uproot.recreate(filename) as f1:

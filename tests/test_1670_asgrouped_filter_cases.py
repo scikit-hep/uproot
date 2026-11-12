@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """Tests for the four semantically distinct cases that arise when a filter_name
 matches an AsGrouped branch (parent), its children, or both.

@@ -1,8 +1,8 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
-Regression tests for https://github.com/scikit-hep/uproot5/pull/1653
-(part of https://github.com/scikit-hep/uproot5/issues/1646).
+Regression tests for https://github.com/scikit-hep/uproot/pull/1653
+(part of https://github.com/scikit-hep/uproot/issues/1646).
 
 Covers:
 - ``HTTPSource.chunks`` range-batching: every batch's ``Range`` header must
