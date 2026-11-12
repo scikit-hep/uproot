@@ -1085,6 +1085,11 @@ class NTuple(CascadeNode):
         )
         self.sync(sink)
 
+        # The write-side footer and page lists changed; the read-side snapshot
+        # used by add_fields() is now out of date.
+        self.__dict__.pop("_existing_footer", None)
+        self.__dict__.pop("_existing_page_list_envelopes", None)
+
     def sync(self, sink):
         """
         Pushes everything written so far to storage, along with the FreeSegments
