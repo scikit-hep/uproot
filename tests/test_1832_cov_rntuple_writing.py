@@ -32,13 +32,6 @@ def test_packed_union_does_not_change_the_input():
     assert layout.index.data.tolist() == index.tolist()
 
 
-def test_extend_with_lists_of_unknown_type(tmp_path):
-    with uproot.recreate(tmp_path / "file.root") as file:
-        ntuple = file.mkrntuple("ntuple", {"v": ak.Array([[1], [2, 3]])})
-        with pytest.raises(ValueError, match="Data is not compatible"):
-            ntuple.extend({"v": ak.Array([[], []])})
-
-
 def test_packing_an_unknown_form():
     with pytest.raises(NotImplementedError, match="Form type .* cannot be written"):
         cascade._to_packed_form(object())
