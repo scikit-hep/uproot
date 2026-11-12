@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """``uproot.graphed`` opens only the first file that has the ``TTree`` (``open_files=True`` opens
 every file), and ``uproot.root_write`` writes ROOT parts beside a ``graphed.aggregate_plan``'s
 reductions from the same read."""

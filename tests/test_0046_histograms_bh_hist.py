@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import numpy
 import pytest
@@ -2847,7 +2847,7 @@ def test_boost_and_hist(
 
 
 def test_hist_boost_categorical():
-    # https://github.com/scikit-hep/uproot5/issues/672
+    # https://github.com/scikit-hep/uproot/issues/672
     hist = pytest.importorskip("hist")
 
     for labels, category_type in zip(

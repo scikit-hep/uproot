@@ -35,7 +35,7 @@ def test_fsspec_writing_local(tmp_path, scheme):
         assert f["tree"]["x"].array().tolist() == [1, 2, 3]
 
 
-# https://github.com/scikit-hep/uproot5/issues/325
+# https://github.com/scikit-hep/uproot/issues/325
 @pytest.mark.parametrize(
     "scheme",
     [
@@ -117,7 +117,7 @@ def test_fsspec_writing_create(tmp_path, scheme):
 
 
 def test_issue_1029(tmp_path):
-    # https://github.com/scikit-hep/uproot5/issues/1029
+    # https://github.com/scikit-hep/uproot/issues/1029
     urlpath = os.path.join(tmp_path, "some", "path", "file.root")
     urlpath = pathlib.Path(urlpath)
 

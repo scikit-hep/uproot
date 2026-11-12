@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """``uproot._graphed.graphed_partitions`` / ``read_graphed_partition``: ``uproot.dask``'s
 chunking knobs as ``graphed.core.Partition`` lists for hand-built plans."""
 

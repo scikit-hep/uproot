@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """``graphed_partitions(align_baskets=True)`` moves chunk boundaries onto ``TBasket``
 boundaries, and the ``_basket_offsets`` rule it rests on."""
 

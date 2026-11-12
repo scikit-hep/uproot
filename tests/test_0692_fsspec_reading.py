@@ -371,7 +371,7 @@ def test_open_fsspec_xrootd_iterate_tree(handler, xrootd_file):
     check_met_pt(chunks[0]["MET_pt"].to_numpy())
 
 
-# https://github.com/scikit-hep/uproot5/issues/1035
+# https://github.com/scikit-hep/uproot/issues/1035
 @pytest.mark.parametrize(
     "handler",
     [

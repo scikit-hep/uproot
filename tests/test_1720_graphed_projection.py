@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """Column projection: the ``TBranches`` a recorded graph needs are the ones read, and the
 unread ones are placeholders the evaluation never touches."""
 

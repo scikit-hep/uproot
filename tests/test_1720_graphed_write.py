@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """``uproot.graphed_write``: one ``TTree`` file per partition through ``dask_write``'s
 ``ak_to_root``, as a ``graphed.write`` plan."""
 
