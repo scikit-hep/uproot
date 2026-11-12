@@ -852,12 +852,10 @@ in file {file_path}""")
             names = self.streamer_dependencies(classname, version=version)
         first = True
         for name, version in names:
-            streamer = self.streamers[name].get(version)
-            if streamer is not None:
-                if not first:
-                    stream.write("\n")
-                streamer.show(stream=stream)
-                first = False
+            if not first:
+                stream.write("\n")
+            self.streamers[name][version].show(stream=stream)
+            first = False
 
     @property
     def streamers(self):
