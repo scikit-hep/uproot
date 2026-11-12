@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 Tests of the HTTP sources against a local server that answers exactly as each
@@ -378,7 +378,7 @@ def test_multipart(content_length, use_threads):
     ids=[
         "one-request",
         "split-in-two",
-    ],  # https://github.com/scikit-hep/uproot5/pull/1146
+    ],  # https://github.com/scikit-hep/uproot/pull/1146
 )
 def test_multipart_reads_a_root_file(http_max_header_bytes, num_requests):
     path = skhep_testdata.data_path("uproot-Zmumu.root")
