@@ -253,6 +253,8 @@ def graphed(minimum=_GRAPHED_MIN, caller="uproot.graphed"):
         import graphed.awkward
         import graphed.awkward.projection
         import graphed.core
+        import graphed.execute
+        import graphed.projection
         import graphed.provenance
         import graphed.write
     except ModuleNotFoundError as err:

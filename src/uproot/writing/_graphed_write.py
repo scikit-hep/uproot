@@ -116,7 +116,7 @@ def _write_partition(
     chunk = source.read_range(tree, columns, start, stop)
     (evaluated,) = graphed.evaluate_ir(
         compiled,
-        graphed.resolve_backend(backend),
+        graphed.aggregate.resolve_backend(backend),
         {source_name: chunk},
         externals=dict(externals),
     )
@@ -274,7 +274,7 @@ def graphed_write(
     nid, source = _uproot_source(array, "graphed_write")
 
     compiled = graphed.compile_ir(session, array)
-    graphed.refuse_chunk_partials(compiled, as_outputs=True)
+    graphed.execute.refuse_chunk_partials(compiled, as_outputs=True)
     partitions = source.partitions(steps_per_file)
     if not all(p.is_blind for p in partitions):
         raise TypeError(
