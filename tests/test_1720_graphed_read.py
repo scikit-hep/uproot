@@ -90,6 +90,14 @@ def test_dask_only_keywords_are_refused_by_name(kwarg):
         uproot.graphed(_zmumu(), **kwarg)
 
 
+def test_step_size_names_the_plan_knob():
+    with pytest.raises(
+        TypeError, match=r"events_per_task= \(graphed\.aggregate_plan, h\.plan\)"
+    ) as refused:
+        uproot.graphed(_zmumu(), step_size=5000)
+    assert "graphed.aggregate_plan(partitions=...)" in str(refused.value)
+
+
 def test_behavior_is_refused_beside_backend():
     from graphed.awkward import AwkwardBackend
 
