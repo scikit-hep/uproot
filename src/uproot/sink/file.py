@@ -206,7 +206,8 @@ class FileSink:
         """
         Calls the file or file-like object's ``tell`` method.
         """
-        self._ensure()
+        if self._closed or not self._file:
+            self._ensure()
         return self._file.tell()
 
     def flush(self) -> None:
