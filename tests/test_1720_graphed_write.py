@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import pickle
+import sys
 
 import awkward as ak
 import numpy as np
@@ -103,10 +104,106 @@ def test_executor_is_a_name_an_instance_or_a_class(tmp_path):
     out = os.path.join(tmp_path, "out")
     paths = uproot.graphed_write(g, out, executor=SequentialRunner())
     assert _back(paths).x.tolist() == list(range(20))
-    paths = uproot.graphed_write(g, out, executor=ThreadExecutor, max_workers=2)
+    paths = uproot.graphed_write(
+        g, out, steps_per_file=2, executor=ThreadExecutor, max_workers=2
+    )
     assert _back(paths).x.tolist() == list(range(20))
     with pytest.raises(ValueError, match="executor must be 'process' or 'thread'"):
         uproot.graphed_write(g, out, executor="threads")
+
+
+def test_an_executor_class_gets_one_worker_per_task_by_its_own_keyword(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(os, "cpu_count", lambda: 8)
+    g = uproot.graphed(_make_tree(os.path.join(tmp_path, "in.root")))
+    seen = {}
+
+    class Workers(SequentialRunner):
+        def __init__(self, workers=None):
+            super().__init__()
+            seen["workers"] = workers
+
+    class MaxWorkers(SequentialRunner):
+        def __init__(self, max_workers=None):
+            super().__init__()
+            seen["max_workers"] = max_workers
+
+    for cls in (Workers, MaxWorkers):
+        uproot.graphed_write(
+            g, os.path.join(tmp_path, cls.__name__), steps_per_file=2, executor=cls
+        )
+    assert seen == {"workers": 2, "max_workers": 2}
+
+    class Forwarding(Workers):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+
+    seen.clear()
+    uproot.graphed_write(
+        g, os.path.join(tmp_path, "fwd"), steps_per_file=2, executor=Forwarding
+    )
+    assert seen == {"workers": 2}
+    uproot.graphed_write(
+        g, os.path.join(tmp_path, "five"), executor=MaxWorkers, max_workers=5
+    )
+    assert seen["max_workers"] == 5
+
+    class Labelled(SequentialRunner):
+        def __init__(self, label="x", max_workers=None):
+            super().__init__()
+            seen["labelled"] = (label, max_workers)
+
+    uproot.graphed_write(
+        g, os.path.join(tmp_path, "lab"), steps_per_file=2, executor=Labelled
+    )
+    assert seen["labelled"] == ("x", 2)
+
+    class Inherits(Workers):
+        pass
+
+    class OnlyKwargs(SequentialRunner):
+        def __init__(self, **kwargs):
+            super().__init__()
+            seen["only"] = kwargs
+
+    seen.clear()
+    for cls in (Inherits, OnlyKwargs):
+        uproot.graphed_write(
+            g, os.path.join(tmp_path, cls.__name__), steps_per_file=2, executor=cls
+        )
+    assert seen == {"workers": 2, "only": {"max_workers": 2}}
+
+
+def test_an_executor_class_whose_signature_cannot_be_read_gets_max_workers(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(os, "cpu_count", lambda: 8)
+    g = uproot.graphed(_make_tree(os.path.join(tmp_path, "in.root")))
+    seen = {}
+
+    class Unreadable(SequentialRunner):
+        def __init__(self, max_workers=None):
+            super().__init__()
+            seen[type(self).__name__] = max_workers
+
+    Unreadable.__init__.__signature__ = "not a Signature"
+    executors = [Unreadable]
+    if sys.version_info >= (3, 14):
+        # compiled without this module's __future__ import, so 3.14 evaluates the annotation lazily
+        source = (
+            "class ForwardRef(Unreadable):\n"
+            "    def __init__(self, max_workers=None, monitor: Missing | None = None):\n"
+            "        Unreadable.__init__(self, max_workers)\n"
+        )
+        namespace = {"Unreadable": Unreadable}
+        exec(compile(source, "<forward-ref>", "exec", dont_inherit=True), namespace)
+        executors.append(namespace["ForwardRef"])
+    for cls in executors:
+        uproot.graphed_write(
+            g, os.path.join(tmp_path, cls.__name__), steps_per_file=2, executor=cls
+        )
+    assert seen == {cls.__name__: 2 for cls in executors}
 
 
 def test_process_pool_with_a_behavior_backend_by_import_ref(tmp_path):
