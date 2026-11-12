@@ -136,6 +136,8 @@ class RooCurve(uproot.behaviors.TGraph.TGraph):
                 "error_curve parameter."
             )
         boost_histogram = uproot.extras.boost_histogram()
+        # Lists and tuples would be concatenated, not added, by _centers
+        bin_edges = numpy.asarray(bin_edges, dtype=numpy.float64)
         axis = boost_histogram.axis.Variable(bin_edges, underflow=False, overflow=False)
         axis.name = self.name
         axis.title = self.title
