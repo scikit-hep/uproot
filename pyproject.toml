@@ -51,7 +51,7 @@ test-gpu-cu13 = [
   { include-group = "test-core" }
 ]
 test-pyodide = [
-  "pytest-pyodide; python_version >='3.11'",
+  "pytest-pyodide",
   { include-group = "test-core" }
 ]
 test-xrootd = [
@@ -74,7 +74,6 @@ classifiers = [
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -102,7 +101,7 @@ dynamic = [
 license = "BSD-3-Clause"
 name = "uproot"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 [project.optional-dependencies]
 gds-cu12 = [
