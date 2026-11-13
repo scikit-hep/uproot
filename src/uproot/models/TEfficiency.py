@@ -20,7 +20,6 @@ import uproot
 import uproot._awkwardforth
 import uproot.behaviors.TEfficiency
 import uproot.const
-import uproot.containers
 import uproot.deserialization
 import uproot.model
 import uproot.models.TH
@@ -60,15 +59,26 @@ def _read_beta_bin_params(chunk, cursor, context, file, selffile, parent):
     )
 
     if not is_memberwise:
-        # Objectwise serialization (very old ROOT versions); defer to the generic
-        # machinery, which needs the file's streamer for pair<double,double>.
-        cursor.move_to(start_cursor.index)
-        values = uproot.containers.AsVector(
-            True, file.class_named("pair<double,double>")
-        ).read(chunk, cursor, context, file, selffile, parent)
-        out = numpy.empty(len(values), dtype=_beta_bin_params_dtype)
-        for i, pair in enumerate(values):
-            out[i] = (pair.member("first"), pair.member("second"))
+        # objectwise: each pair<double,double> has its own byte count and
+        # version (followed by a checksum if the version is 0)
+        length = cursor.field(chunk, _format_int32, context)
+        out = numpy.empty(length, dtype=_beta_bin_params_dtype)
+        for i in range(length):
+            _, version, _ = uproot.deserialization.numbytes_version(
+                chunk, cursor, context
+            )
+            if version <= 0:
+                cursor.skip(4)
+            out[i] = cursor.fields(chunk, _format_double2, context)
+        uproot.deserialization.numbytes_check(
+            chunk,
+            start_cursor,
+            cursor,
+            num_bytes,
+            "vector<pair<double,double>>",
+            context,
+            file.file_path,
+        )
         return out
 
     # version of the value class (pair<double,double>), followed by its checksum
@@ -243,14 +253,16 @@ class Model_TEfficiency_v2(
         )
 
         # like TEfficiency::SetName, the histograms are named after the efficiency
+        # (or just "passed" and "total" if the efficiency has no name)
         if name is None:
             name = self.member("fName")
+        prefix = "" if name is None else f"{name}_"
         uproot.serialization._serialize_object_any(
-            out, self._members["fPassedHistogram"], f"{name}_passed"
+            out, self._members["fPassedHistogram"], f"{prefix}passed"
         )
         out.append(_format_int32.pack(self._members["fStatisticOption"]))
         uproot.serialization._serialize_object_any(
-            out, self._members["fTotalHistogram"], f"{name}_total"
+            out, self._members["fTotalHistogram"], f"{prefix}total"
         )
         out.append(_format_double.pack(self._members["fWeight"]))
 

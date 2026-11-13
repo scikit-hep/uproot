@@ -11,6 +11,8 @@ Computing uncertainties requires SciPy.
 
 from __future__ import annotations
 
+import functools
+
 import numpy
 
 import uproot
@@ -135,17 +137,16 @@ def agresti_coull(total, passed, level, upper):
             return numpy.where(mode - delta < 0, 0.0, mode - delta)
 
 
-def _feldman_cousins_rho_set(rho, ntot, target):
+def _feldman_cousins_rho_set(rho, x, log_binom, ntot, target):
+    # binomial probabilities and likelihood ratios, computed in log space (as in
+    # ROOT) so that they neither overflow nor underflow for large 'ntot'
     special = _special()
-    x = numpy.arange(ntot + 1, dtype=numpy.float64)
-    prob = special.binom(ntot, x) * rho**x * (1 - rho) ** (ntot - x)
-    with numpy.errstate(all="ignore"):
-        rho_hat = x / ntot
-        term1 = (rho / rho_hat) ** x
-        term2 = ((1 - rho) / (1 - rho_hat)) ** (ntot - x)
-        lratio = numpy.where((term1 == 0) | (term2 == 0), 0.0, term1 * term2)
-    lratio[0] = (1 - rho) ** ntot
-    lratio[ntot] = rho**ntot
+    with numpy.errstate(divide="ignore"):
+        log_rho = special.xlogy(x, rho) + special.xlog1py(ntot - x, -rho)
+        prob = numpy.exp(log_binom + log_rho)
+        rho_hat = x / max(ntot, 1)
+        log_rho_hat = special.xlogy(x, rho_hat) + special.xlog1py(ntot - x, -rho_hat)
+        lratio = numpy.exp(log_rho - log_rho_hat)
     order = numpy.argsort(-lratio, kind="stable")
     cumulative = numpy.cumsum(prob[order])
     # add terms (in order of decreasing likelihood ratio) until 'target' is reached
@@ -154,15 +155,24 @@ def _feldman_cousins_rho_set(rho, ntot, target):
     return accepted.min(), accepted.max()
 
 
+@functools.lru_cache(maxsize=4096)
 def _feldman_cousins_scalar(total, passed, level):
+    special = _special()
     ntot = int(total)
     target = level
     tol = 1e-9
 
+    x = numpy.arange(ntot + 1, dtype=numpy.float64)
+    log_binom = (
+        special.gammaln(ntot + 1)
+        - special.gammaln(x + 1)
+        - special.gammaln(ntot - x + 1)
+    )
+
     rho_min, rho_max, rho = 0.0, 1.0, 0.0
     while abs(rho_max - rho_min) > tol:
         rho = (rho_min + rho_max) / 2
-        _, x_r = _feldman_cousins_rho_set(rho, ntot, target)
+        _, x_r = _feldman_cousins_rho_set(rho, x, log_binom, ntot, target)
         if x_r < passed:
             rho_min = rho
         else:
@@ -172,7 +182,7 @@ def _feldman_cousins_scalar(total, passed, level):
     rho_min, rho_max, rho = 0.0, 1.0, 0.0
     while abs(rho_max - rho_min) > tol:
         rho = (rho_min + rho_max) / 2
-        x_l, _ = _feldman_cousins_rho_set(rho, ntot, target)
+        x_l, _ = _feldman_cousins_rho_set(rho, x, log_binom, ntot, target)
         if x_l > passed:
             rho_max = rho
         else:
@@ -189,11 +199,15 @@ def feldman_cousins(total, passed, level, upper):
     total, passed = numpy.broadcast_arrays(
         numpy.asarray(total, numpy.float64), numpy.asarray(passed, numpy.float64)
     )
-    out = numpy.empty(total.shape, numpy.float64)
-    for index in numpy.ndindex(total.shape):
-        lo, hi = _feldman_cousins_scalar(total[index], passed[index], level)
-        out[index] = hi if upper else lo
-    return out
+    # each bin requires a Neyman construction, so compute each distinct
+    # (total, passed) pair only once; both bounds are cached together
+    pairs = numpy.stack([total.ravel(), passed.ravel()], axis=-1)
+    unique, inverse = numpy.unique(pairs, axis=0, return_inverse=True)
+    bounds = numpy.array(
+        [_feldman_cousins_scalar(float(t), float(p), float(level)) for t, p in unique],
+        dtype=numpy.float64,
+    ).reshape(-1, 2)
+    return bounds[numpy.ravel(inverse), 1 if upper else 0].reshape(total.shape)
 
 
 def _mid_p_scalar(total, passed, level, upper):

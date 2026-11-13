@@ -156,7 +156,7 @@ REFERENCE = {
 def test_intervals_match_root(key):
     pytest.importorskip("scipy")
     option, posterior_mode, shortest_interval = key
-    eff = uproot.writing.identify.to_TEfficiency(
+    eff = uproot.writing.to_TEfficiency(
         "eff",
         "",
         (PASSED, EDGES),
@@ -279,7 +279,7 @@ def test_to_TEfficiency_flags(tmp_path):
 
     filename = os.path.join(tmp_path, "eff.root")
     with uproot.recreate(filename) as f:
-        f["eff"] = uproot.writing.identify.to_TEfficiency(
+        f["eff"] = uproot.writing.to_TEfficiency(
             "eff",
             "title",
             passed,
@@ -309,11 +309,9 @@ def test_to_TEfficiency_flags(tmp_path):
 
 def test_to_TEfficiency_invalid():
     with pytest.raises(ValueError, match="same binning"):
-        uproot.writing.identify.to_TEfficiency(
-            "eff", "", (PASSED, EDGES), (TOTAL, EDGES * 2)
-        )
+        uproot.writing.to_TEfficiency("eff", "", (PASSED, EDGES), (TOTAL, EDGES * 2))
     with pytest.raises(ValueError, match="statistic option"):
-        uproot.writing.identify.to_TEfficiency(
+        uproot.writing.to_TEfficiency(
             "eff", "", (PASSED, EDGES), (TOTAL, EDGES), fStatisticOption="kNope"
         )
 
@@ -325,7 +323,7 @@ def test_pyroot_reads_uproot_written(tmp_path):
     filename = os.path.join(tmp_path, "eff.root")
     with uproot.recreate(filename) as f:
         for option in range(9):
-            f[f"eff{option}"] = uproot.writing.identify.to_TEfficiency(
+            f[f"eff{option}"] = uproot.writing.to_TEfficiency(
                 f"eff{option}",
                 "",
                 (PASSED, EDGES),
@@ -386,3 +384,100 @@ def test_uproot_reads_pyroot_written(tmp_path):
         assert eff.values() == pytest.approx(expected[0], abs=1e-7)
         assert low == pytest.approx(expected[1], abs=1e-7)
         assert high == pytest.approx(expected[2], abs=1e-7)
+
+
+# Feldman-Cousins bounds from ROOT 6.40 (TEfficiency::FeldmanCousins) at
+# confidence level 0.683, for totals large enough that the binomial
+# coefficients overflow if they are not computed in log space
+FELDMAN_COUSINS_LARGE = {
+    (1030, 515): (0.48397509288, 0.51602490712),
+    (2000, 1000): (0.488748100586, 0.511251899414),
+    (2000, 3): (0.000551928766072, 0.00265088025481),
+    (10000, 9990): (0.998619371094, 0.999322344549),
+}
+
+
+@pytest.mark.parametrize("total,passed", list(FELDMAN_COUSINS_LARGE))
+def test_feldman_cousins_large_total(total, passed):
+    pytest.importorskip("scipy")
+    from uproot.behaviors.TEfficiency import feldman_cousins
+
+    lower, upper = FELDMAN_COUSINS_LARGE[(total, passed)]
+    assert feldman_cousins(total, passed, 0.683, False) == pytest.approx(
+        lower, abs=1e-8
+    )
+    assert feldman_cousins(total, passed, 0.683, True) == pytest.approx(upper, abs=1e-8)
+
+
+def test_feldman_cousins_large_total_efficiency(tmp_path):
+    pytest.importorskip("scipy")
+
+    total = np.array([2000, 1030, 2000], np.float64)
+    passed = np.array([1000, 515, 1000], np.float64)
+    edges = np.arange(4, dtype=np.float64)
+    filename = os.path.join(tmp_path, "eff.root")
+    with uproot.recreate(filename) as f:
+        f["eff"] = uproot.writing.to_TEfficiency(
+            "eff",
+            "",
+            (passed, edges),
+            (total, edges),
+            fStatisticOption="kFFC",
+            fConfLevel=0.683,
+        )
+    with uproot.open(filename) as f:
+        lower, upper = f["eff"].intervals()
+    expected = [FELDMAN_COUSINS_LARGE[(int(t), int(p))] for t, p in zip(total, passed)]
+    assert lower == pytest.approx([x[0] for x in expected], abs=1e-8)
+    assert upper == pytest.approx([x[1] for x in expected], abs=1e-8)
+
+
+def test_to_TEfficiency_exported():
+    assert uproot.writing.to_TEfficiency is uproot.writing.identify.to_TEfficiency
+
+
+def test_histogram_names_without_name():
+    eff = uproot.writing.to_TEfficiency(None, "", (PASSED, EDGES), (TOTAL, EDGES))
+    out = []
+    eff._serialize(out, True, None, np.uint32(0))
+    data = b"".join(out)
+    assert b"None_passed" not in data
+    assert b"None_total" not in data
+    assert b"\x06passed" in data
+    assert b"\x05total" in data
+
+    out = []
+    eff._serialize(out, True, "myeff", np.uint32(0))
+    data = b"".join(out)
+    assert b"\x0cmyeff_passed" in data
+    assert b"\x0bmyeff_total" in data
+
+
+def test_uproot_reads_pyroot_written_objectwise(tmp_path):
+    ROOT = pytest.importorskip("ROOT")
+
+    filename = os.path.join(tmp_path, "eff.root")
+    ROOT.TVirtualStreamerInfo.SetStreamMemberWise(False)
+    try:
+        rootfile = ROOT.TFile(filename, "recreate")
+        eff = ROOT.TEfficiency("eff", "", 6, 0, 6)
+        ROOT.SetOwnership(eff, False)  # owned by (and deleted with) the file
+        eff.SetBetaBinParameters(1, 2.0, 3.0)
+        eff.SetBetaBinParameters(4, 5.0, 6.0)
+        eff.Write()
+        rootfile.Close()
+    finally:
+        ROOT.TVirtualStreamerInfo.SetStreamMemberWise(True)
+
+    with uproot.open(filename) as f:
+        params = f["eff"].member("fBeta_bin_params")
+    assert params.tolist() == [
+        (1.0, 1.0),
+        (2.0, 3.0),
+        (1.0, 1.0),
+        (1.0, 1.0),
+        (5.0, 6.0),
+        (1.0, 1.0),
+        (1.0, 1.0),
+        (1.0, 1.0),
+    ]

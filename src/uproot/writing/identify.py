@@ -2208,7 +2208,7 @@ def to_TEfficiency(
         passed = hist.Hist.new.Reg(10, 0, 100, name="pt").Double().fill(pt_pass)
 
         with uproot.recreate("output.root") as file:
-            file["eff"] = uproot.writing.identify.to_TEfficiency(
+            file["eff"] = uproot.writing.to_TEfficiency(
                 "eff", "efficiency;p_{T};#epsilon", passed, total
             )
     """
