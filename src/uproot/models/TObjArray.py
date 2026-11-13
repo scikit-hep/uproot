@@ -63,7 +63,9 @@ in file {self.file.file_path}"""
     writable = True
 
     def _to_writable_postprocess(self, original):
-        self._data = original._data
+        # this model is versionless, so keep the version it was read with
+        self._instance_version = original._instance_version
+        self._data = [None if x is None else x.to_writable() for x in original._data]
 
     def _serialize(self, out, header, name, tobject_flags):
         where = len(out)

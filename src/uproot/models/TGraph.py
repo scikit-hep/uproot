@@ -538,7 +538,14 @@ class Model_TGraphErrors_v3(
         where = len(out)
         for x in self._bases:
             x._serialize(out, True, name, tobject_flags)
-        raise NotImplementedError("FIXME")
+        out.extend(
+            [
+                b"\x01",
+                self._members["fEX"].astype(">f8").tobytes(),
+                b"\x01",
+                self._members["fEY"].astype(">f8").tobytes(),
+            ]
+        )
         if header:
             num_bytes = sum(len(x) for x in out[where:])
             version = 3
@@ -762,7 +769,18 @@ class Model_TGraphAsymmErrors_v3(
         where = len(out)
         for x in self._bases:
             x._serialize(out, True, name, tobject_flags)
-        raise NotImplementedError("FIXME")
+        out.extend(
+            [
+                b"\x01",
+                self._members["fEXlow"].astype(">f8").tobytes(),
+                b"\x01",
+                self._members["fEXhigh"].astype(">f8").tobytes(),
+                b"\x01",
+                self._members["fEYlow"].astype(">f8").tobytes(),
+                b"\x01",
+                self._members["fEYhigh"].astype(">f8").tobytes(),
+            ]
+        )
         if header:
             num_bytes = sum(len(x) for x in out[where:])
             version = 3

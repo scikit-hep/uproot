@@ -83,7 +83,7 @@ in file {self.file.file_path}"""
     writable = True
 
     def _to_writable_postprocess(self, original):
-        self._data = original._data
+        self._data = [x.to_writable() for x in original._data]
         self._options = original._options
 
     def _serialize(self, out, header, name, tobject_flags):

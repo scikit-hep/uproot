@@ -177,6 +177,14 @@ class String(CascadeLeaf):
         return String(location, out), location + position + num_bytes
 
 
+def _key_strings_size(classname, name, title):
+    out = 0
+    for string in (classname, name, title):
+        asbytes = string.encode(errors="surrogateescape")
+        out += (1 if len(asbytes) < 255 else 5) + len(asbytes)
+    return out
+
+
 class Key(CascadeLeaf):
     """
     A :doc:`uproot.writing._cascade.CascadeLeaf` for writing a ROOT TKey.
@@ -1547,6 +1555,21 @@ class Directory(CascadeNode):
 
         self._freesegments.release(original_start, original_stop)
 
+    def key_num_bytes(self, classname, name, title, num_bytes, big=None):
+        """
+        The number of bytes of the TKey that :ref:`add_object` would write for
+        ``num_bytes`` of (compressed) data, if called next with ``big``.
+        """
+        strings_size = _key_strings_size(classname, name, title)
+        if not big and self._key.location < uproot.const.kStartBigFile:
+            requested_bytes = (
+                uproot.reading._key_format_small.size + strings_size + num_bytes
+            )
+            location = self._freesegments.allocate(requested_bytes, dry_run=True)
+            if location < uproot.const.kStartBigFile:
+                return uproot.reading._key_format_small.size + strings_size
+        return uproot.reading._key_format_big.size + strings_size
+
     def add_object(
         self,
         sink,
@@ -1560,15 +1583,7 @@ class Directory(CascadeNode):
     ):
         cycle = self._data.next_cycle(name) if replaces is None else replaces.cycle
 
-        classname_asbytes = classname.encode(errors="surrogateescape")
-        name_asbytes = name.encode(errors="surrogateescape")
-        title_asbytes = title.encode(errors="surrogateescape")
-        strings_size = 0
-        strings_size += (1 if len(classname_asbytes) < 255 else 5) + len(
-            classname_asbytes
-        )
-        strings_size += (1 if len(name_asbytes) < 255 else 5) + len(name_asbytes)
-        strings_size += (1 if len(title_asbytes) < 255 else 5) + len(title_asbytes)
+        strings_size = _key_strings_size(classname, name, title)
 
         parent_location = self._key.location  # FIXME: is this correct?
 
