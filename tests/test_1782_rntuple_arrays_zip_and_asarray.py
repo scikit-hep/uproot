@@ -1,3 +1,5 @@
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+
 from __future__ import annotations
 
 import awkward as ak
@@ -146,17 +148,32 @@ def test_rntuple_numpy_asarray_fields(tmp_path):
         assert ntuple_arr.dtype == object
 
 
-def test_library_awkward_group_defensive_none_context():
-    lib = uproot.interpretation.library.Awkward()
-    arrays = ak.Array(
-        {
-            "x": [1, 2, 3],
-            "jet_pt": [[1.0, 2.0], [], [3.0]],
-            "jet_eta": [[0.1, 0.2], [], [0.3]],
-        }
-    )
-    context = [(f, None) for f in arrays.fields]
-    grouped = lib.group(arrays, context, "zip")
-    assert grouped.x.tolist() == [1, 2, 3]
-    assert grouped.jet.pt.tolist() == [[1.0, 2.0], [], [3.0]]
-    assert grouped.jet.eta.tolist() == [[0.1, 0.2], [], [0.3]]
+def test_rntuple_arrays_zip_strings_and_fixed_size_arrays(tmp_path):
+    path = tmp_path / "test_strings_fixed.root"
+    data = {
+        "x": np.array([1, 2], dtype=np.int64),
+        "dataset": ["abc", "de"],
+        "pos": np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float64),
+        "arr_a": np.array([[1, 2], [3, 4]], dtype=np.int64),
+        "arr_b": np.array([[5, 6], [7, 8]], dtype=np.int64),
+        "jet_pt": ak.Array([[1.0, 2.0], [3.0]]),
+        "jet_tag": ak.Array([["tagA", "tagB"], ["tagC"]]),
+    }
+    with uproot.recreate(path) as file:
+        file["ntuple"] = data
+
+    with uproot.open(path) as file:
+        ntuple = file["ntuple"]
+        res = ntuple.arrays(how="zip")
+
+        assert res.x.to_list() == [1, 2]
+        assert res.dataset.to_list() == ["abc", "de"]
+        assert res.pos.to_list() == [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+        assert res.arr_a.to_list() == [[1, 2], [3, 4]]
+        assert res.arr_b.to_list() == [[5, 6], [7, 8]]
+        assert res.jet.pt.to_list() == [[1.0, 2.0], [3.0]]
+        assert res.jet.tag.to_list() == [["tagA", "tagB"], ["tagC"]]
+
+        assert "jagged0" not in res.fields
+        assert "jagged1" not in res.fields
+        assert "arr" not in res.fields
