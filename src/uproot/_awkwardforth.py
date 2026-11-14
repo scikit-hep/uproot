@@ -5,9 +5,10 @@ This module defines utilities for adding components to the forth reader.
 """
 
 from __future__ import annotations
-import skhep_testdata
-import json
+
 import copy
+import json
+
 import numpy as np
 
 dtype_to_struct = {
