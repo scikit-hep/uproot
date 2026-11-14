@@ -5,9 +5,9 @@ This module defines utilities for adding components to the forth reader.
 """
 
 from __future__ import annotations
-
+import skhep_testdata
 import json
-
+import copy
 import numpy as np
 
 dtype_to_struct = {
@@ -226,8 +226,7 @@ class Node:
             return self._form_details
 
         elif self._form_details.get("class") in ("ListOffsetArray", "RegularArray"):
-            out = dict(self._form_details)
-
+            out = copy.deepcopy(self._form_details)
             if (
                 self._form_details.get("parameters", {}).get("__array__")
                 in ("string", "bytestring")
