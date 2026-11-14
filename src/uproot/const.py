@@ -124,6 +124,10 @@ kStreamedMemberWise = numpy.uint16(1 << 14)
 
 rntuple_version_for_writing = (1, 0, 0, 1)
 
+# https://github.com/root-project/root/blob/2c80bed03dbe28610c5825d8cd417db2ffc3e1d6/tree/ntuple/doc/BinaryFormatSpecification.md#attribute-schema-version
+rntuple_attribute_schema_version_major = 1
+rntuple_attribute_meta_field_names = ("_rangeStart", "_rangeLen", "_userData")
+
 rntuple_col_num_to_dtype_dict = {
     0x00: "bit",
     0x01: "uint8",  # uninterpreted byte

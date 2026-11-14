@@ -967,6 +967,51 @@ Note that for the last input we used the ``filter_field`` argument instead of ``
 
 There are still significant work required to achieve feature-parity with TTrees, but all the basic functionality is already implemented. We will continue to make the transition to RNTuples as seamless as possible.
 
+Attributes
+~~~~~~~~~~
+
+An RNTuple may carry user-defined metadata in named *attribute sets*, which ROOT writes as separate RNTuples linked from the main one. Attributes are not ordinary fields: each entry of an attribute set applies to a *range of entries* rather than to a single entry, so attribute sets are not included in ``keys()`` and do not appear in the arrays returned by ``arrays()``. They are available through :ref:`uproot.behaviors.RNTuple.RNTuple.attributes`, which is an empty dict for RNTuples that have no attributes. As in ROOT, this interface is experimental and may change.
+
+The examples below are for an RNTuple named ``Events`` that ROOT wrote with an attribute set named ``Calibration``, holding one string attribute ``tag`` for each of two entry ranges.
+
+.. code-block:: python
+
+    >>> rntuple = uproot.open("events_with_attributes.root:Events")
+    >>> rntuple.attributes
+    {'Calibration': <RNTupleAttributeSet 'Calibration' at 0x7ff8e0a1c250>}
+    >>> calibration = rntuple.attributes["Calibration"]
+    >>> calibration.keys()
+    ['tag']
+    >>> calibration.arrays()
+    <Array [{tag: 'first'}, {tag: 'second'}] type='2 * {tag: string}'>
+
+An attribute set has the same methods as an RNTuple, such as ``keys()``, ``arrays()``, ``iterate()``, and ``show()``, but their entries are attribute entries: ``calibration.num_entries`` is 2, not the number of entries in ``Events``.
+
+Nothing is read from the file until an attribute set is used, so an attribute set written with a schema that Uproot does not support raises only when it is accessed, leaving the other attribute sets of the same RNTuple readable.
+
+The range of entries that each attribute entry applies to is given by :ref:`uproot.models.RNTuple.RNTupleAttributeSet.ranges`, in the same order as ``arrays()``. Three methods, named after their counterparts in ROOT, take entries of the RNTuple the attributes are linked to and return the indices of the matching attribute entries, sorted by the start of their ranges:
+
+- :ref:`uproot.models.RNTuple.RNTupleAttributeSet.get_attributes` finds the attribute entries whose range contains a given entry, or all of them if no entry is given.
+- :ref:`uproot.models.RNTuple.RNTupleAttributeSet.get_attributes_containing_range` finds those whose range contains a whole range of entries.
+- :ref:`uproot.models.RNTuple.RNTupleAttributeSet.get_attributes_in_range` finds those whose range lies entirely within a range of entries.
+
+.. code-block:: python
+
+    >>> calibration.ranges
+    array([(0, 5), (5, 3)], dtype=[('start', '<u8'), ('length', '<u8')])
+    >>> calibration.get_attributes(6)
+    array([1])
+    >>> calibration.arrays()[calibration.get_attributes(6)]
+    <Array [{tag: 'second'}] type='1 * {tag: string}'>
+    >>> calibration.get_attributes_containing_range(4, 6)
+    array([], dtype=int64)
+    >>> calibration.get_attributes_in_range(0, 8)
+    array([0, 1])
+
+Ranges of entries include the start and exclude the end, like a Python slice. They are allowed to overlap and to be empty, so any number of attribute entries may apply to a given entry. Empty ranges are only returned by ``get_attributes()`` without an argument.
+
+Writing attributes is not supported yet.
+
 GPU reading with CUDA support
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Uproot supports GPU-based reading and processing of payload data on CUDA-capable GPUs for CUDA major versions 12 and 13. On systems that support GPU Direct Storage (GDS), raw payload data can be transferred directly from storage into GPU memory without a CPU bounce buffer. File metadata is still read by the CPU in both cases. GPU reading over HTTP is not supported.

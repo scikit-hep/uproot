@@ -538,10 +538,10 @@ class HasFields(Mapping):
         return arrays
 
     def __array__(self, *args, **kwargs):
-        if isinstance(self, uproot.behaviors.RNTuple.RNTuple):
-            out = self.arrays(library="np")
-        else:
+        if isinstance(self, uproot.models.RNTuple.RField):
             out = self.array(library="np")
+        else:
+            out = self.arrays(library="np")
         if args == () and kwargs == {}:
             return out
         else:
@@ -1235,7 +1235,7 @@ class HasFields(Mapping):
                 raise uproot.KeyInFileError(
                     original_where,
                     keys=self.keys(recursive=recursive),
-                    file_path=self.ntuple.parent._file.file_path,
+                    file_path=self.ntuple.file.file_path,
                     object_path=self.path,
                 ) from None
             return this
@@ -1248,7 +1248,7 @@ class HasFields(Mapping):
                 raise uproot.KeyInFileError(
                     original_where,
                     keys=self.keys(recursive=recursive),
-                    file_path=self.ntuple.parent._file.file_path,
+                    file_path=self.ntuple.file.file_path,
                     object_path=self.path,
                 )
 
@@ -1256,7 +1256,7 @@ class HasFields(Mapping):
             raise uproot.KeyInFileError(
                 original_where,
                 keys=self.keys(recursive=recursive),
-                file_path=self.ntuple.parent._file.file_path,
+                file_path=self.ntuple.file.file_path,
                 object_path=self.path,
             )
 
@@ -1408,7 +1408,42 @@ class RNTuple(HasFields):
         String that uniquely specifies this ``RNTuple`` in its path, to use as
         part of object and array cache keys.
         """
-        return f"{self.parent.cache_key}{self.name};{self.parent.fCycle}"
+        return self.parent.cache_key
+
+    @property
+    def attributes(self):
+        """
+        The linked attribute sets of the ``RNTuple`` as a dict of str \u2192
+        :doc:`uproot.models.RNTuple.RNTupleAttributeSet`, in the order in which they
+        appear in the file.
+
+        Attribute sets hold user-defined metadata that applies to *ranges of
+        entries*, so they are not ordinary fields and are not included in
+        :ref:`uproot.behaviors.RNTuple.HasFields.keys`. The dict is empty for
+        ``RNTuples`` that have no attributes.
+
+        Only the footer is read: each attribute set reads its own data on first use,
+        so an unsupported attribute set does not prevent the others from being read.
+
+        For example:
+
+        .. code-block:: python
+
+            >>> my_ntuple.attributes
+            {'Calibration': <RNTupleAttributeSet 'Calibration' at 0x7ff8e0a1c250>}
+            >>> my_ntuple.attributes["Calibration"].keys()
+            ['tag']
+            >>> my_ntuple.attributes["Calibration"].ranges
+            array([(0, 500), (500, 500)], dtype=[('start', '<u8'), ('length', '<u8')])
+        """
+        if getattr(self, "_attributes", None) is None:
+            self._attributes = {
+                record.attribute_set_name: uproot.models.RNTuple.RNTupleAttributeSet(
+                    record, self
+                )
+                for record in self.footer.linked_attribute_sets
+            }
+        return self._attributes
 
 
 def _filter_name_deep(filter_name, hasfields, field):
