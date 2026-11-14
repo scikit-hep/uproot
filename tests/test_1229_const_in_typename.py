@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import pytest
 import skhep_testdata
@@ -21,6 +21,9 @@ def tree(datafile):
 def test_const_in_typename(tree):
     assert tree["branch/pointer"].typename == "TFooMember*"
     assert tree["branch/const_pointer"].typename == "TFooMember*"
+    for name in ["branch/pointer", "branch/const_pointer"]:
+        (member,) = tree[name].array(library="np")
+        assert type(member).__name__.startswith("Model_TFooMember")
 
 
 def test_const_parse_typename():

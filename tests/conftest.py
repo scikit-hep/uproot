@@ -1,7 +1,8 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import pytest
 import threading
@@ -38,9 +39,10 @@ def _data_path(filename, raise_missing=True, cache_dir=None):
                 if path.startswith(tmp) and os.path.isfile(path):
                     target.parent.mkdir(parents=True, exist_ok=True)
                     try:
-                        os.replace(path, target)
+                        # not os.replace: on Windows, replacing a file that
+                        # another worker is reading makes its next open fail
+                        os.rename(path, target)
                     except OSError:
-                        # on Windows, another worker may already have it open
                         if not target.exists():
                             raise
     return _skhep_data_path(filename, raise_missing, cache_dir)
@@ -51,10 +53,41 @@ def _data_path(filename, raise_missing=True, cache_dir=None):
 skhep_testdata.data_path = _data_path
 
 
+try:
+    import graphed
+except ImportError:
+    graphed = None
+
+
+@pytest.fixture(autouse=True)
+def fresh_graphed_default():
+    """Each test starts without graphed's default Session and leaves the previous one in place."""
+    if not hasattr(graphed, "set_session"):
+        yield
+        return
+    previous = graphed.set_session(None)
+    yield
+    graphed.set_session(previous)
+
+
 @pytest.fixture(scope="function", autouse=False)
 def reset_classes():
-    uproot.model.reset_classes()
-    return
+    # reset_classes reloads the model modules, which replaces their classes.
+    # Put the originals back afterward: other tests under this process compare
+    # against them or looked them up when they were collected.
+    modules = {
+        module: dict(vars(module))
+        for name, module in list(sys.modules.items())
+        if name == "uproot.streamers" or name.startswith("uproot.models.")
+    }
+    classes, unknown_classes = uproot.classes, uproot.unknown_classes
+    try:
+        uproot.model.reset_classes()
+        yield
+    finally:
+        for module, contents in modules.items():
+            vars(module).update(contents)
+        uproot.classes, uproot.unknown_classes = classes, unknown_classes
 
 
 @contextlib.contextmanager
@@ -173,6 +206,31 @@ def s3_server():
         server.stop()
 
 
+def _wait_for_port(proc, port, timeout=60):
+    """
+    Waits until the server process ``proc`` accepts connections on ``port``,
+    failing the test if the process dies or doesn't get there in ``timeout`` seconds.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        returncode = proc.poll()
+        if returncode is not None:
+            pytest.fail(
+                f"xrootd server exited with code {returncode} before accepting "
+                f"connections on port {port}"
+            )
+        try:
+            with socket.create_connection(("localhost", port), timeout=1):
+                return
+        except OSError:
+            if time.monotonic() > deadline:
+                pytest.fail(
+                    f"xrootd server did not accept connections on port {port} "
+                    f"within {timeout} seconds"
+                )
+            time.sleep(0.05)
+
+
 @pytest.fixture(scope="module")
 def xrootd_server(tmpdir_factory):
     pytest.importorskip("XRootD")
@@ -188,9 +246,22 @@ def xrootd_server(tmpdir_factory):
     with socket.socket() as sock:
         sock.bind(("localhost", 0))
         port = sock.getsockname()[1]
-    proc = subprocess.Popen([xrootd, "-p", str(port), server_dir])
-    time.sleep(2)  # give it some startup
-    yield f"root://localhost:{port}/" + str(temp_path), temp_path
-    proc.terminate()
-    proc.wait(timeout=10)
-    shutil.rmtree(server_dir)
+    # nor the default admin path (/tmp/.xrootd), where concurrent servers collide
+    # binding a unix socket; short, because the pytest tmpdir is too long for one
+    admin_dir = tempfile.mkdtemp(prefix="xrd", dir="/tmp")
+    config = os.path.join(admin_dir, "xrootd.cfg")
+    with open(config, "w") as f:
+        f.write(f"all.adminpath {admin_dir}\nall.pidpath {admin_dir}\n")
+    proc = subprocess.Popen([xrootd, "-p", str(port), "-c", config, server_dir])
+    try:
+        _wait_for_port(proc, port)
+        yield f"root://localhost:{port}/" + str(temp_path), temp_path
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        shutil.rmtree(server_dir)
+        shutil.rmtree(admin_dir, ignore_errors=True)

@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines an :doc:`uproot.interpretation.Interpretation` for
@@ -563,7 +563,7 @@ class TruncatedNumerical(Numerical):
         except ValueError as err:
             raise ValueError(
                 f"""basket {basket.basket_num} in tree/branch {branch.object_path} has the wrong number of bytes ({len(data)}) """
-                f"""for interpretation {self} (expecting raw array of {self._from_dtype!r})
+                f"""for interpretation {self} (expecting raw array of {self.from_dtype!r})
 in file {branch.file.file_path}"""
             ) from err
 

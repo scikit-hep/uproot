@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This is an internal module defining the "cascading" file writer, which is like a
@@ -224,6 +224,19 @@ class Key(CascadeLeaf):
     @property
     def allocation(self):
         return self.num_bytes
+
+    @property
+    def location(self):
+        return self._location
+
+    @location.setter
+    def location(self, value):
+        if self._location != value:
+            self._file_dirty = True
+            if self._big is False:
+                # read from a file; it might have to be big in its new location
+                self._big = None
+            self._location = value
 
     @property
     def uncompressed_bytes(self):
@@ -921,6 +934,16 @@ class TListOfStreamers(CascadeNode):
         return self._freesegments
 
     def update_streamers(self, sink, streamers, flush=True):
+        # check them all before adding any, so that a rejected batch changes nothing
+        streamers = list(streamers)
+        for streamer in streamers:
+            if not isinstance(
+                streamer, (uproot.streamers.Model_TStreamerInfo, RawStreamerInfo)
+            ):
+                raise TypeError(
+                    f"streamers must be TStreamerInfo or RawStreamerInfo, not {type(streamer).__name__}"
+                )
+
         where = len(self._rawstreamers)
 
         for streamer in streamers:
@@ -941,7 +964,7 @@ class TListOfStreamers(CascadeNode):
                         )
                     )
 
-                elif isinstance(streamer, RawStreamerInfo):
+                else:
                     self._rawstreamers.append(
                         streamer.copy_to(self._key.location + self.num_bytes)
                     )
@@ -950,17 +973,20 @@ class TListOfStreamers(CascadeNode):
 
         if flush:
             self.write(sink)
+            sink.set_file_length(self._freesegments.fileheader.end)
             sink.flush()
 
     def _reallocate(self, self_num_bytes):
         original_start = self._key.location
         original_stop = self._key.location + self._key.allocation + self._allocation
 
+        self._key.location = None  # let it assume the key might be big
+        self._key.seek_location = None
         requested_num_bytes = self._key.num_bytes + self_num_bytes
 
         self._key.location = self._freesegments.allocate(requested_num_bytes)
         self._key.seek_location = self._key.location
-        self._allocation = self_num_bytes
+        self._allocation = requested_num_bytes - self._key.num_bytes
 
         self._freesegments.release(original_start, original_stop)
 
@@ -1071,16 +1097,22 @@ class _ReadForUpdate:
     def class_named(self, classname, version=None):
         return uproot.reading.ReadOnlyFile.class_named(self, classname, version=version)
 
+    def _streamers(self):
+        # the list of streamers also has other things, such as a TList of
+        # schema evolution rules, which ROOT writes for some classes
+        return [
+            x
+            for x in self._tlist_of_streamers or ()
+            if isinstance(x, uproot.streamers.Model_TStreamerInfo)
+        ]
+
     def streamers_named(self, classname):
-        if self._tlist_of_streamers is None:
-            return []
-        else:
-            return [x for x in self._tlist_of_streamers if x.name == classname]
+        return [x for x in self._streamers() if x.name == classname]
 
     def streamer_named(self, classname, version="max"):
         out = None
         if self._tlist_of_streamers is not None:
-            for x in self._tlist_of_streamers:
+            for x in self._streamers():
                 if x.name == classname:
                     if version == "max":
                         if out is None or x.class_version > out.class_version:
@@ -1118,9 +1150,7 @@ class DirectoryData(CascadeLeaf):
         self._keys_num_bytes = sum(x.allocation for x in keys)
         self._keys_by_name = {}
         for key in keys:
-            if key.name.string not in self._keys_by_name:
-                self._keys_by_name[key.name.string] = []
-            self._keys_by_name[key.name.string].append(key)
+            self._index_key(key)
         self._keys = keys
 
     def __repr__(self):
@@ -1146,6 +1176,15 @@ class DirectoryData(CascadeLeaf):
             cycle = max(cycle, key.cycle + 1)
         return cycle
 
+    def _index_key(self, key):
+        self._keys_by_name.setdefault(key.name.string, []).append(key)
+
+    def _unindex_key(self, key):
+        keys = self._keys_by_name[key.name.string]
+        keys[:] = [k for k in keys if k is not key]
+        if not keys:
+            del self._keys_by_name[key.name.string]
+
     def add_key(self, key, incremental=False):
         if incremental:
             self._dirty_keys.append(key)
@@ -1153,42 +1192,27 @@ class DirectoryData(CascadeLeaf):
             self._file_dirty = True
 
         self._keys_num_bytes += key.allocation
-        keys = self._keys_by_name.get(key.name.string)
-        if keys is None:
-            keys = self._keys_by_name[key.name.string] = []
-        keys.append(key)
+        self._index_key(key)
         self._keys.append(key)
 
     def replace_key(self, key):
         self._file_dirty = True
-        for i in range(len(self._keys)):
-            old = self._keys[i]
-            if old.name.string == key.name.string and old.cycle == key.cycle:
-                self._keys_num_bytes += key.allocation - old.allocation
-                keys = self._keys_by_name[key.name.string]
-                for j in range(len(keys)):
-                    if keys[j].cycle == key.cycle:
-                        del keys[j]
-                keys.append(key)
-                self._keys[i] = key
-                return
-        else:
-            raise AssertionError
+        old = self.get_key(key.name.string, key.cycle)
+        if old is None:
+            raise AssertionError(f"no key {key.name.string};{key.cycle} to replace")
+        self._keys_num_bytes += key.allocation - old.allocation
+        self._keys[self._keys.index(old)] = key
+        self._unindex_key(old)
+        self._index_key(key)
 
     def remove_key(self, key):
         self._file_dirty = True
-        for i in range(len(self._keys)):
-            old = self._keys[i]
-            if old.name.string == key.name.string and old.cycle == key.cycle:
-                self._keys_num_bytes -= old.allocation
-                keys = self._keys_by_name[key.name.string]
-                for j in range(len(keys)):
-                    if keys[j].cycle == key.cycle:
-                        del keys[j]
-                del self._keys[i]
-                return
-        else:
-            raise AssertionError
+        old = self.get_key(key.name.string, key.cycle)
+        if old is None:
+            raise AssertionError(f"no key {key.name.string};{key.cycle} to remove")
+        self._keys_num_bytes -= old.allocation
+        self._keys.remove(old)
+        self._unindex_key(old)
 
     @property
     def num_keys(self):
@@ -1220,13 +1244,17 @@ class DirectoryData(CascadeLeaf):
         return [(x.name.string, x.cycle, x.classname.string) for x in self._keys]
 
     @property
-    def dir_names(self):
+    def dir_keys(self):
         return [
-            x.name.string
+            x
             for x in self._keys
             if x.classname.string == "TDirectory"
             or x.classname.string == "TDirectoryFile"
         ]
+
+    @property
+    def dir_names(self):
+        return [x.name.string for x in self.dir_keys]
 
     def classname_of(self, name):
         keys = self._keys_by_name.get(name, [])
@@ -1263,7 +1291,9 @@ class DirectoryData(CascadeLeaf):
 
             for key in self._dirty_keys:
                 copied = key.copy_to(self._dirty_keys_start)
-                copied.location = self._dirty_keys_start
+                # not through the setter: the copy in this list of keys must have
+                # the same size as the key itself, which isn't moving
+                copied._location = self._dirty_keys_start
                 copied.write(sink)
                 self._dirty_keys_start += copied.num_bytes
 

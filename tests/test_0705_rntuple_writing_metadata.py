@@ -1,8 +1,9 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import json
 import os
 import queue
+import re
 import sys
 
 import numpy
@@ -67,8 +68,9 @@ def test_writable(tmp_path):
             ["one"],
         )
         rn = file.mkrntuple("ntuple", akform)
-        print(rn)
+        assert re.fullmatch(r"<WritableNTuple '/ntuple' at 0x[0-9a-f]{12,}>", repr(rn))
         assert type(file["ntuple"]).__name__ == "WritableNTuple"
+        assert rn.num_entries == 0
 
 
 def test_ROOT(tmp_path, capfd):

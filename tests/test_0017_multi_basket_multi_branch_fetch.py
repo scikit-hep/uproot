@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import json
 import sys
@@ -301,7 +301,10 @@ def test_branch_array_4(handler):
         skhep_testdata.data_path("uproot-sample-6.20.04-uncompressed.root"),
         handler=handler,
     )["sample/i4"] as branch:
-        with pytest.raises(ValueError):
+        with pytest.raises(
+            ValueError,
+            match=r"wrong number of bytes \(28\) for interpretation AsDtype\('>i8'\)",
+        ):
             branch.array(uproot.interpretation.numerical.AsDtype(">i8"), library="np")
 
 
@@ -325,7 +328,7 @@ def test_cache():
             "db4be408-93ad-11ea-9027-d201a8c0beef:/sample;1:i4(16):i4:AsDtype(Bi4(),Li4()):0-30:np"
         ]
 
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match="memmap is closed"):
         i4.array(
             uproot.interpretation.numerical.AsDtype(">i4"), entry_start=3, library="np"
         )

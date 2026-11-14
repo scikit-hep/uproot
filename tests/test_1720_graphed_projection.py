@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """Column projection: the ``TBranches`` a recorded graph needs are the ones read, and the
 unread ones are placeholders the evaluation never touches."""
 
@@ -30,7 +30,7 @@ def _zmumu():
 
 def _spy_reads(array):
     """Every (branches, start, stop) the source reads, in order."""
-    ((_nid, source),) = array.session.sources().items()
+    _nid, source = uproot._graphed._uproot_source(array, "test")
     seen = []
     real = source.read_range
     source.read_range = lambda tree, keys, start, stop: (
@@ -74,7 +74,10 @@ def test_unread_branches_are_placeholders_the_graph_can_pass_through(tmp_path):
     assert uproot.open(paths[0])["tree"].keys() == ["a"]
     # the same through a restructuring mapping: a sibling collection's data stays unread
     events = uproot.graphed(
-        _nano(), filter_name=mini.FILTER, form_mapping=mini.MiniNanoMapping()
+        _nano(),
+        filter_name=mini.FILTER,
+        form_mapping=mini.MiniNanoMapping(),
+        session=graphed.Session(graphed.awkward.AwkwardBackend(behavior=mini.BEHAVIOR)),
     )
     z = gak.zip({"jet": events.Jet.pt, "muon": events.Muon.pt}, depth_limit=1)[["jet"]]
     assert necessary_columns(z) == {"Events": frozenset({"nJet", "Jet_pt", "nMuon"})}

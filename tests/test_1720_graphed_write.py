@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """``uproot.graphed_write``: one ``TTree`` file per partition through ``dask_write``'s
 ``ak_to_root``, as a ``graphed.write`` plan."""
 
@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import pickle
+import sys
 
 import awkward as ak
 import numpy as np
@@ -68,7 +69,11 @@ def test_prefix_tree_name_and_multifile_numbering(tmp_path):
     assert [os.path.basename(p) for p in paths] == [
         f"skim-0000{i}.root" for i in range(4)
     ]
-    assert [len(uproot.open(p)["ev"].arrays()) for p in paths] == [3, 3, 2, 2]
+    pieces = []
+    for p in paths:
+        with uproot.open(p) as file:
+            pieces.append(file["ev"].arrays().x.tolist())
+    assert pieces == [[0, 1, 2], [3, 4, 5], [0, 1], [2, 3]]
 
 
 def test_nested_records_flatten_to_joined_branch_names(tmp_path):
@@ -88,20 +93,117 @@ def test_compute_false_returns_the_plan_and_writes_nothing(tmp_path):
     plan = uproot.graphed_write(g, outdir, steps_per_file=2, compute=False)
     assert isinstance(plan, Plan) and len(plan.tasks) == 2
     assert os.listdir(outdir) == []
-    assert len(pickle.dumps(plan)) > 0  # ships to a process pool unchanged
-    paths = SequentialRunner().run(plan).value
+    # ships to a process pool unchanged
+    paths = SequentialRunner().run(pickle.loads(pickle.dumps(plan))).value
     assert sorted(os.listdir(outdir)) == [os.path.basename(p) for p in paths]
+    assert _back(paths).x.tolist() == list(range(20))
 
 
 def test_executor_is_a_name_an_instance_or_a_class(tmp_path):
     g = uproot.graphed(_make_tree(os.path.join(tmp_path, "in.root")))
     out = os.path.join(tmp_path, "out")
-    assert len(uproot.graphed_write(g, out, executor=SequentialRunner())) == 1
-    assert (
-        len(uproot.graphed_write(g, out, executor=ThreadExecutor, max_workers=2)) == 1
+    paths = uproot.graphed_write(g, out, executor=SequentialRunner())
+    assert _back(paths).x.tolist() == list(range(20))
+    paths = uproot.graphed_write(
+        g, out, steps_per_file=2, executor=ThreadExecutor, max_workers=2
     )
+    assert _back(paths).x.tolist() == list(range(20))
     with pytest.raises(ValueError, match="executor must be 'process' or 'thread'"):
         uproot.graphed_write(g, out, executor="threads")
+
+
+def test_an_executor_class_gets_one_worker_per_task_by_its_own_keyword(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(os, "cpu_count", lambda: 8)
+    g = uproot.graphed(_make_tree(os.path.join(tmp_path, "in.root")))
+    seen = {}
+
+    class Workers(SequentialRunner):
+        def __init__(self, workers=None):
+            super().__init__()
+            seen["workers"] = workers
+
+    class MaxWorkers(SequentialRunner):
+        def __init__(self, max_workers=None):
+            super().__init__()
+            seen["max_workers"] = max_workers
+
+    for cls in (Workers, MaxWorkers):
+        uproot.graphed_write(
+            g, os.path.join(tmp_path, cls.__name__), steps_per_file=2, executor=cls
+        )
+    assert seen == {"workers": 2, "max_workers": 2}
+
+    class Forwarding(Workers):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+
+    seen.clear()
+    uproot.graphed_write(
+        g, os.path.join(tmp_path, "fwd"), steps_per_file=2, executor=Forwarding
+    )
+    assert seen == {"workers": 2}
+    uproot.graphed_write(
+        g, os.path.join(tmp_path, "five"), executor=MaxWorkers, max_workers=5
+    )
+    assert seen["max_workers"] == 5
+
+    class Labelled(SequentialRunner):
+        def __init__(self, label="x", max_workers=None):
+            super().__init__()
+            seen["labelled"] = (label, max_workers)
+
+    uproot.graphed_write(
+        g, os.path.join(tmp_path, "lab"), steps_per_file=2, executor=Labelled
+    )
+    assert seen["labelled"] == ("x", 2)
+
+    class Inherits(Workers):
+        pass
+
+    class OnlyKwargs(SequentialRunner):
+        def __init__(self, **kwargs):
+            super().__init__()
+            seen["only"] = kwargs
+
+    seen.clear()
+    for cls in (Inherits, OnlyKwargs):
+        uproot.graphed_write(
+            g, os.path.join(tmp_path, cls.__name__), steps_per_file=2, executor=cls
+        )
+    assert seen == {"workers": 2, "only": {"max_workers": 2}}
+
+
+def test_an_executor_class_whose_signature_cannot_be_read_gets_max_workers(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(os, "cpu_count", lambda: 8)
+    g = uproot.graphed(_make_tree(os.path.join(tmp_path, "in.root")))
+    seen = {}
+
+    class Unreadable(SequentialRunner):
+        def __init__(self, max_workers=None):
+            super().__init__()
+            seen[type(self).__name__] = max_workers
+
+    Unreadable.__init__.__signature__ = "not a Signature"
+    executors = [Unreadable]
+    if sys.version_info >= (3, 14):
+        # compiled without this module's __future__ import, so 3.14 evaluates the annotation lazily
+        source = (
+            "class ForwardRef(Unreadable):\n"
+            "    def __init__(self, max_workers=None, monitor: Missing | None = None):\n"
+            "        Unreadable.__init__(self, max_workers)\n"
+        )
+        namespace = {"Unreadable": Unreadable}
+        exec(compile(source, "<forward-ref>", "exec", dont_inherit=True), namespace)
+        executors.append(namespace["ForwardRef"])
+    for cls in executors:
+        uproot.graphed_write(
+            g, os.path.join(tmp_path, cls.__name__), steps_per_file=2, executor=cls
+        )
+    assert seen == {cls.__name__: 2 for cls in executors}
 
 
 def test_process_pool_with_a_behavior_backend_by_import_ref(tmp_path):
@@ -126,7 +228,7 @@ def test_process_pool_with_a_behavior_backend_by_import_ref(tmp_path):
         out,
         steps_per_file=2,
         executor=ProcessPoolExecutor,
-        max_workers=2,
+        max_workers=1,
         backend="tests.graphed_helpers.vector_backend_ref:make_backend",
     )
     ref = uproot.open(src).arrays()
@@ -188,7 +290,7 @@ def test_remote_destinations_go_through_fsspec(tmp_path):
         storage_options={},
     )
     assert paths == [f"memory:///bucket/skims/part-0000{i}.root" for i in range(2)]
-    assert len(_back(paths)) == 20
+    assert _back(paths).x.tolist() == list(range(20))
 
 
 def test_steps_beyond_the_entry_count_write_no_empty_part(tmp_path):
@@ -201,7 +303,7 @@ def test_steps_beyond_the_entry_count_write_no_empty_part(tmp_path):
         "part-00003.root",
         "part-00004.root",
     ]  # steps 0 and 2 resolve empty and write nothing
-    assert len(_back(paths)) == 3
+    assert _back(paths).x.tolist() == [0.0, 1.0, 2.0]
 
 
 def test_a_missing_tree_under_allow_missing_writes_no_part(tmp_path):
@@ -210,10 +312,14 @@ def test_a_missing_tree_under_allow_missing_writes_no_part(tmp_path):
     opened = uproot.graphed(a)
     form = opened.session.form(opened).tt.layout.form
     g = uproot.graphed(
-        [a, b.replace("other", "events")], known_base_form=form, allow_missing=True
+        [a, b.replace("other", "events")],
+        known_base_form=form,
+        allow_missing=True,
+        name="g",
     )
     paths = uproot.graphed_write(g, os.path.join(tmp_path, "out"), executor="thread")
     assert [os.path.basename(p) for p in paths] == ["part-00000.root"]
+    assert _back(paths).x.tolist() == list(range(20))
 
 
 def test_externals_reach_the_write_workers(tmp_path):
@@ -228,6 +334,7 @@ def test_externals_reach_the_write_workers(tmp_path):
     assert ak.array_equal(_back(paths).a, 2 * uproot.open(src).arrays().x)
 
 
+@pytest.mark.filterwarnings("ignore:.*is deprecated; pass session=:DeprecationWarning")
 def test_refusals_happen_before_anything_is_written(tmp_path):
     src = _make_tree(os.path.join(tmp_path, "in.root"))
     out = os.path.join(tmp_path, "out")
@@ -235,7 +342,7 @@ def test_refusals_happen_before_anything_is_written(tmp_path):
         uproot.graphed_write(
             uproot.graphed([src, src]), out, steps_per_file=2, executor="thread"
         )
-    g = uproot.graphed(src)
+    g = uproot.graphed(src, name="g")
     with pytest.raises(
         graphed.GraphedError, match="'slice' reduces the partitioned axis"
     ):
@@ -250,7 +357,8 @@ def test_refusals_happen_before_anything_is_written(tmp_path):
                         "object_path": "events",
                         "steps": [[0, 5], [5, 20]],
                     }
-                }
+                },
+                name="steps",
             ),
             out,
             executor="thread",
@@ -272,7 +380,7 @@ def test_a_mapped_source_writes_through_its_mapping(tmp_path):
     g = uproot.graphed(
         where, filter_name=mini.FILTER, form_mapping=mini.MiniNanoMapping()
     )
-    ((_nid, source),) = g.session.sources().items()
+    _nid, source = uproot._graphed._uproot_source(g, "test")
     seen = []
     real = source.read_range
     source.read_range = lambda tree, keys, start, stop: (

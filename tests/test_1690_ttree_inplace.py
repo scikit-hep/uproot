@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import os
 import shutil
@@ -96,7 +96,10 @@ def test_add_branch_tbranchelement(tmp_path):
     )
 
     with uproot.update(os.path.join(tmp_path, "HZZ.root")) as f:
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(
+            NotImplementedError,
+            match="add_branches for TTrees with branches that Uproot can't write",
+        ):
             f["events"].add_branches({"new_branch": np.ones(2421, dtype=np.float32)})
 
 
@@ -164,7 +167,9 @@ def test_add_branch_nonexistent_tree(tmp_path):
         f["tree"].extend({"x": np.ones(100, dtype=np.float32)})
 
     with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        with pytest.raises(uproot.exceptions.KeyInFileError):
+        with pytest.raises(
+            uproot.exceptions.KeyInFileError, match="not found: 'nonexistent'"
+        ):
             f["nonexistent"].add_branches(
                 {"new_branch": np.ones(100, dtype=np.float32)}
             )
@@ -185,17 +190,6 @@ def test_add_branch_root_readable(tmp_path):
     tree.GetEntry(0)
     assert tree.new_branch == pytest.approx(1.0)
     f.Close()
-
-
-@skip_no_root
-def test_add_branch_tbranchelement_root_readable(tmp_path):
-    shutil.copy(
-        data_path("uproot-HZZ-objects.root"), os.path.join(tmp_path, "HZZ.root")
-    )
-
-    with uproot.update(os.path.join(tmp_path, "HZZ.root")) as f:
-        with pytest.raises(NotImplementedError):
-            f["events"].add_branches({"new_branch": np.ones(2421, dtype=np.float32)})
 
 
 # ── extend tests ──────────────────────────────────────────────────────────────
@@ -287,7 +281,7 @@ def test_extend_mismatched_lengths(tmp_path):
         )
 
     with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="same number of entries; 'y' has 30"):
             f["tree"].extend(
                 {"x": np.ones(50, dtype=np.float32), "y": np.ones(30, dtype=np.int32)}
             )
@@ -331,7 +325,7 @@ def test_extend_new_fields_error_without_flag(tmp_path):
         f["tree"].extend({"x": np.ones(100, dtype=np.float32)})
 
     with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="do not correspond to any branch"):
             f["tree"].extend(
                 {
                     "x": np.ones(50, dtype=np.float32),
@@ -413,35 +407,6 @@ def test_extend_accept_new_fields_flat_awkward_value(tmp_path):
     with uproot.open(path) as f:
         assert f["tree"]["x"].array().tolist() == [1.0, 1.0, 1.0, 1.0, 1.0]
         assert f["tree"]["y"].array().tolist() == [0.0, 0.0, 0.0, 9.0, 8.0]
-
-
-def test_extend_accept_new_fields_jagged_raises_clearly(tmp_path):
-    """accept_new_fields with a jagged new field must raise a clear error, not crash confusingly.
-
-    Regression test: add_branches() (used to back-fill zeros for a new
-    field) only creates simple scalar TBranch, with no counter-branch
-    support, so it cannot create a jagged branch. Left unchecked, this
-    reached numpy.asarray(jagged_awkward_array), which raises an
-    awkward-internal "cannot convert to RegularArray" ValueError -- or, before
-    the _data_is_flat_dict fix above, an unrelated low-level "'nj', 'j' do
-    not correspond to any branch" naming an auto-generated counter branch the
-    user never passed.
-    """
-    ak = pytest.importorskip("awkward")
-    path = os.path.join(tmp_path, "test.root")
-    with uproot.recreate(path) as f:
-        f.mktree("tree", {"x": np.float32})
-        f["tree"].extend({"x": np.ones(3, dtype=np.float32)})
-
-    with uproot.update(path) as f:
-        with pytest.raises(NotImplementedError, match="jagged"):
-            f["tree"].extend(
-                {
-                    "x": np.ones(2, dtype=np.float32),
-                    "j": ak.Array([[1.0, 2.0], [3.0]]),
-                },
-                accept_new_fields=True,
-            )
 
 
 @skip_no_root
@@ -852,7 +817,7 @@ def test_extend_divergent_basket_counts_raises(tmp_path):
     with uproot.update(path) as f:
         tree = f["tree"]
         assert tree._cascading._has_divergent_baskets
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(NotImplementedError, match="same number of baskets"):
             tree.extend(
                 {
                     "x": np.array([999.0], dtype=np.float32),

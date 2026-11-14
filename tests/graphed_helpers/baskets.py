@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """TBasket read counting and the basket-alignment rule the aligned-partition tests use.
 
 The rule: each boundary of the unaligned split moves to the nearest entry offset shared

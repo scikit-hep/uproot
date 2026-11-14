@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines functions that import external libraries used by Uproot, but not
@@ -66,7 +66,7 @@ def XRootD_client():
             """Clean up any open xrootd file objects at exit
 
             Required to avoid deadlocks from XRootD, for details see:
-            * https://github.com/scikit-hep/uproot/issues/504
+            * https://github.com/scikit-hep/uproot3/issues/504
             * https://github.com/xrootd/xrootd/pull/1260
             """
             import gc
@@ -239,12 +239,13 @@ or
         )
 
 
-_GRAPHED_MIN = "0.0.4"
+_GRAPHED_MIN = "0.0.5"
 
 
-def graphed():
+def graphed(minimum=_GRAPHED_MIN, caller="uproot.graphed"):
     """
-    Imports and returns ``graphed`` (with the submodules Uproot uses).
+    Imports and returns ``graphed`` (with the submodules Uproot uses), at least version ``minimum``,
+    which ``caller`` needs.
     """
     try:
         import graphed
@@ -252,16 +253,16 @@ def graphed():
         import graphed.awkward
         import graphed.awkward.projection
         import graphed.core
+        import graphed.execute
+        import graphed.projection
         import graphed.provenance
         import graphed.write
     except ModuleNotFoundError as err:
+        raise ModuleNotFoundError(f"""for {caller}, install the 'graphed' package with:
+    pip install graphed""") from err
+    if parse_version(graphed.__version__) < parse_version(minimum):
         raise ModuleNotFoundError(
-            """for uproot.graphed, install the 'graphed' package with:
-    pip install graphed"""
-        ) from err
-    if parse_version(graphed.__version__) < parse_version(_GRAPHED_MIN):
-        raise ModuleNotFoundError(
-            f"uproot.graphed needs graphed {_GRAPHED_MIN} or newer; you have graphed {graphed.__version__}"
+            f"{caller} needs graphed {minimum} or newer; you have graphed {graphed.__version__}"
         )
     # a recorded op's provenance is the analyst's line, not the Uproot frame that recorded it
     graphed.provenance.register_internal("uproot")

@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines utilities for internal use. This is not a public interface
@@ -14,11 +14,11 @@ import numbers
 import os
 import re
 import sys
+import urllib.parse
 import warnings
 from collections.abc import Iterable
 from pathlib import Path
 from typing import IO
-from urllib.parse import urlparse
 
 import awkward
 import fsspec
@@ -279,6 +279,104 @@ def regularize_path(path):
     return path
 
 
+def is_remote_url(file_path: str) -> bool:
+    """
+    Returns True if file_path is a URL with a remote scheme (not file or local).
+    """
+    if "://" not in file_path:
+        return False
+    parsed = urllib.parse.urlsplit(file_path)
+    return parsed.scheme not in ("", "file", "local")
+
+
+def is_local_path(file_path: str) -> bool:
+    """
+    Returns True if fsspec reads file_path from the local filesystem alone: no remote
+    scheme and no ``protocol::`` chain, in which fsspec takes a ``::``-separated part as a
+    protocol when it is a known one or lowercase letters only.
+    """
+    if is_remote_url(file_path):
+        return False
+    protocols = set(fsspec.available_protocols())
+    return not any(
+        part in protocols or re.fullmatch("[a-z]*", part)
+        for part in file_path.split("::")[:-1]
+    )
+
+
+def _normalize_remote_url(file_path: str) -> str:
+    # fsspec's own normal form keeps each protocol's semantics: object stores and HTTP servers
+    # can hold different objects at "a//b" and "a/b", so no POSIX normalization on top of it
+    try:
+        fs, path = fsspec.core.url_to_fs(file_path)
+        return fs.unstrip_protocol(path)
+    except Exception:
+        return file_path
+
+
+def canonical_path(file_path, seen_inodes=None):
+    """
+    Returns a canonical identity key for a file path or URL for deduplication; it is a key, not
+    a path to open. Local paths and file:// URLs are normalized via ``os.path.realpath``; remote
+    URLs keep fsspec's normal form for their protocol. With ``seen_inodes``, a dict shared
+    across calls, local files that are the same inode (hard links, case-insensitive spellings)
+    get the same key.
+    """
+    if not isinstance(file_path, (str, bytes, os.PathLike)):
+        return file_path
+
+    if isinstance(file_path, os.PathLike):
+        file_path = os.fspath(file_path)
+    if isinstance(file_path, bytes):
+        file_path = os.fsdecode(file_path)
+
+    if is_remote_url(file_path):
+        return _normalize_remote_url(file_path)
+
+    parsed = urllib.parse.urlsplit(file_path)
+    if parsed.scheme in ("file", "local"):
+        if parsed.netloc and parsed.netloc != "localhost":
+            if (
+                sys.platform == "win32"
+                and len(parsed.netloc) >= 2
+                and parsed.netloc[1] == ":"
+            ):
+                from urllib.request import url2pathname
+
+                file_path = url2pathname(parsed.netloc + parsed.path)
+            else:
+                return file_path  # another host's file: its path semantics are not ours
+        else:
+            from urllib.request import url2pathname
+
+            file_path = url2pathname(parsed.path)
+
+    expanded = os.path.expanduser(file_path)
+    resolved = os.path.realpath(expanded)
+
+    if seen_inodes is not None:
+        try:
+            st = os.stat(resolved)
+            key = (st.st_dev, st.st_ino)
+            if key in seen_inodes:
+                return seen_inodes[key]
+            seen_inodes[key] = resolved
+        except OSError:
+            pass
+
+    return resolved
+
+
+def canonical_object_path(object_path):
+    """
+    Returns a canonical identity key for an object path inside a ROOT file for deduplication; it
+    is a key, not a path to read. Leading and trailing slashes and the ``;cycle`` suffix are
+    dropped, so cycles of one name share a key; ``None`` or an empty path, which names the file's
+    only ``TTree``, is ``""``.
+    """
+    return (object_path or "").strip().strip("/").partition(";")[0].rstrip("/")
+
+
 def file_object_path_split(urlpath: str) -> tuple[str, str | None]:
     """
     Split a path with a colon into a file path and an object-in-file path.
@@ -341,10 +439,13 @@ def _edit_distance(a: str, b: str) -> int:
     return rows[len(a)][len(b)]
 
 
-def _check_unknown_options(options: dict, file_path=None, stacklevel: int = 3) -> None:
+def _check_unknown_options(
+    options: dict, file_path=None, stacklevel: int = 3, all_local: bool | None = False
+) -> None:
     """
     Raise on unrecognized options for uproot's own sources and warn about likely
-    misspellings of uproot options for fsspec, whose storage options are open-ended.
+    misspellings of uproot options for fsspec, whose storage options are open-ended;
+    ``all_local`` refuses those too, and ``None`` (files not resolved yet) defers them.
     Handlers that are not uproot Sources are skipped here and rejected later by
     ``file_path_to_source_class``.
 
@@ -370,19 +471,30 @@ def _check_unknown_options(options: dict, file_path=None, stacklevel: int = 3) -
     ):
         return
 
-    if issubclass(source_cls, uproot.source.fsspec.FSSpecSource):
-        for key in unknown:
-            matches = [k for k in sorted(known) if _edit_distance(key, k) <= 2]
-            if matches:
+    fsspec_source = issubclass(source_cls, uproot.source.fsspec.FSSpecSource)
+    if fsspec_source and all_local is None:
+        return
+    matches = {
+        key: [k for k in sorted(known) if _edit_distance(key, k) <= 2]
+        for key in unknown
+    }
+    if fsspec_source and not all_local:
+        for key, near in matches.items():
+            if near:
                 warnings.warn(
                     f"option {key!r} is passed to fsspec as a storage option; "
-                    f"did you mean the uproot option {matches[0]!r}?",
+                    f"did you mean the uproot option {near[0]!r}?",
                     stacklevel=stacklevel,
                 )
     else:
+        named = ", ".join(
+            repr(key) + (f" (did you mean {near[0]!r}?)" if near else "")
+            for key, near in matches.items()
+        )
         raise TypeError(
-            f"unrecognized option(s) for {source_cls.__name__}: "
-            f"{', '.join(map(repr, unknown))}; valid options are {sorted(known)}"
+            f"unrecognized option(s) for "
+            f"{'local files' if fsspec_source else source_cls.__name__}: "
+            f"{named}; valid options are {sorted(known)}"
         )
 
 
@@ -452,7 +564,7 @@ Functions that accept many files (uproot.iterate, etc.) also allow:
          Examples: Path("rel/*.root"), "/abs/*.root:tdirectory/ttree"
    * dict: keys are filesystem paths, values are objects-within-ROOT paths.
          Example: {{"/data_v1/*.root": "ttree_v1", "/data_v2/*.root": "ttree_v2"}}
-   * already-open TTree objects.
+   * already-open TTree or RNTuple objects.
    * iterables of the above.
 """)
 
@@ -510,6 +622,22 @@ def memory_size(data, error_message=None) -> int:
         )
     else:
         raise TypeError(error_message)
+
+
+def check_step_size(step_size) -> None:
+    """
+    Raises an error unless ``step_size`` is a positive number of entries or a
+    positive memory size string with units (such as ``"100 MB"``).
+    """
+    message = (
+        "step_size must be a positive number of entries or a memory size "
+        f"string with units (such as '100 MB'), not {step_size!r}"
+    )
+    if isint(step_size):
+        if step_size < 1:
+            raise ValueError(message)
+    elif memory_size(step_size, message) <= 0:
+        raise ValueError(message)
 
 
 def trim_final(basket_arrays, entry_start, entry_stop, entry_offsets, library, branch):
@@ -598,7 +726,7 @@ def awkward_form(model, file, context):
                 # directly return; don't cache RecordForms in _primitive_awkward_form
                 return awkward.forms.RecordForm(contents, fields)
             else:
-                raise AssertionError(f"{model!r}: {type(model)}")
+                raise TypeError(f"no Awkward Form for NumPy dtype {model!r}")
 
         return _primitive_awkward_form[model]
 
@@ -626,10 +754,7 @@ def recursively_fix_awkward_form_of_iter(awkward, interpretation, form):
             parameters=form.parameters,
         )
     elif isinstance(interpretation, uproot.interpretation.objects.AsObjects):
-        if uproot.interpretation.objects.awkward_can_optimize(interpretation, form):
-            return form
-        else:
-            return uproot._util.awkward_form_of_iter(awkward, form)
+        return uproot._util.awkward_form_of_iter(awkward, form)
     else:
         return form
 
@@ -701,12 +826,9 @@ def awkward_form_of_iter(awkward, form):
         )
         return out
     elif isinstance(form, awkward.forms.RecordForm):
-        contents = {
-            k: awkward_form_of_iter(awkward, v) for k, v in form.contents.items()
-        }
         return awkward.forms.RecordForm(
-            list(contents.values()),
-            list(contents.keys()),
+            [awkward_form_of_iter(awkward, v) for v in form.contents],
+            None if form.is_tuple else form.fields,
             parameters=form.parameters,
         )
     elif isinstance(form, awkward.forms.RegularForm):
@@ -731,40 +853,44 @@ def awkward_form_of_iter(awkward, form):
         raise RuntimeError(f"unrecognized form: {type(form)}")
 
 
+def ak_add_doc_parameters(obj, ak_add_doc, top_level=False):
+    """
+    The Awkward parameters that ``ak_add_doc`` gives the form of ``obj``: a TBranch or RField, or
+    with ``top_level``, the TTree, RNTuple, TBranch or RField being read as a record.
+
+    ``True`` reads ``title`` into ``__doc__``; a dict reads each ``value`` attribute into its
+    ``key``. A top-level record takes only the ``__doc__`` key, and only from an attribute it has.
+    Empty values are kept, as a TBranch's empty ``title`` always was.
+    """
+    if isinstance(ak_add_doc, bool):
+        # a branch without a title (#1421) gets an empty __doc__
+        return {"__doc__": getattr(obj, "title", "")} if ak_add_doc else {}
+    elif not isinstance(ak_add_doc, dict):
+        return {}
+    elif top_level:
+        name = ak_add_doc.get("__doc__")
+        return {} if name is None else {"__doc__": getattr(obj, name, "")}
+    else:
+        return {key: getattr(obj, value) for key, value in ak_add_doc.items()}
+
+
 def get_ttree_form(
     ttree,
     common_keys,
     ak_add_doc,
 ):
-
     contents = []
     for key in common_keys:
         branch = ttree[key]
         content_form = branch.interpretation.awkward_form(ttree.file)
-        content_parameters = {}
-        if isinstance(ak_add_doc, bool):
-            if ak_add_doc:
-                content_parameters["__doc__"] = branch.title
-        elif isinstance(ak_add_doc, dict):
-            content_parameters.update(
-                {
-                    key: branch.__getattribute__(value)
-                    for key, value in ak_add_doc.items()
-                }
+        doc = ak_add_doc_parameters(branch, ak_add_doc)
+        if doc:
+            content_form = content_form.copy(
+                parameters={**content_form.parameters, **doc}
             )
-        if len(content_parameters.keys()) != 0:
-            content_form = content_form.copy(parameters=content_parameters)
         contents.append(content_form)
 
-    if isinstance(ak_add_doc, bool):
-        parameters = {"__doc__": ttree.title} if ak_add_doc else None
-    elif isinstance(ak_add_doc, dict):
-        parameters = (
-            {"__doc__": ttree.title} if "__doc__" in ak_add_doc.keys() else None
-        )
-    else:
-        parameters = None
-
+    parameters = ak_add_doc_parameters(ttree, ak_add_doc, top_level=True) or None
     return awkward.forms.RecordForm(contents, common_keys, parameters=parameters)
 
 
@@ -893,7 +1019,7 @@ def regularize_steps(steps):
 
 
 def _regularize_files_inner(
-    files, parse_colon, counter, HasBranches, steps_allowed, **options
+    files, parse_colon, counter, hasbranches_types, steps_allowed, **options
 ):
     files2 = regularize_path(files)
 
@@ -910,9 +1036,7 @@ def _regularize_files_inner(
             file_path, object_path = files, None
 
         # This parses the windows drive letter as a scheme!
-        parsed_url = urlparse(file_path)
-        scheme = parsed_url.scheme
-        if "://" in file_path and scheme not in ("file", "local"):
+        if is_remote_url(file_path):
             # user specified a protocol, so we use fsspec to expand the glob and return the full paths
             file_names_full = [
                 file.full_name
@@ -952,7 +1076,7 @@ def _regularize_files_inner(
                             yield match, object_path, maybe_steps
                             seen.add(match)
 
-    elif isinstance(files, HasBranches):
+    elif isinstance(files, hasbranches_types):
         yield files, None, maybe_steps
 
     elif isinstance(files, dict):
@@ -975,7 +1099,7 @@ def _regularize_files_inner(
                 key,
                 False,
                 counter,
-                HasBranches,
+                hasbranches_types,
                 steps_allowed,
                 **options,
             ):
@@ -985,7 +1109,7 @@ def _regularize_files_inner(
         for file in files:
             counter[0] += 1
             for file_path, object_path, maybe_steps in _regularize_files_inner(
-                file, parse_colon, counter, HasBranches, steps_allowed, **options
+                file, parse_colon, counter, hasbranches_types, steps_allowed, **options
             ):
                 yield file_path, object_path, maybe_steps
 
@@ -993,8 +1117,8 @@ def _regularize_files_inner(
         raise TypeError(
             "'files' must be a file path/URL (string or Path), possibly with "
             "a glob pattern (for local files), a dict of "
-            "{path/URL: TTree/TBranch name}, actual TTree/TBranch objects, or "
-            f"an iterable of such things, not {files!r}"
+            "{path/URL: TTree/TBranch/RNTuple name}, actual TTree/TBranch/RNTuple "
+            f"objects, or an iterable of such things, not {files!r}"
         )
 
 
@@ -1002,13 +1126,14 @@ def regularize_files(files, steps_allowed, **options):
     """
     Common code for regularizing the possible file inputs accepted by uproot so they can be used by uproot internal functions.
     """
+    from uproot.behaviors.RNTuple import HasFields
     from uproot.behaviors.TBranch import HasBranches
 
     out = []
     seen = set()
     counter = [0]
     for file_path, object_path, maybe_steps in _regularize_files_inner(
-        files, True, counter, HasBranches, steps_allowed, **options
+        files, True, counter, (HasBranches, HasFields), steps_allowed, **options
     ):
         if isinstance(file_path, str):
             key = (counter[0], file_path, object_path)
@@ -1033,12 +1158,13 @@ def regularize_object_path(
     file_path, object_path, custom_classes, allow_missing, options
 ):
     """
-    Returns the TTree object from given object and file paths.
+    Returns the TTree or RNTuple object from given object and file paths.
     """
+    from uproot.behaviors.RNTuple import HasFields
     from uproot.behaviors.TBranch import HasBranches, _NoClose
     from uproot.reading import ReadOnlyFile
 
-    if isinstance(file_path, HasBranches):
+    if isinstance(file_path, (HasBranches, HasFields)):
         return _NoClose(file_path)
 
     directory = ReadOnlyFile(
@@ -1053,27 +1179,27 @@ def regularize_object_path(
 
 def object_in_directory(directory, object_path, allow_missing):
     """
-    Returns the object at ``object_path`` in an open ``directory`` — the file's single ``TTree``
+    Returns the object at ``object_path`` in an open ``directory`` — the file's single ``TTree`` or ``RNTuple``
     when ``object_path`` is None — or None when ``allow_missing`` and it is absent.
     """
     file_path = directory.file.file_path
     if object_path is None:
-        trees = directory.keys(filter_classname="TTree", cycle=False)
-        if len(trees) == 0:
+        objs = directory.keys(filter_classname=["TTree", "ROOT::RNTuple"], cycle=False)
+        if len(objs) == 0:
             if allow_missing:
                 return None
             else:
-                raise ValueError(f"no TTrees found\nin file {file_path}")
-        elif len(trees) == 1:
-            return directory[trees[0]]
+                raise ValueError(f"no TTrees or RNTuples found\nin file {file_path}")
+        elif len(objs) == 1:
+            return directory[objs[0]]
         else:
-            ttree_str = ", ".join(repr(x) for x in trees)
+            obj_str = ", ".join(repr(x) for x in objs)
             raise ValueError(
-                """TTree object paths must be specified in the 'files' """
+                """TTree or RNTuple object paths must be specified in the 'files' """
                 """as {"filenames*.root": "path"} if any files have """
-                f"""more than one TTree
+                f"""more than one TTree or RNTuple
 
-    TTrees: {ttree_str}
+    TTrees/RNTuples: {obj_str}
 
 in file {file_path}"""
             )
@@ -1085,14 +1211,14 @@ in file {file_path}"""
 
 
 def _content_cls_from_name(awkward, name):
-    if name.endswith(("32", "64")):
-        name = name[-2:]
-    elif name.endswith("U32"):
-        name = name[-3:]
+    if name.endswith("8_U32"):
+        name = name[:-5]
     elif name.endswith(("8_32", "8_64")):
-        name = name[-4:]
-    elif name.endswith("8_U32"):
-        name = name[-5:]
+        name = name[:-4]
+    elif name.endswith("U32"):
+        name = name[:-3]
+    elif name.endswith(("32", "64")):
+        name = name[:-2]
     return getattr(awkward.contents, name)
 
 

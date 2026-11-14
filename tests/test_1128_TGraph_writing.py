@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import os
 
@@ -26,9 +26,8 @@ def test_saving_TGraph_to_file(tmp_path):
         x_new = tgraph.values("x")
         y_new = tgraph.values("y")
 
-        for i in range(len(x)):
-            assert x_new[i] == pytest.approx(x[i])
-            assert y_new[i] == pytest.approx(y[i])
+        assert x_new.tolist() == x
+        assert y_new.tolist() == y
 
 
 def test_opening_TGraph_with_root(tmp_path):
@@ -53,8 +52,6 @@ def test_opening_TGraph_with_root(tmp_path):
         assert tgraph.GetXaxis().GetTitle() == xLabel
         assert tgraph.GetYaxis().GetTitle() == yLabel
 
-        for i in range(len(x)):
-            xAxis = tgraph.GetX()
-            yAxis = tgraph.GetY()
-            assert xAxis[i] == pytest.approx(x[i])
-            assert yAxis[i] == pytest.approx(y[i])
+        assert tgraph.GetN() == len(x)
+        assert [tgraph.GetPointX(i) for i in range(len(x))] == x
+        assert [tgraph.GetPointY(i) for i in range(len(y))] == y

@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """``uproot.graphed(align_baskets=True)``: blind partitions snap to the ``TBasket``
 boundaries of the branches a partition reads, when it is read."""
 
@@ -28,7 +28,7 @@ from tests.graphed_helpers.baskets import (  # noqa: E402
     count_baskets,
     even_bounds,
 )
-from uproot._graphed import _partition_range  # noqa: E402
+from uproot._graphed import _partition_range, _uproot_source  # noqa: E402
 
 
 def _path(file, tree):
@@ -42,8 +42,7 @@ EMPTY = _path("uproot-empty.root", "tree")
 
 
 def _source_of(array):
-    ((_nid, src),) = array.session.sources().items()
-    return src
+    return _uproot_source(array, "_source_of")[1]
 
 
 def _lengths(out, steps_per_file):
@@ -195,7 +194,7 @@ def test_each_basket_is_read_once_per_run(steps):
     assert counts == {("px", i): 1 for i in range(n_baskets)}
     assert lengths == _rule_lengths(HEPDATA, ["px"], steps)
     with count_baskets() as control:
-        _lengths(uproot.graphed(HEPDATA).px, 5)
+        _lengths(uproot.graphed(HEPDATA, name="plain").px, 5)
     assert max(control.values()) > 1
 
 
@@ -227,7 +226,7 @@ def test_empty_tasks_read_no_basket():
 )
 def test_aligned_reads_are_bit_for_bit_flat(where, column, branches):
     aligned = getattr(uproot.graphed(where, align_baskets=True), column)
-    plain = getattr(uproot.graphed(where), column)
+    plain = getattr(uproot.graphed(where, name="plain"), column)
     assert _lengths(aligned, 5) == _rule_lengths(where, branches, 5)
     ref = _buffers(_outputs(plain, 1))
     assert _buffers(_outputs(aligned, 5)) == ref
@@ -246,7 +245,7 @@ def test_aligned_reads_are_bit_for_bit_mapped(tmp_path):
             **kwargs,
         ).Jet.pt
 
-    aligned, plain = jets(align_baskets=True), jets()
+    aligned, plain = jets(align_baskets=True), jets(name="plain")
     assert _lengths(aligned, 5) == _rule_lengths(where, ["nJet", "Jet_pt"], 5)
     assert _lengths(aligned, 5) != _lengths(plain, 5)
     ref = _buffers(_outputs(plain, 1))
@@ -312,7 +311,7 @@ def test_an_rntuple_refuses_alignment(tmp_path):
     with pytest.raises(NotImplementedError, match="align_baskets"):
         uproot.graphed(where, align_baskets=True)
     form = g.session.form(g).tt.layout.form
-    lazy = uproot.graphed(where, align_baskets=True, known_base_form=form)
+    lazy = uproot.graphed(where, align_baskets=True, known_base_form=form, name="lazy")
     with pytest.raises(NotImplementedError, match="align_baskets"):
         _lengths(lazy.z, 2)
 
@@ -347,4 +346,5 @@ def test_the_default_splits_evenly():
     even = [b - a for a, b in zip(bounds, bounds[1:])]
     assert _lengths(uproot.graphed(FORITER).data, 5) == even
     assert _lengths(uproot.graphed(FORITER, align_baskets=False).data, 5) == even
-    assert _lengths(uproot.graphed(FORITER, align_baskets=True).data, 5) != even
+    aligned = uproot.graphed(FORITER, align_baskets=True, name="aligned")
+    assert _lengths(aligned.data, 5) != even

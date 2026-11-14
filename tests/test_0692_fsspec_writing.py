@@ -35,7 +35,7 @@ def test_fsspec_writing_local(tmp_path, scheme):
         assert f["tree"]["x"].array().tolist() == [1, 2, 3]
 
 
-# https://github.com/scikit-hep/uproot5/issues/325
+# https://github.com/scikit-hep/uproot/issues/325
 @pytest.mark.parametrize(
     "scheme",
     [
@@ -110,13 +110,14 @@ def test_fsspec_writing_create(tmp_path, scheme):
     with uproot.create(uri) as f:
         f.mktree("tree", {"x": np.array([1, 2, 3])})
 
-    with pytest.raises(FileExistsError):
-        with uproot.create(uri):
-            pass
+    with pytest.raises(FileExistsError, match="path exists and refusing to overwrite"):
+        uproot.create(uri)
+    with uproot.open(uri) as f:
+        assert f["tree"]["x"].array().tolist() == [1, 2, 3]
 
 
 def test_issue_1029(tmp_path):
-    # https://github.com/scikit-hep/uproot5/issues/1029
+    # https://github.com/scikit-hep/uproot/issues/1029
     urlpath = os.path.join(tmp_path, "some", "path", "file.root")
     urlpath = pathlib.Path(urlpath)
 
@@ -136,13 +137,9 @@ def test_fsspec_writing_http(http_server):
 
     uri = f"{http_server}/file.root"
 
+    # TODO: review this when fsspec supports writing to http
     with pytest.raises(NotImplementedError):
-        # TODO: review this when fsspec supports writing to http
-        with uproot.recreate(uri) as f:
-            f.mktree("tree", {"x": np.array([1, 2, 3])})
-
-        with uproot.open(uri) as f:
-            assert f["tree"]["x"].array().tolist() == [1, 2, 3]
+        uproot.recreate(uri)
 
 
 @pytest.mark.parametrize(

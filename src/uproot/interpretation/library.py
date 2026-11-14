@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module represents external libraries that define "array-like" types so that users can
@@ -466,10 +466,9 @@ def _awkward_json_to_array(awkward, form, array):
 
 
 def _awkward_add_doc(awkward, array, branch, ak_add_doc):
-    if ak_add_doc:
-        return awkward.with_parameter(array, "__doc__", getattr(branch, "title", None))
-    else:
-        return array
+    for key, value in uproot._util.ak_add_doc_parameters(branch, ak_add_doc).items():
+        array = awkward.with_parameter(array, key, value)
+    return array
 
 
 def _object_to_awkward_array(awkward, form, array):
@@ -541,7 +540,7 @@ class Awkward(Library):
             )
             if issubclass(array.offsets.dtype.type, numpy.int32):
                 offsets = awkward.index.Index32(array.offsets)
-                layout = awkward.contents.ListOffsetArray32(offsets, content)
+                layout = awkward.contents.ListOffsetArray(offsets, content)
             else:
                 offsets = awkward.index.Index64(array.offsets)
                 layout = awkward.contents.ListOffsetArray(offsets, content)
@@ -553,7 +552,7 @@ class Awkward(Library):
             )
             if issubclass(array.offsets.dtype.type, numpy.int32):
                 offsets = awkward.index.Index32(array.offsets)
-                layout = awkward.contents.ListOffsetArray32(offsets, content)
+                layout = awkward.contents.ListOffsetArray(offsets, content)
             else:
                 offsets = awkward.index.Index64(array.offsets)
                 layout = awkward.contents.ListOffsetArray(offsets, content)
@@ -566,12 +565,12 @@ class Awkward(Library):
             )
             if issubclass(array.offsets.dtype.type, numpy.int32):
                 offsets = awkward.index.Index32(array.offsets)
-                layout = awkward.contents.ListOffsetArray32(
+                layout = awkward.contents.ListOffsetArray(
                     offsets, content, parameters={"__array__": "string"}
                 )
             elif issubclass(array.offsets.dtype.type, numpy.uint32):
                 offsets = awkward.index.IndexU32(array.offsets)
-                layout = awkward.contents.ListOffsetArrayU32(
+                layout = awkward.contents.ListOffsetArray(
                     offsets, content, parameters={"__array__": "string"}
                 )
             elif issubclass(array.offsets.dtype.type, numpy.int64):
@@ -628,7 +627,7 @@ class Awkward(Library):
             return [arrays[name] for name, _ in expression_context]
         elif how is dict:
             return {_rename(name, c): arrays[name] for name, c in expression_context}
-        elif how is None:
+        elif how is None or (how == "zip" and len(expression_context) == 0):
             if len(expression_context) == 0:
                 return awkward.Array(
                     awkward.contents.RecordArray([], fields=[], length=0)
@@ -849,9 +848,9 @@ class Pandas(Library):
 
     The "group" behavior for this library is:
 
-    * ``how=None`` or a string: passed to ``pandas.merge`` as its ``how``
-      parameter, which would be relevant if jagged arrays with different
-      multiplicity are requested.
+    * ``how=None`` or a string: a single ``pandas.DataFrame``, made by
+      ``pandas.concat`` of the arrays along columns (an outer join on their
+      indexes). The value of a string ``how`` is ignored.
     * ``how=dict``: a dict of str \u2192 array, mapping the names to
       ``pandas.Series``.
     * ``how=tuple``: a tuple of ``pandas.Series``, in the order requested.
@@ -909,9 +908,9 @@ class Pandas(Library):
 
         else:
             raise TypeError(
-                f"for library {self.name}, how must be tuple, list, dict, str (for "
-                "pandas.merge's 'how' parameter, or None (for one or more"
-                "DataFrames without merging)"
+                f"for library {self.name}, how must be tuple, list, dict, or None "
+                "or a str (for a DataFrame of all arrays, concatenated along "
+                "columns; the value of the str is ignored)"
             )
 
     def global_index(self, arrays, global_offset):

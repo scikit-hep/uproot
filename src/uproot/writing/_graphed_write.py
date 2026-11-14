@@ -1,8 +1,9 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """
 This module defines :doc:`uproot.writing._graphed_write.graphed_write`, the ``graphed`` analogue of
 :doc:`uproot.writing._dask_write.dask_write` — and a SPECIALIZATION of the ``graphed.write``
-partitioned-write base.
+partitioned-write base — and :doc:`uproot.writing._graphed_write.root_write`, the same ROOT parts
+as one write of a ``graphed.aggregate_plan`` that also reduces.
 
 **Experimental**: tracks a pre-1.0 ``graphed``; the API may change without a deprecation cycle.
 
@@ -22,6 +23,9 @@ them.
 from __future__ import annotations
 
 import functools
+import inspect
+import os
+from dataclasses import dataclass
 
 from fsspec.core import url_to_fs
 from fsspec.implementations.local import LocalFileSystem
@@ -39,27 +43,69 @@ def _default_counter_name(counted):
     return "n" + counted
 
 
+@dataclass(frozen=True, eq=False)
+class _RootCodec:
+    """``root_write``'s codec: the part as one ``TTree`` through ``dask_write``'s ``ak_to_root``."""
+
+    tree_name: str
+    title: str
+    field_name: object
+    initial_basket_capacity: int
+    counter_name: object
+    resize_factor: float
+    compression: str
+    compression_level: int
+    storage_options: object
+
+    @classmethod
+    def of(cls, arguments):
+        """The codec for a writer's keyword ``arguments`` (its ``locals()``)."""
+        return cls(**{field: arguments[field] for field in cls.__dataclass_fields__})
+
+    def __call__(self, value, path, kv):
+        ak_to_root(path, value, **vars(self))
+
+
+def _reported(fs, root):
+    """A local destination reports plain paths; a remote one its full URLs."""
+    return root if isinstance(fs, LocalFileSystem) else fs.unstrip_protocol(root)
+
+
+@dataclass(frozen=True)
+class _PartName:
+    """``graphed_write``'s part name, ``{prefix}-{N:05d}.root``: ``N`` = the file's base + this
+    partition's blind step, derived from the partition alone (``graphed.write.blind_part_index``).
+    """
+
+    bases: tuple
+    prefix: str
+
+    def __call__(self, partition):
+        graphed = uproot.extras.graphed()
+
+        index = graphed.write.blind_part_index(partition, dict(self.bases))
+        return f"{self.prefix}-{index:05d}.root"
+
+
 def _write_partition(
     partition,
     resources,
     *,
-    base,
+    destination,
     sep,
-    prefix,
+    name,
+    codec,
     columns,
-    bases,
     compiled,
     backend,
     externals,
     source,
     source_name,
-    root_options,
 ):
     """Read this blind partition's chunk (file opened once per worker), EVALUATE the compiled
     graph over it, and write the evaluated record's fields as ``TBranches`` of its own part file,
-    REPORTING the written path. ``N`` = the file's base + this partition's blind step, derived here
-    from the partition alone (``graphed.write.blind_part_index``). An empty resolved step, or a
-    file without the tree (``allow_missing``), writes nothing."""
+    REPORTING the written path. An empty resolved step, or a file without the tree
+    (``allow_missing``), writes nothing."""
     graphed = uproot.extras.graphed()
 
     tree = source.open_tree(partition, resources)
@@ -71,17 +117,80 @@ def _write_partition(
     chunk = source.read_range(tree, columns, start, stop)
     (evaluated,) = graphed.evaluate_ir(
         compiled,
-        graphed.resolve_backend(backend),
+        graphed.aggregate.resolve_backend(backend),
         {source_name: chunk},
         externals=dict(externals),
     )
-    index = graphed.write.blind_part_index(partition, dict(bases))
-    path = f"{base}{sep}{prefix}-{index:05d}.root"
-    ak_to_root(path, evaluated, **root_options)
+    path = f"{destination}{sep}{name(partition)}"
+    codec(evaluated, path, None)
     return [path]
 
 
-def _select_executor(executor, max_workers):
+def _refuse_non_record(array, what):
+    if not isinstance(array, uproot.extras.graphed().Array):
+        raise TypeError(f"{what} expects a uproot.graphed Array")
+    if not array.session.form(array).tt.fields:
+        raise TypeError(
+            f"{what} writes a record's fields as TBranches; this array has no fields. "
+            'Name the result: gak.zip({"name": expr})'
+        )
+
+
+def root_write(
+    array,
+    destination,
+    *,
+    name,
+    tree_name="tree",
+    title="",
+    field_name=_default_field_name,
+    initial_basket_capacity=10,
+    counter_name=_default_counter_name,
+    resize_factor=10.0,
+    compression="zlib",
+    compression_level=1,
+    storage_options=None,
+):
+    """
+    Args:
+        array (``graphed.Array``): A record whose fields become the ``TBranches``, as in
+            :doc:`uproot.writing._graphed_write.graphed_write`.
+        destination (path-like): Output directory, or an fsspec URL, created with the first
+            part when the plan runs; ``storage_options`` reach each part's directory and write.
+        name (callable): ``name(partition) -> str``, each task's part file name; it must tell
+            every partition apart (a blind partition's entry range is unresolved).
+        tree_name, title, field_name, initial_basket_capacity, counter_name, resize_factor,
+            compression, compression_level, storage_options: As in
+            :doc:`uproot.writing._graphed_write.graphed_write`.
+
+    Returns a ``graphed.write.PartWrite`` for ``graphed.aggregate_plan(..., writes=[...])``: each
+    task writes its part, one ``TTree`` file, from the same read and evaluation as the plan's
+    reductions, and ``reduce`` receives the part's path after the outputs' values. Unlike
+    ``graphed_write``, every task writes a part, an empty one included. Needs graphed 0.0.9 or
+    newer.
+
+    **Experimental**: tracks a pre-1.0 ``graphed``; the API may change without a deprecation cycle.
+    """
+    graphed = uproot.extras.graphed("0.0.9", "uproot.root_write")
+
+    _refuse_non_record(array, "root_write")
+    codec = _RootCodec.of(locals())
+    fs, root = url_to_fs(os.fspath(destination), **(storage_options or {}))
+    # graphed joins a local part with os.sep, so the absolute root is given in the OS's spelling
+    if isinstance(fs, LocalFileSystem):
+        destination = os.path.normpath(root)
+    else:
+        destination = _reported(fs, root)
+    return graphed.write.PartWrite(
+        array=array,
+        destination=destination,
+        name=name,
+        codec=codec,
+        storage_options=storage_options,
+    )
+
+
+def _select_executor(executor, max_workers, tasks):
     if isinstance(executor, str):
         graphed_executors = uproot.extras.graphed_executors()
 
@@ -94,10 +203,29 @@ def _select_executor(executor, max_workers):
                 f"executor must be 'process' or 'thread', an executor instance, or an executor "
                 f"class; got {executor!r}"
             )
-        return classes[executor](max_workers=max_workers)
-    if isinstance(executor, type):
-        return executor(max_workers=max_workers)
-    return executor  # an instance, used as-is
+        executor = classes[executor]
+    elif not isinstance(executor, type):
+        return executor  # an instance, used as-is
+    if max_workers is None:
+        max_workers = max(1, min(os.cpu_count() or 1, tasks))
+    return executor(**{_worker_keyword(executor): max_workers})
+
+
+def _worker_keyword(cls):
+    # graphed-executors renamed max_workers= to workers= after 0.0.7; an __init__ forwarding
+    # **kwargs names neither, so the first __init__ in the MRO that names one decides
+    for base in cls.__mro__[:-1]:
+        if "__init__" in vars(base):
+            # a signature that can't be read (3.14 lazy annotations, C __init__) is skipped;
+            # max_workers= is the fallback
+            try:
+                parameters = inspect.signature(vars(base)["__init__"]).parameters
+            except Exception:
+                continue
+            for name in ("workers", "max_workers"):
+                if name in parameters:
+                    return name
+    return "max_workers"
 
 
 def graphed_write(
@@ -141,12 +269,14 @@ def graphed_write(
             return the ``graphed.core.Plan`` **without writing** — run it later with an executor.
         executor (str, executor instance or class): ``"process"`` (default,
             ``ProcessPoolExecutor``) or ``"thread"`` (``ThreadExecutor``); an executor **instance**
-            is used as-is, a class is called as ``executor(max_workers=max_workers)``.
-        max_workers (int or None): Worker count for an executor built here.
+            is used as-is, a class is called with ``max_workers`` as its worker count.
+        max_workers (int or None): Worker count for an executor built here; ``None`` gives one
+            worker per write task, up to the CPU count.
         backend (callable, str or None): The workers' evaluation backend, as in
             ``graphed.aggregate_plan``: a zero-arg factory/class or an importable ``"module:attr"``
-            reference, resolved in the worker; default the session backend's type. A backend whose
-            behavior holds lambdas (``vector``'s) does not pickle — pass it by reference.
+            reference, resolved in the worker; default the session backend's type, with its
+            behavior where ``graphed`` can rebuild it on workers. A backend whose behavior holds
+            lambdas (``vector``'s) does not pickle — pass it by reference.
 
     Produces one ROOT file per partition, mirroring :doc:`uproot.writing._dask_write.dask_write`,
     as a specialization of the ``graphed.write`` partitioned-write base. A reduction on the
@@ -157,21 +287,15 @@ def graphed_write(
     """
     graphed = uproot.extras.graphed()
 
-    if not isinstance(array, graphed.Array):
-        raise TypeError("graphed_write expects a uproot.graphed Array")
+    _refuse_non_record(array, "graphed_write")
 
     from uproot._graphed import _uproot_source
 
     session = array.session
     nid, source = _uproot_source(array, "graphed_write")
-    if not session.form(array).tt.fields:
-        raise TypeError(
-            "graphed_write writes a record's fields as TBranches; this array has no fields. "
-            'Name the result: gak.zip({"name": expr})'
-        )
 
     compiled = graphed.compile_ir(session, array)
-    graphed.refuse_chunk_partials(compiled, as_outputs=True)
+    graphed.execute.refuse_chunk_partials(compiled, as_outputs=True)
     partitions = source.partitions(steps_per_file)
     if not all(p.is_blind for p in partitions):
         raise TypeError(
@@ -179,45 +303,58 @@ def graphed_write(
             "partition alone); 'files' with explicit 'steps' cannot be written — use "
             "steps_per_file"
         )
+    listed, seen_inodes = {}, {}  # canonical file -> {canonical tree: input as given}
+    for file_path, object_path, _ in source._file_tree:
+        canon = uproot._util.canonical_path(file_path, seen_inodes=seen_inodes)
+        tree = uproot._util.canonical_object_path(object_path)
+        in_file = listed.setdefault(canon, {})
+        # no object path names the file's only TTree: the same as any other input of that file
+        earlier = (
+            in_file.get(tree, in_file.get(""))
+            if tree
+            else next(iter(in_file.values()), None)
+        )
+        if earlier is not None:
+            raise ValueError(
+                f"duplicate input {(file_path, object_path or '')!r} is the same as "
+                f"{earlier!r}: list each file (or file, tree) once"
+            )
+        in_file[tree] = (file_path, object_path or "")
     bases = graphed.write.file_bases(
         [
             (file_path, object_path or "")
-            for file_path, object_path in source._file_tree
+            for file_path, object_path, _ in source._file_tree
         ],
         steps_per_file,
     )
+
+    # worker_backend rebuilds the backend's behavior too; type() alone drops it
+    if hasattr(graphed.aggregate, "worker_backend"):
+        backend = graphed.aggregate.worker_backend(session, backend)
+    elif backend is None:
+        backend = type(session.backend)
 
     fs, root = url_to_fs(destination, **(storage_options or {}))
     fs.mkdirs(root, exist_ok=True)
     process = functools.partial(
         _write_partition,
-        # a local destination reports plain paths; a remote one its full URLs
-        base=root if isinstance(fs, LocalFileSystem) else fs.unstrip_protocol(root),
+        destination=_reported(fs, root),
         sep=fs.sep,
-        prefix=prefix or "part",
+        name=_PartName(tuple(bases.items()), prefix or "part"),
+        codec=_RootCodec.of(locals()),
         columns=list(source.projected_columns((array,))),
-        bases=tuple(bases.items()),
         compiled=compiled,
-        backend=backend if backend is not None else type(session.backend),
+        backend=backend,
         externals=tuple(
             graphed.aggregate.external_evaluators(session, compiled).items()
         ),
         source=source,
         source_name=session.source_name(nid),
-        root_options={
-            "tree_name": tree_name,
-            "compression": compression,
-            "compression_level": compression_level,
-            "title": title,
-            "counter_name": counter_name,
-            "field_name": field_name,
-            "initial_basket_capacity": initial_basket_capacity,
-            "resize_factor": resize_factor,
-            "storage_options": storage_options,
-        },
     )
     plan = graphed.write.write_plan(partitions, process)
 
     if not compute:
         return plan
-    return list(_select_executor(executor, max_workers).run(plan).value)
+    return list(
+        _select_executor(executor, max_workers, len(plan.tasks)).run(plan).value
+    )

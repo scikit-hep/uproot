@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import io
 import os
@@ -21,7 +21,8 @@ def test(tmp_path):
     with uproot.open(filename) as f:
         output = io.StringIO()
         f.file.show_streamers(stream=output)
-        assert len(output.getvalue()) > 100
+        assert output.getvalue().startswith("TString (v2)\n\nTObject (v1)\n")
+        assert "\nTTree (v20): " in output.getvalue()
         assert len(f.file.streamers) == 24
         assert f["t/b"].array(library="np").tolist() == [1, 2, 3]
 

@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines an :doc:`uproot.interpretation.Interpretation` as
@@ -77,6 +77,9 @@ class CustomInterpretation(uproot.interpretation.Interpretation):
         """
         return id(self)
 
+    def __eq__(self, other) -> bool:
+        return self is other
+
     def __repr__(self) -> str:
         """
         The string representation of the interpretation.
@@ -141,6 +144,9 @@ class AsBinary(uproot.interpretation.Interpretation):
     @property
     def cache_key(self) -> str:
         return id(self)
+
+    def __eq__(self, other) -> bool:
+        return self is other
 
     def basket_array(
         self,

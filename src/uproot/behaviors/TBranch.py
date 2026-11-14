@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines behaviors for :doc:`uproot.behaviors.TBranch.TBranch` and
@@ -37,7 +37,7 @@ class _NoClose:
         self.hasbranches = hasbranches
 
     def __enter__(self):
-        return self
+        return self.hasbranches
 
     def __exit__(self, exception_type, exception_value, traceback):
         pass
@@ -64,6 +64,8 @@ def iterate(
     decompression_executor=None,
     interpretation_executor=None,
     library="ak",
+    backend="cpu",
+    interpreter="cpu",
     ak_add_doc=False,
     how=None,
     report=False,
@@ -74,16 +76,17 @@ def iterate(
     """
     Args:
         files: See below.
-        expressions (None, str, or list of str): Names of ``TBranches`` or
-            aliases to convert to arrays or mathematical expressions of them.
-            Uses the ``language`` to evaluate. If None, all ``TBranches``
-            selected by the filters are included.
+        expressions (None, str, or list of str): Names of ``TBranches`` (in a
+            TTree) or ``RFields`` (in an RNTuple), or aliases, to convert to
+            arrays or mathematical expressions of them.
+            Uses the ``language`` to evaluate. If None, all ``TBranches`` or
+            ``RFields`` selected by the filters are included.
         cut (None or str): If not None, this expression filters all of the
             ``expressions``.
         filter_name (None, glob string, regex string in ``"/pattern/i"`` syntax, function of str \u2192 bool, or iterable of the above): A
-            filter to select ``TBranches`` by name.
+            filter to select ``TBranches`` or ``RFields`` by name.
         filter_typename (None, glob string, regex string in ``"/pattern/i"`` syntax, function of str \u2192 bool, or iterable of the above): A
-            filter to select ``TBranches`` by type.
+            filter to select ``TBranches`` or ``RFields`` by type.
         filter_branch (None or function of :doc:`uproot.behaviors.TBranch.TBranch` \u2192 bool, :doc:`uproot.interpretation.Interpretation`, or None): A
             filter to select ``TBranches`` using the full
             :doc:`uproot.behaviors.TBranch.TBranch` object. If the function
@@ -96,11 +99,13 @@ def iterate(
             filter to select ``RFields`` using the full
             :doc:`uproot.models.RNTuple.RField` object. If the function
             returns False or None, the ``RField`` is excluded; if the function
-            returns True, it is included. Only used for RNTuples.
+            returns True, it is included. Only used for RNTuples; ignored for
+            TTrees.
         aliases (None or dict of str \u2192 str): Mathematical expressions that
             can be used in ``expressions`` or other aliases (without cycles).
             Uses the ``language`` engine to evaluate. If None, only the
             :ref:`uproot.behaviors.TBranch.TBranch.aliases` are available.
+            Only used for TTrees.
         language (:doc:`uproot.language.Language`): Language used to interpret
             the ``expressions`` and ``aliases``.
         step_size (int or str): If an integer, the maximum number of entries to
@@ -117,6 +122,13 @@ def iterate(
         library (str or :doc:`uproot.interpretation.library.Library`): The library
             that is used to represent arrays. Options are ``"np"`` for NumPy,
             ``"ak"`` for Awkward Array, and ``"pd"`` for Pandas.
+        backend (str): The backend Awkward Array will use. Only implemented for
+            RNTuples; a TTree only reads on the CPU, so any value other than
+            ``"cpu"`` raises ``NotImplementedError``.
+        interpreter (str): If ``"cpu"``, raw RNTuple data are interpreted on the
+            CPU; if ``"gpu"`` (with ``backend="cuda"``), KvikIO/nvCOMP are used
+            to interpret them on the GPU, if available. Only implemented for
+            RNTuples.
         ak_add_doc (bool | dict ): If True and ``library="ak"``, add the TBranch ``title``
             to the Awkward ``__doc__`` parameter of the array.
             if dict = {key:value} and ``library="ak"``, add the TBranch ``value`` to the
@@ -131,14 +143,17 @@ def iterate(
         report (bool): If True, this generator yields
             (arrays, :doc:`uproot.behaviors.TBranch.Report`) pairs; if False,
             it only yields arrays. The report has data about the ``TFile``,
-            ``TTree``, and global and local entry ranges.
+            the ``TTree`` or ``RNTuple``, and global and local entry ranges.
         custom_classes (None or dict): If a dict, override the classes from
             the :doc:`uproot.reading.ReadOnlyFile` or ``uproot.classes``.
         allow_missing (bool): If True, skip over any files that do not contain
-            the specified ``TTree``.
+            the specified ``TTree`` or ``RNTuple``.
         options: See below.
 
     Iterates through contiguous chunks of entries from a set of files.
+
+    TTrees are read through their ``TBranches`` and RNTuples through their
+    ``RFields``; each option above notes which of the two it applies to.
 
     For example:
 
@@ -162,7 +177,7 @@ def iterate(
       Examples: ``Path("rel/*.root")``, ``"/abs/*.root:tdirectory/ttree"``
     * dict: keys are filesystem paths, values are objects-within-ROOT paths.
       Example: ``{{"/data_v1/*.root": "ttree_v1", "/data_v2/*.root": "ttree_v2"}}``
-    * already-open TTree objects.
+    * already-open TTree or RNTuple objects.
     * iterables of the above.
 
     ..
@@ -189,19 +204,21 @@ def iterate(
     * minimal_ttree_metadata (bool; True): Skip rarely used metadata and defer reading of embedded TBaskets
     * http_max_header_bytes (int; 21784): Maximum size of HTTP packet in bytes when the source is http
 
-    See also :ref:`uproot.behaviors.TBranch.HasBranches.iterate` to iterate
-    within a single file.
+    See also :ref:`uproot.behaviors.TBranch.HasBranches.iterate` or
+    :ref:`uproot.behaviors.RNTuple.HasFields.iterate` to iterate within a single
+    file.
 
     Other file entry points:
 
     * :doc:`uproot.reading.open`: opens one file to read any of its objects.
     * :doc:`uproot.behaviors.TBranch.iterate` (this function): iterates through
-      chunks of contiguous entries in ``TTrees``.
+      chunks of contiguous entries in ``TTrees`` or ``RNTuples``.
     * :doc:`uproot.behaviors.TBranch.concatenate`: returns a single concatenated
-      array from ``TTrees``.
+      array from ``TTrees`` or ``RNTuples``.
     * :doc:`uproot._dask.dask`: returns an unevaluated Dask array from ``TTrees``.
     """
     uproot._util._check_unknown_options(options)
+    uproot._util.check_step_size(step_size)
     files = uproot._util.regularize_files(files, steps_allowed=False, **options)
     decompression_executor, interpretation_executor = _regularize_executors(
         decompression_executor, interpretation_executor, None
@@ -210,12 +227,15 @@ def iterate(
 
     global_offset = 0
     for file_path, object_path in files:
-        hasbranches = uproot._util.regularize_object_path(
+        hasbranches_context = uproot._util.regularize_object_path(
             file_path, object_path, custom_classes, allow_missing, options
         )
 
-        if hasbranches is not None:
-            with hasbranches:
+        if hasbranches_context is not None:
+            with hasbranches_context as hasbranches:
+                backend_interpreter = _regularize_backend_interpreter(
+                    hasbranches, backend, interpreter
+                )
                 try:
                     for item in hasbranches.iterate(
                         expressions=expressions,
@@ -231,7 +251,10 @@ def iterate(
                         **(
                             {}
                             if isinstance(hasbranches, HasBranches)
-                            else {"filter_field": filter_field}
+                            else {
+                                "filter_field": filter_field,
+                                **backend_interpreter,
+                            }
                         ),
                         aliases=aliases,
                         language=language,
@@ -282,6 +305,8 @@ def concatenate(
     decompression_executor=None,
     interpretation_executor=None,
     library="ak",
+    backend="cpu",
+    interpreter="cpu",
     ak_add_doc=False,
     how=None,
     custom_classes=None,
@@ -291,16 +316,17 @@ def concatenate(
     """
     Args:
         files: See below.
-        expressions (None, str, or list of str): Names of ``TBranches`` or
-            aliases to convert to arrays or mathematical expressions of them.
-            Uses the ``language`` to evaluate. If None, all ``TBranches``
-            selected by the filters are included.
+        expressions (None, str, or list of str): Names of ``TBranches`` (in a
+            TTree) or ``RFields`` (in an RNTuple), or aliases, to convert to
+            arrays or mathematical expressions of them.
+            Uses the ``language`` to evaluate. If None, all ``TBranches`` or
+            ``RFields`` selected by the filters are included.
         cut (None or str): If not None, this expression filters all of the
             ``expressions``.
         filter_name (None, glob string, regex string in ``"/pattern/i"`` syntax, function of str \u2192 bool, or iterable of the above): A
-            filter to select ``TBranches`` by name.
+            filter to select ``TBranches`` or ``RFields`` by name.
         filter_typename (None, glob string, regex string in ``"/pattern/i"`` syntax, function of str \u2192 bool, or iterable of the above): A
-            filter to select ``TBranches`` by type.
+            filter to select ``TBranches`` or ``RFields`` by type.
         filter_branch (None or function of :doc:`uproot.behaviors.TBranch.TBranch` \u2192 bool, :doc:`uproot.interpretation.Interpretation`, or None): A
             filter to select ``TBranches`` using the full
             :doc:`uproot.behaviors.TBranch.TBranch` object. If the function
@@ -313,18 +339,21 @@ def concatenate(
             filter to select ``RFields`` using the full
             :doc:`uproot.models.RNTuple.RField` object. If the function
             returns False or None, the ``RField`` is excluded; if the function
-            returns True, it is included. Only used for RNTuples.
+            returns True, it is included. Only used for RNTuples; ignored for
+            TTrees.
         aliases (None or dict of str \u2192 str): Mathematical expressions that
             can be used in ``expressions`` or other aliases (without cycles).
             Uses the ``language`` engine to evaluate. If None, only the
             :ref:`uproot.behaviors.TBranch.TBranch.aliases` are available.
+            Only used for TTrees.
         language (:doc:`uproot.language.Language`): Language used to interpret
             the ``expressions`` and ``aliases``.
         entry_start (None or int): The first entry to include. If None, start
             at zero. If negative, count from the end, like a Python slice.
         entry_stop (None or int): The first entry to exclude (i.e. one greater
             than the last entry to include). If None, stop at
-            :ref:`uproot.behaviors.TTree.TTree.num_entries`. If negative,
+            :ref:`uproot.behaviors.TTree.TTree.num_entries` (or
+            :ref:`uproot.behaviors.RNTuple.HasFields.num_entries`). If negative,
             count from the end, like a Python slice.
         decompression_executor (None or Executor with a ``submit`` method): The
             executor that is used to decompress ``TBaskets``; if None, a
@@ -336,6 +365,13 @@ def concatenate(
         library (str or :doc:`uproot.interpretation.library.Library`): The library
             that is used to represent arrays. Options are ``"np"`` for NumPy,
             ``"ak"`` for Awkward Array, and ``"pd"`` for Pandas.
+        backend (str): The backend Awkward Array will use. Only implemented for
+            RNTuples; a TTree only reads on the CPU, so any value other than
+            ``"cpu"`` raises ``NotImplementedError``.
+        interpreter (str): If ``"cpu"``, raw RNTuple data are interpreted on the
+            CPU; if ``"gpu"`` (with ``backend="cuda"``), KvikIO/nvCOMP are used
+            to interpret them on the GPU, if available. Only implemented for
+            RNTuples.
         ak_add_doc (bool | dict ): If True and ``library="ak"``, add the TBranch ``title``
             to the Awkward ``__doc__`` parameter of the array.
             if dict = {key:value} and ``library="ak"``, add the TBranch ``value`` to the
@@ -350,10 +386,13 @@ def concatenate(
         custom_classes (None or dict): If a dict, override the classes from
             the :doc:`uproot.reading.ReadOnlyFile` or ``uproot.classes``.
         allow_missing (bool): If True, skip over any files that do not contain
-            the specified ``TTree``.
+            the specified ``TTree`` or ``RNTuple``.
         options: See below.
 
     Returns an array with data from a set of files concatenated into one.
+
+    TTrees are read through their ``TBranches`` and RNTuples through their
+    ``RFields``; each option above notes which of the two it applies to.
 
     For example:
 
@@ -361,9 +400,9 @@ def concatenate(
 
         >>> array = uproot.concatenate("files*.root:tree", ["x", "y"])
 
-    Depending on the number of files, the number of selected ``TBranches``, and
-    the size of your computer's memory, this function might not have enough
-    memory to run.
+    Depending on the number of files, the number of selected ``TBranches`` or
+    ``RFields``, and the size of your computer's memory, this function might not
+    have enough memory to run.
 
     Allowed types for the ``files`` parameter:
 
@@ -379,7 +418,7 @@ def concatenate(
       Examples: ``Path("rel/*.root")``, ``"/abs/*.root:tdirectory/ttree"``
     * dict: keys are filesystem paths, values are objects-within-ROOT paths.
       Example: ``{{"/data_v1/*.root": "ttree_v1", "/data_v2/*.root": "ttree_v2"}}``
-    * already-open TTree objects.
+    * already-open TTree or RNTuple objects.
     * iterables of the above.
 
     ..
@@ -410,9 +449,9 @@ def concatenate(
 
     * :doc:`uproot.reading.open`: opens one file to read any of its objects.
     * :doc:`uproot.behaviors.TBranch.iterate`: iterates through chunks of
-      contiguous entries in ``TTrees``.
+      contiguous entries in ``TTrees`` or ``RNTuples``.
     * :doc:`uproot.behaviors.TBranch.concatenate` (this function): returns a
-      single concatenated array from ``TTrees``.
+      single concatenated array from ``TTrees`` or ``RNTuples``.
     * :doc:`uproot._dask.dask`: returns an unevaluated Dask array from ``TTrees``.
     """
     uproot._util._check_unknown_options(options)
@@ -438,8 +477,11 @@ def concatenate(
     entry_start, entry_stop = _regularize_entries_start_stop(
         total_num_entries, entry_start, entry_stop
     )
-    for hasbranches in all_hasbranches:
-        with hasbranches:
+    for hasbranches_context in all_hasbranches:
+        with hasbranches_context as hasbranches:
+            backend_interpreter = _regularize_backend_interpreter(
+                hasbranches, backend, interpreter
+            )
             nentries = hasbranches.num_entries
             global_stop += nentries
 
@@ -476,7 +518,10 @@ def concatenate(
                     **(
                         {}
                         if isinstance(hasbranches, HasBranches)
-                        else {"filter_field": filter_field}
+                        else {
+                            "filter_field": filter_field,
+                            **backend_interpreter,
+                        }
                     ),
                     aliases=aliases,
                     language=language,
@@ -653,18 +698,11 @@ class Report:
         )
 
 
-def _ak_add_doc(array, hasbranches, ak_add_doc):
+def _ak_add_doc(array, hasbranches, ak_add_doc, top_level):
     if type(array).__module__ == "awkward.highlevel":
-        if isinstance(ak_add_doc, bool):
-            if ak_add_doc:
-                array.layout.parameters["__doc__"] = hasbranches.title
-        elif isinstance(ak_add_doc, dict):
-            array.layout.parameters.update(
-                {
-                    key: hasbranches.__getattribute__(value)
-                    for key, value in ak_add_doc.items()
-                }
-            )
+        array.layout.parameters.update(
+            uproot._util.ak_add_doc_parameters(hasbranches, ak_add_doc, top_level)
+        )
     return array
 
 
@@ -1376,7 +1414,7 @@ class HasBranches(Mapping):
         ]
 
         return _ak_add_doc(
-            library.group(output, expression_context, how), self, ak_add_doc
+            library.group(output, expression_context, how), self, ak_add_doc, True
         )
 
     def iterate(
@@ -1478,6 +1516,7 @@ class HasBranches(Mapping):
         See also :doc:`uproot.behaviors.TBranch.iterate` to iterate over many
         files.
         """
+        uproot._util.check_step_size(step_size)
         keys = _keys_deep(self)
         if isinstance(self, TBranch) and expressions is None and len(keys) == 0:
             filter_branch = uproot._util.regularize_filter(filter_branch)
@@ -1615,6 +1654,7 @@ class HasBranches(Mapping):
                     library.group(output, minimized_expression_context, how),
                     self,
                     ak_add_doc,
+                    True,
                 )
 
                 # no longer needed; save memory
@@ -2223,6 +2263,15 @@ class TBranch(HasBranches):
         my_branch["subbranch"]["subsubbranch"]
         my_branch["subbranch/subsubbranch"]
     """
+
+    # Set on first use, so instances unpickled without it still work
+    _uncompressed_bytes_cache = None
+
+    def __getstate__(self):
+        # The sizes can be read again, but would be sent with every Dask task
+        class_data, instance_data = super().__getstate__()
+        instance_data.pop("_uncompressed_bytes_cache", None)
+        return class_data, instance_data
 
     def __repr__(self):
         if len(self) == 0:
@@ -2836,14 +2885,14 @@ in file {self._file.file_path}"""
 
         The number of uncompressed bytes cannot be determined without reading a
         ``TKey``, which are small, but may be slow for remote connections because
-        of the latency of round-trip requests.
+        of the latency of round-trip requests. The result is cached.
         """
         if 0 <= basket_num < self._num_normal_baskets:
-            # Reading only the TKey (instead of the whole TBasket) is enough to
-            # determine the uncompressed size; add fKeylen to match the header-
-            # inclusive value reported by Model_TBasket.uncompressed_bytes.
-            key = self.basket_key(basket_num)
-            return key.data_uncompressed_bytes + key.fKeylen
+            _check_file_open(self._file)
+            cache = self._get_uncompressed_bytes_cache()
+            if cache[basket_num] < 0:
+                cache[basket_num] = _key_uncompressed_bytes(self.basket_key(basket_num))
+            return int(cache[basket_num])
         elif 0 <= basket_num < self.num_baskets:
             return self.basket(basket_num).uncompressed_bytes
         else:
@@ -2861,16 +2910,9 @@ in file {self._file.file_path}"""
         :ref:`uproot.behaviors.TBranch.TBranch.embedded_baskets`.
         """
         if 0 <= basket_num < self._num_normal_baskets:
-            start = self.member("fBasketSeek")[basket_num]
-            stop = start + uproot.reading._key_format_big.size
-            cursor = uproot.source.cursor.Cursor(start)
-
+            start, stop = self._basket_key_range(basket_num)
             # Chunk will not be retained; we don't have to detach_memmap()
-            chunk = self._file.source.chunk(start, stop)
-
-            return uproot.reading.ReadOnlyKey(
-                chunk, cursor, {}, self._file, self, read_strings=False
-            )
+            return self._basket_key_from_chunk(self._file.source.chunk(start, stop))
 
         elif 0 <= basket_num < self.num_baskets:
             raise ValueError(
@@ -2882,6 +2924,29 @@ in file {self._file.file_path}"""
                 f"""branch {self.name!r} has {self.num_baskets} baskets; cannot get basket chunk {basket_num}
 in file {self._file.file_path}"""
             )
+
+    def _get_uncompressed_bytes_cache(self):
+        # Uncompressed bytes of each normal basket, -1 if not read yet
+        if self._uncompressed_bytes_cache is None:
+            self._uncompressed_bytes_cache = numpy.full(
+                self._num_normal_baskets, -1, dtype=numpy.int64
+            )
+        return self._uncompressed_bytes_cache
+
+    def _basket_key_range(self, basket_num):
+        # xrootd doesn't like NumPy ints
+        start = int(self.member("fBasketSeek")[basket_num])
+        return start, start + uproot.reading._key_format_big.size
+
+    def _basket_key_from_chunk(self, chunk):
+        return uproot.reading.ReadOnlyKey(
+            chunk,
+            uproot.source.cursor.Cursor(chunk.start),
+            {},
+            self._file,
+            self,
+            read_strings=False,
+        )
 
     @property
     def embedded_baskets(self):
@@ -3194,6 +3259,24 @@ def _regularize_aliases(hasbranches, aliases):
         new_aliases = dict(hasbranches.aliases)
         new_aliases.update(aliases)
         return new_aliases
+
+
+def _regularize_backend_interpreter(hasbranches, backend, interpreter):
+    """
+    The ``backend``/``interpreter`` keywords to pass on to an RNTuple's
+    ``iterate``/``arrays``. A TTree reads only on the CPU, so asking it for
+    anything else raises instead of silently falling back to CPU arrays.
+    """
+    if isinstance(hasbranches, HasBranches):
+        if backend != "cpu" or interpreter != "cpu":
+            raise NotImplementedError(
+                "'backend' and 'interpreter' are only implemented for RNTuples, not "
+                f"TTrees; the TTree in {hasbranches.file.file_path!r} would be read "
+                f"on the CPU. Got backend={backend!r} and interpreter={interpreter!r}."
+            )
+        return {}
+    else:
+        return {"backend": backend, "interpreter": interpreter}
 
 
 def _regularize_interpretation(interpretation):
@@ -3612,6 +3695,9 @@ def _regularize_expressions(
             None,
         )
 
+    else:
+        raise TypeError(f"cut must be None or a string, not {cut!r}")
+
     return arrays, expression_context, branchid_interpretation
 
 
@@ -3762,7 +3848,9 @@ def _ranges_or_baskets_to_arrays(
         return
 
     # Request all chunks and then poll notifications queue until we have all the arrays we expect
-    hasbranches._file.source.chunks(ranges, notifications=notifications)
+    # (a step within baskets that have already been read has nothing to request)
+    if len(ranges) != 0:
+        hasbranches._file.source.chunks(ranges, notifications=notifications)
 
     while len(arrays) < len(branchid_interpretation):
         obj = notifications.get()
@@ -3808,16 +3896,74 @@ def _fix_asgrouped(
                     subcontext.append((subname, limited_context[subname]))
 
                 arrays[branch.cache_key] = _ak_add_doc(
-                    library.group(subarrays, subcontext, how), branch, ak_add_doc
+                    library.group(subarrays, subcontext, how), branch, ak_add_doc, False
                 )
 
                 index_start = index_stop
+
+
+def _key_uncompressed_bytes(key):
+    # Add fKeylen to match the header-inclusive value reported by
+    # Model_TBasket.uncompressed_bytes.
+    return key.data_uncompressed_bytes + key.fKeylen
+
+
+def _check_file_open(file):
+    # A closed file must fail whether or not the sizes happen to be cached
+    if file.source.closed:
+        raise OSError(f"file {file.file_path!r} is closed")
+
+
+# The gaps between TKeys are basket data, which must not be fetched.
+_basket_keys_coalesce_config = uproot.source.coalesce.CoalesceConfig(max_range_gap=0)
+
+
+def _basket_keys_uncompressed_bytes(file, branch_baskets):
+    """
+    Total of ``TBranch.basket_uncompressed_bytes`` for normal baskets, with all
+    uncached ``TKeys`` read in one request instead of one round trip per basket.
+    """
+    if not branch_baskets:
+        return 0
+
+    _check_file_open(file)
+    missing = [
+        (branch, num)
+        for branch, num in branch_baskets
+        if branch._get_uncompressed_bytes_cache()[num] < 0
+    ]
+    if missing:
+        _read_basket_keys(file, missing)
+    return sum(
+        int(branch._get_uncompressed_bytes_cache()[num])
+        for branch, num in branch_baskets
+    )
+
+
+def _read_basket_keys(file, branch_baskets):
+    source = file.source
+    ranges = [branch._basket_key_range(num) for branch, num in branch_baskets]
+    # Chunks will not be retained; we don't have to detach_memmap()
+    if isinstance(source, uproot.source.fsspec.FSSpecSource):
+        chunks = source.chunks(
+            ranges,
+            notifications=queue.Queue(),
+            coalesce_config=_basket_keys_coalesce_config,
+        )
+    else:
+        chunks = source.chunks(ranges, notifications=queue.Queue())
+
+    for (branch, num), chunk in zip(branch_baskets, chunks, strict=True):
+        branch._get_uncompressed_bytes_cache()[num] = _key_uncompressed_bytes(
+            branch._basket_key_from_chunk(chunk)
+        )
 
 
 def _hasbranches_num_entries_for(
     hasbranches, target_num_bytes, entry_start, entry_stop, branchid_interpretation
 ):
     total_bytes = 0.0
+    normal_baskets = []
     for branch in hasbranches.itervalues(recursive=True):
         if branch.cache_key in branchid_interpretation:
             entry_offsets = branch.entry_offsets
@@ -3826,8 +3972,13 @@ def _hasbranches_num_entries_for(
                 if entry_start < stop and (
                     start < entry_stop or entry_start == entry_stop == start
                 ):
-                    total_bytes += branch.basket_uncompressed_bytes(basket_num)
+                    if basket_num < branch._num_normal_baskets:
+                        normal_baskets.append((branch, basket_num))
+                    else:
+                        total_bytes += branch.basket_uncompressed_bytes(basket_num)
                 start = stop
+
+    total_bytes += _basket_keys_uncompressed_bytes(hasbranches._file, normal_baskets)
 
     total_entries = entry_stop - entry_start
     if total_bytes == 0:
@@ -3843,6 +3994,7 @@ def _hasbranches_num_entries_for(
 def _regularize_step_size(
     hasbranches, step_size, entry_start, entry_stop, branchid_interpretation
 ):
+    uproot._util.check_step_size(step_size)
     if uproot._util.isint(step_size):
         return step_size
     target_num_bytes = uproot._util.memory_size(

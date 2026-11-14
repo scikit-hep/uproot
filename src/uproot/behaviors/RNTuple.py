@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines behaviors for :doc:`uproot.behaviors.RNTuple.RNTuple` and
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import sys
 import warnings
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from functools import partial
 
 import awkward as ak
@@ -26,433 +26,11 @@ import uproot.interpretation.grouped
 import uproot.language.python
 import uproot.source.chunk
 from uproot._util import no_filter, unset
-from uproot.behaviors.TBranch import _regularize_array_cache
-
-
-def iterate(
-    files,
-    expressions=None,  # TODO: Not implemented yet
-    cut=None,  # TODO: Not implemented yet
-    *,
-    filter_name=no_filter,
-    filter_typename=no_filter,
-    filter_field=no_filter,
-    aliases=None,  # TODO: Not implemented yet
-    language=uproot.language.python.python_language,  # TODO: Not implemented yet
-    step_size="100 MB",
-    decompression_executor=None,  # TODO: Not implemented yet
-    library="ak",
-    ak_add_doc=False,
-    how=None,
-    report=False,
-    allow_missing=False,  # TODO: Not implemented yet
-    # For compatibility reasons we also accepts kwargs meant for TTrees
-    filter_branch=unset,
-    interpretation_executor=unset,
-    custom_classes=unset,
-    **options,
-):
-    """
-    Args:
-        files: See below.
-        expressions (None, str, or list of str): Names of ``RFields`` or
-            aliases to convert to arrays or mathematical expressions of them.
-            Uses the ``language`` to evaluate. If None, all ``RFields``
-            selected by the filters are included. (Not implemented yet.)
-        cut (None or str): If not None, this expression filters all of the
-            ``expressions``. (Not implemented yet.)
-        filter_name (None, glob string, regex string in ``"/pattern/i"`` syntax, function of str \u2192 bool, or iterable of the above): A
-            filter to select ``TBranches`` by name.
-        filter_typename (None, glob string, regex string in ``"/pattern/i"`` syntax, function of str \u2192 bool, or iterable of the above): A
-            filter to select ``TBranches`` by type.
-        filter_field (None or function of :doc:`uproot.models.RNTuple.RField` \u2192 bool, or None): A
-            filter to select ``RFields`` using the full
-            :doc:`uproot.models.RNTuple.RField` object. If the function
-            returns False or None, the ``RField`` is excluded; if the function
-            returns True, it is included.
-        aliases (None or dict of str \u2192 str): Mathematical expressions that
-            can be used in ``expressions`` or other aliases.
-            Uses the ``language`` engine to evaluate. (Not implemented yet.)
-        language (:doc:`uproot.language.Language`): Language used to interpret
-            the ``expressions`` and ``aliases``. (Not implemented yet.)
-        step_size (int or str): If an integer, the maximum number of entries to
-            include in each iteration step; if a string, the maximum memory size
-            to include. The string must be a number followed by a memory unit,
-            such as "100 MB".
-        decompression_executor (None or Executor with a ``submit`` method): The
-            executor that is used to decompress ``RPages``; if None, a
-            :doc:`uproot.source.futures.TrivialExecutor` is created. (Not implemented yet.)
-        library (str or :doc:`uproot.interpretation.library.Library`): The library
-            that is used to represent arrays. Options are ``"np"`` for NumPy,
-            ``"ak"`` for Awkward Array, and ``"pd"`` for Pandas.
-        ak_add_doc (bool | dict ): If True and ``library="ak"``, add the RField ``description``
-            to the Awkward ``__doc__`` parameter of the array.
-            if dict = {key:value} and ``library="ak"``, add the RField ``value`` to the
-            Awkward ``key`` parameter of the array.
-        how (None, str, or container type): Library-dependent instructions
-            for grouping. The only recognized container types are ``tuple``,
-            ``list``, and ``dict``. Note that the container *type itself*
-            must be passed as ``how``, not an instance of that type (i.e.
-            ``how=tuple``, not ``how=()``).
-            For ``library="ak"``, passing ``how="zip"`` applies ``ak.zip`` to
-            interleave data from compatible branches.
-        report (bool): If True, this generator yields
-            (arrays, :doc:`uproot.behaviors.TBranch.Report`) pairs; if False,
-            it only yields arrays. The report has data about the ``TFile``,
-            ``TTree``, and global and local entry ranges.
-        allow_missing (bool): If True, skip over any files that do not contain
-            the specified ``RNTuple``.
-        filter_branch (None or function of :doc:`uproot.models.RNTuple.RField` \u2192 bool): An alias for ``filter_field`` included
-            for compatibility with software that was used for :doc:`uproot.behaviors.TBranch.TBranch`. This argument should not be used
-            and will be removed in a future version.
-        interpretation_executor (None): This argument is not used and is only included for now
-            for compatibility with software that was used for :doc:`uproot.behaviors.TBranch.TBranch`. This argument should not be used
-            and will be removed in a future version.
-        custom_classes (None): This argument is not used and is only included for now
-            for compatibility with software that was used for :doc:`uproot.behaviors.TBranch.TBranch`. This argument should not be used
-            and will be removed in a future version.
-        options: See below.
-
-    Iterates through contiguous chunks of entries from a set of files.
-
-    For example:
-
-    .. code-block:: python
-
-        >>> for array in uproot.iterate("files*.root:ntuple", filter_names=["x", "y"], step_size=100):
-        ...     # each of the following have 100 entries
-        ...     array["x"], array["y"]
-
-    Allowed types for the ``files`` parameter:
-
-    * str/bytes: relative or absolute filesystem path or URL, without any colons
-      other than Windows drive letter or URL schema.
-      Examples: ``"rel/file.root"``, ``"C:\\abs\\file.root"``, ``"http://where/what.root"``
-    * str/bytes: same with an object-within-ROOT path, separated by a colon.
-      Example: ``"rel/file.root:tdirectory/rntuple"``
-    * pathlib.Path: always interpreted as a filesystem path or URL only (no
-      object-within-ROOT path), regardless of whether there are any colons.
-      Examples: ``Path("rel:/file.root")``, ``Path("/abs/path:stuff.root")``
-    * glob syntax in str/bytes and pathlib.Path.
-      Examples: ``Path("rel/*.root")``, ``"/abs/*.root:tdirectory/rntuple"``
-    * dict: keys are filesystem paths, values are objects-within-ROOT paths.
-      Example: ``{{"/data_v1/*.root": "rntuple_v1", "/data_v2/*.root": "rntuple_v2"}}``
-    * already-open RNTuple objects.
-    * iterables of the above.
-
-    ..
-      Future Dev Note: These shared reading options are manually copied across multiple files
-      so they appear in `help` output of Python interpreter and the online documentation
-      for the functions where they are used.
-
-    Options (type; default):
-
-    * handler (:doc:`uproot.source.chunk.Source` class; None): Class implementing reading from the data source.
-      If None, deduced from input file type.
-    * timeout (float for HTTP, int for XRootD; default defined by source implementation): The time in seconds
-      to wait before giving up on the connection. Ignored for non-internet sources like local file paths.
-    * max_num_elements (None or int; None): The maximum number of byte ranges requested in a single XRootD
-      vector read. This does not limit the number of TTree or RNTuple entries read; pass ``entry_stop`` to
-      ``arrays``, ``uproot.iterate``, or ``uproot.concatenate`` instead.
-    * num_workers (int; 1): Number of tasks to spawn for reading, only used by some source types
-    * use_threads (bool; False on the emscripten platform (i.e. in a web browser), else True):
-      Use multi-threading when spawning workers.
-    * num_fallback_workers (int; 10): Number of tasks to spawn for reading in fallback mode
-      (for example, multi-threading requests instead of a multipart GET for an http source)
-    * begin_chunk_size (memory_size; 403, the smallest a ROOT file can be): Size of first chunk that we attempt
-      to read in bytes.
-    * minimal_ttree_metadata (bool; True): Skip rarely used metadata and defer reading of embedded TBaskets
-    * http_max_header_bytes (int; 21784): Maximum size of HTTP packet in bytes when the source is http
-
-    See also :ref:`uproot.behaviors.RNTuple.HasFields.iterate` to iterate
-    within a single file.
-
-    Other file entry points:
-
-    * :doc:`uproot.reading.open`: opens one file to read any of its objects.
-    * :doc:`uproot.behaviors.RNTuple.iterate` (this function): iterates through
-      chunks of contiguous entries in ``RNTuples``.
-    * :doc:`uproot.behaviors.RNTuple.concatenate`: returns a single concatenated
-      array from ``RNTuples``.
-    * :doc:`uproot._dask.dask`: returns an unevaluated Dask array from ``RNTuples``.
-    """
-    files = uproot._util.regularize_files(files, steps_allowed=False, **options)
-    library = uproot.interpretation.library._regularize_library(library)
-
-    global_offset = 0
-    for file_path, object_path in files:
-        hasfields = uproot._util.regularize_object_path(
-            file_path, object_path, None, allow_missing, options
-        )
-
-        if hasfields is not None:
-            with hasfields:
-                try:
-                    for item in hasfields.iterate(
-                        expressions=expressions,
-                        cut=cut,
-                        filter_name=filter_name,
-                        filter_typename=filter_typename,
-                        filter_field=filter_field,
-                        aliases=aliases,
-                        language=language,
-                        step_size=step_size,
-                        decompression_executor=decompression_executor,
-                        library=library,
-                        ak_add_doc=ak_add_doc,
-                        how=how,
-                        report=report,
-                        filter_branch=filter_branch,
-                        interpretation_executor=interpretation_executor,
-                    ):
-                        if report:
-                            arrays, rep = item
-                            arrays = library.global_index(arrays, global_offset)
-                            rep = rep.to_global(global_offset)
-                            popper = [arrays]
-                            del arrays
-                            del item
-                            yield popper.pop(), rep
-
-                        else:
-                            popper = [library.global_index(item, global_offset)]
-                            del item
-                            yield popper.pop()
-
-                except uproot.exceptions.KeyInFileError:
-                    if allow_missing:
-                        continue
-                    else:
-                        raise
-
-                global_offset += hasfields.num_entries
-
-
-def concatenate(
-    files,
-    expressions=None,  # TODO: Not implemented yet
-    cut=None,  # TODO: Not implemented yet
-    *,
-    filter_name=no_filter,
-    filter_typename=no_filter,
-    filter_field=no_filter,
-    aliases=None,  # TODO: Not implemented yet
-    language=uproot.language.python.python_language,  # TODO: Not implemented yet
-    entry_start=None,
-    entry_stop=None,
-    decompression_executor=None,  # TODO: Not implemented yet
-    library="ak",
-    backend="cpu",
-    interpreter="cpu",
-    ak_add_doc=False,
-    how=None,
-    allow_missing=False,
-    # For compatibility reasons we also accepts kwargs meant for TTrees
-    filter_branch=unset,
-    interpretation_executor=unset,
-    custom_classes=unset,
-    **options,
-):
-    """
-    Args:
-        files: See below.
-        expressions (None, str, or list of str): Names of ``RFields`` or
-            aliases to convert to arrays or mathematical expressions of them.
-            Uses the ``language`` to evaluate. If None, all ``RFields``
-            selected by the filters are included. (Not implemented yet.)
-        cut (None or str): If not None, this expression filters all of the
-            ``expressions``. (Not implemented yet.)
-        filter_name (None, glob string, regex string in ``"/pattern/i"`` syntax, function of str \u2192 bool, or iterable of the above): A
-            filter to select ``TBranches`` by name.
-        filter_typename (None, glob string, regex string in ``"/pattern/i"`` syntax, function of str \u2192 bool, or iterable of the above): A
-            filter to select ``TBranches`` by type.
-        filter_field (None or function of :doc:`uproot.models.RNTuple.RField` \u2192 bool, or None): A
-            filter to select ``RFields`` using the full
-            :doc:`uproot.models.RNTuple.RField` object. If the function
-            returns False or None, the ``RField`` is excluded; if the function
-            returns True, it is included.
-        aliases (None or dict of str \u2192 str): Mathematical expressions that
-            can be used in ``expressions`` or other aliases.
-            Uses the ``language`` engine to evaluate. (Not implemented yet.)
-        language (:doc:`uproot.language.Language`): Language used to interpret
-            the ``expressions`` and ``aliases``. (Not implemented yet.)
-        entry_start (None or int): The first entry to include. If None, start
-            at zero. If negative, count from the end, like a Python slice.
-        entry_stop (None or int): The first entry to exclude (i.e. one greater
-            than the last entry to include). If None, stop at
-            :ref:`uproot.behaviors.RNTuple.HasFields.num_entries`. If negative,
-            count from the end, like a Python slice.
-        decompression_executor (None or Executor with a ``submit`` method): The
-            executor that is used to decompress ``RPages``; if None, a
-            :doc:`uproot.source.futures.TrivialExecutor` is created. (Not implemented yet.)
-        library (str or :doc:`uproot.interpretation.library.Library`): The library
-            that is used to represent arrays. Options are ``"np"`` for NumPy,
-            ``"ak"`` for Awkward Array, and ``"pd"`` for Pandas.
-        ak_add_doc (bool | dict ): If True and ``library="ak"``, add the RField ``description``
-            to the Awkward ``__doc__`` parameter of the array.
-            if dict = {key:value} and ``library="ak"``, add the RField ``value`` to the
-            Awkward ``key`` parameter of the array.
-        how (None, str, or container type): Library-dependent instructions
-            for grouping. The only recognized container types are ``tuple``,
-            ``list``, and ``dict``. Note that the container *type itself*
-            must be passed as ``how``, not an instance of that type (i.e.
-            ``how=tuple``, not ``how=()``).
-            For ``library="ak"``, passing ``how="zip"`` applies ``ak.zip`` to
-            interleave data from compatible branches.
-        report (bool): If True, this generator yields
-            (arrays, :doc:`uproot.behaviors.TBranch.Report`) pairs; if False,
-            it only yields arrays. The report has data about the ``TFile``,
-            ``TTree``, and global and local entry ranges.
-        allow_missing (bool): If True, skip over any files that do not contain
-            the specified ``RNTuple``.
-        filter_branch (None or function of :doc:`uproot.models.RNTuple.RField` \u2192 bool): An alias for ``filter_field`` included
-            for compatibility with software that was used for :doc:`uproot.behaviors.TBranch.TBranch`. This argument should not be used
-            and will be removed in a future version.
-        interpretation_executor (None): This argument is not used and is only included for now
-            for compatibility with software that was used for :doc:`uproot.behaviors.TBranch.TBranch`. This argument should not be used
-            and will be removed in a future version.
-        custom_classes (None): This argument is not used and is only included for now
-            for compatibility with software that was used for :doc:`uproot.behaviors.TBranch.TBranch`. This argument should not be used
-            and will be removed in a future version.
-        options: See below.
-
-    Returns an array with data from a set of files concatenated into one.
-
-    For example:
-
-    .. code-block:: python
-
-        >>> array = uproot.concatenate("files*.root:ntuple", filter_field=["x", "y"])
-
-    Depending on the number of files, the number of selected ``RFields``, and
-    the size of your computer's memory, this function might not have enough
-    memory to run.
-
-    Allowed types for the ``files`` parameter:
-
-    * str/bytes: relative or absolute filesystem path or URL, without any colons
-      other than Windows drive letter or URL schema.
-      Examples: ``"rel/file.root"``, ``"C:\\abs\\file.root"``, ``"http://where/what.root"``
-    * str/bytes: same with an object-within-ROOT path, separated by a colon.
-      Example: ``"rel/file.root:tdirectory/rntuple"``
-    * pathlib.Path: always interpreted as a filesystem path or URL only (no
-      object-within-ROOT path), regardless of whether there are any colons.
-      Examples: ``Path("rel:/file.root")``, ``Path("/abs/path:stuff.root")``
-    * glob syntax in str/bytes and pathlib.Path.
-      Examples: ``Path("rel/*.root")``, ``"/abs/*.root:tdirectory/rntuple"``
-    * dict: keys are filesystem paths, values are objects-within-ROOT paths.
-      Example: ``{{"/data_v1/*.root": "rntuple_v1", "/data_v2/*.root": "rntuple_v2"}}``
-    * already-open RNTuple objects.
-    * iterables of the above.
-
-    ..
-      Future Dev Note: These shared reading options are manually copied across multiple files
-      so they appear in `help` output of Python interpreter and the online documentation
-      for the functions where they are used.
-
-    Options (type; default):
-
-    * handler (:doc:`uproot.source.chunk.Source` class; None): Class implementing reading from the data source.
-      If None, deduced from input file type.
-    * timeout (float for HTTP, int for XRootD; default defined by source implementation): The time in seconds
-      to wait before giving up on the connection. Ignored for non-internet sources like local file paths.
-    * max_num_elements (None or int; None): The maximum number of byte ranges requested in a single XRootD
-      vector read. This does not limit the number of TTree or RNTuple entries read; pass ``entry_stop`` to
-      ``arrays``, ``uproot.iterate``, or ``uproot.concatenate`` instead.
-    * num_workers (int; 1): Number of tasks to spawn for reading, only used by some source types
-    * use_threads (bool; False on the emscripten platform (i.e. in a web browser), else True):
-      Use multi-threading when spawning workers.
-    * num_fallback_workers (int; 10): Number of tasks to spawn for reading in fallback mode
-      (for example, multi-threading requests instead of a multipart GET for an http source)
-    * begin_chunk_size (memory_size; 403, the smallest a ROOT file can be): Size of first chunk that we attempt
-      to read in bytes.
-    * minimal_ttree_metadata (bool; True): Skip rarely used metadata and defer reading of embedded TBaskets
-    * http_max_header_bytes (int; 21784): Maximum size of HTTP packet in bytes when the source is http
-
-    Other file entry points:
-
-    * :doc:`uproot.reading.open`: opens one file to read any of its objects.
-    * :doc:`uproot.behaviors.RNTuple.iterate`: iterates through chunks of
-      contiguous entries in ``RNTuples``.
-    * :doc:`uproot.behaviors.RNTuple.concatenate` (this function): returns a
-      single concatenated array from ``RNTuples``.
-    * :doc:`uproot._dask.dask`: returns an unevaluated Dask array from ``RNTuples``.
-    """
-    files = uproot._util.regularize_files(files, steps_allowed=False, **options)
-    library = uproot.interpretation.library._regularize_library(library)
-
-    all_arrays = []
-    global_start = 0
-    global_stop = 0
-
-    all_hasfields = []
-    for file_path, object_path in files:
-        _hasfields = uproot._util.regularize_object_path(
-            file_path, object_path, None, allow_missing, options
-        )
-        if _hasfields is not None:
-            all_hasfields.append(_hasfields)
-
-    total_num_entries = sum(hasfields.num_entries for hasfields in all_hasfields)
-    entry_start, entry_stop = uproot.behaviors.TBranch._regularize_entries_start_stop(
-        total_num_entries, entry_start, entry_stop
-    )
-    for hasfields in all_hasfields:
-        with hasfields:
-            nentries = hasfields.num_entries
-            global_stop += nentries
-
-            if (
-                global_start <= entry_start < global_stop
-                or global_start < entry_stop <= global_stop
-            ):
-                # overlap, read only the overlapping entries
-                local_entry_start = max(
-                    0, entry_start - global_start
-                )  # need to clip to 0
-                local_entry_stop = entry_stop - global_start  # overflows are fine
-            elif entry_start >= global_stop or entry_stop <= global_start:  # no overlap
-                # outside of this file's range -> skip
-                global_start = global_stop
-                continue
-            else:
-                # read all entries
-                local_entry_start = 0
-                local_entry_stop = nentries
-
-            try:
-                arrays = hasfields.arrays(
-                    expressions=expressions,
-                    cut=cut,
-                    filter_name=filter_name,
-                    filter_typename=filter_typename,
-                    filter_field=filter_field,
-                    aliases=aliases,
-                    language=language,
-                    entry_start=local_entry_start,
-                    entry_stop=local_entry_stop,
-                    decompression_executor=decompression_executor,
-                    array_cache=None,
-                    library=library,
-                    backend=backend,
-                    interpreter=interpreter,
-                    ak_add_doc=ak_add_doc,
-                    how=how,
-                    filter_branch=filter_branch,
-                    interpretation_executor=interpretation_executor,
-                )
-                arrays = library.global_index(arrays, global_start)
-            except uproot.exceptions.KeyInFileError:
-                if allow_missing:
-                    global_start = global_stop
-                    continue
-                else:
-                    raise
-
-            all_arrays.append(arrays)
-            global_start = global_stop
-
-    return library.concatenate(all_arrays)
+from uproot.behaviors.TBranch import (
+    _regularize_array_cache,
+    concatenate,  # noqa: F401
+    iterate,  # noqa: F401
+)
 
 
 class HasFields(Mapping):
@@ -482,6 +60,14 @@ class HasFields(Mapping):
         :doc:`uproot.models.RNTuple.HasFields` is part of.
         """
         return self._ntuple
+
+    @property
+    def title(self):
+        """
+        The ``description``, under the name of the TBranch attribute it corresponds to, so that
+        ``ak_add_doc={"__doc__": "title"}`` documents a TTree or an RNTuple.
+        """
+        return self.description
 
     @property
     def num_entries(self):
@@ -571,6 +157,7 @@ class HasFields(Mapping):
                 to the Awkward ``__doc__`` parameter of the array.
                 if dict = {key:value}, add the RField ``value`` to the
                 Awkward ``key`` parameter of the array.
+                A ``value`` of ``"title"`` (the TBranch attribute) reads the RField ``description``.
             filter_branch (None or function of :doc:`uproot.models.RNTuple.RField` \u2192 bool): An alias for ``filter_field`` included
                 for compatibility with software that was used for :doc:`uproot.behaviors.TBranch.TBranch`. This argument should not be used
                 and will be removed in a future version.
@@ -594,15 +181,15 @@ class HasFields(Mapping):
         record_list = []
         if self is rntuple:
             field_path = None
+            key_prefixes = uproot.models.RNTuple._key_prefixes(keys)
             for field in self.fields:
                 # the field needs to be in the keys or be a parent of a field in the keys
-                if any(
-                    key.startswith(f"{field.name}.") or key == field.name
-                    for key in keys
-                ):
+                if field.name in key_prefixes:
                     top_names.append(field.name)
                     record_list.append(
-                        rntuple.field_form(field.field_id, keys, ak_add_doc=ak_add_doc)
+                        rntuple._field_form(
+                            field.field_id, key_prefixes, ak_add_doc=ak_add_doc
+                        )
                     )
         else:
             # If it is a subfield of a collection or a std::array (a LEAF with a nonzero
@@ -626,14 +213,10 @@ class HasFields(Mapping):
             # Also include the field itself
             keys = [self.path] + [f"{self.path}.{k}" for k in keys]
             if top_collection is None:
-                # The field needs to be in the keys or be a parent of a field in the keys
-                if any(
-                    key.startswith(f"{self.path}.") or key == self.path for key in keys
-                ):
-                    top_names.append(self.name)
-                    record_list.append(
-                        rntuple.field_form(self.field_id, keys, ak_add_doc=ak_add_doc)
-                    )
+                top_names.append(self.name)
+                record_list.append(
+                    rntuple.field_form(self.field_id, keys, ak_add_doc=ak_add_doc)
+                )
             else:
                 keys += [top_collection.path]
                 top_names.append(top_collection.name)
@@ -643,14 +226,14 @@ class HasFields(Mapping):
                     )
                 )
 
-        parameters = None
-        if isinstance(ak_add_doc, bool) and ak_add_doc and self.description != "":
-            parameters = {"__doc__": self.description}
-        elif isinstance(ak_add_doc, dict) and self is not rntuple:
-            parameters = {
-                key: self.__getattribute__(value) for key, value in ak_add_doc.items()
-            }
+        parameters = (
+            uproot._util.ak_add_doc_parameters(self, ak_add_doc, top_level=True) or None
+        )
 
+        # A tuple is only kept when all of its fields are selected, since Awkward would
+        # renumber a subset of them and the form's fields would no longer match the RFields
+        if self is rntuple and rntuple.is_tuple and len(top_names) == len(self.fields):
+            top_names = None
         form = ak.forms.RecordForm(
             record_list, top_names, form_key="toplevel", parameters=parameters
         )
@@ -727,6 +310,7 @@ class HasFields(Mapping):
                 to the Awkward ``__doc__`` parameter of the array.
                 if dict = {key:value} and ``library="ak"``, add the RField ``value`` to the
                 Awkward ``key`` parameter of the array.
+                A ``value`` of ``"title"`` (the TBranch attribute) reads the RField ``description``.
             how (None, str, or container type): Library-dependent instructions
                 for grouping. The only recognized container types are ``tuple``,
                 ``list``, and ``dict``. Note that the container *type itself*
@@ -802,18 +386,12 @@ class HasFields(Mapping):
         library = uproot.interpretation.library._regularize_library(library)
 
         clusters = self.ntuple.cluster_summaries
-        cluster_starts = numpy.array([c.num_first_entry for c in clusters])
-        start_cluster_idx = (
-            numpy.searchsorted(cluster_starts, entry_start, side="right") - 1
+        start_cluster_idx, stop_cluster_idx, cluster_offset = _cluster_range(
+            clusters, entry_start, entry_stop
         )
-        stop_cluster_idx = numpy.searchsorted(cluster_starts, entry_stop, side="right")
         cluster_num_entries = numpy.sum(
             [c.num_entries for c in clusters[start_cluster_idx:stop_cluster_idx]],
             dtype=int,
-        )
-        # the buffers below start at the first cluster that is read
-        cluster_offset = (
-            cluster_starts[start_cluster_idx] if start_cluster_idx >= 0 else 0
         )
 
         array_cache = _regularize_array_cache(array_cache, self.ntuple._file)
@@ -832,8 +410,13 @@ class HasFields(Mapping):
         _recursive_find(form, target_cols)
 
         # With GPU interpretation data can be decompressed and deserialized in
-        # parallel. Read requested columns all at once
-        if interpreter == "gpu" and backend == "cuda":
+        # parallel. Read requested columns all at once (an empty range reads no
+        # clusters, so there is nothing to read)
+        if (
+            interpreter == "gpu"
+            and backend == "cuda"
+            and start_cluster_idx < stop_cluster_idx
+        ):
             clusters_datas = self.ntuple.gpu_read_cluster_range(
                 target_cols, start_cluster_idx, stop_cluster_idx
             )
@@ -842,6 +425,7 @@ class HasFields(Mapping):
                 clusters_datas,
                 start_cluster_idx,
                 stop_cluster_idx,
+                cluster_offset=cluster_offset,
             )
 
         for key in target_cols:
@@ -876,7 +460,18 @@ class HasFields(Mapping):
                     else:
                         content = content_generator()
                 elif interpreter == "gpu" and backend == "cuda":
-                    content = content_dict[key_nr]
+                    if start_cluster_idx < stop_cluster_idx:
+                        content = content_dict[key_nr]
+                    else:
+                        # no clusters are read, so the column is only its padding
+                        content = uproot.extras.cupy().asarray(
+                            self.ntuple.read_cluster_range(
+                                key_nr,
+                                start_cluster_idx,
+                                stop_cluster_idx,
+                                missing_element_padding=n_padding,
+                            )
+                        )
                 elif interpreter == "gpu":
                     raise NotImplementedError(
                         f"Backend {backend} GDS support not implemented."
@@ -900,16 +495,7 @@ class HasFields(Mapping):
         # If we constructed some parent fields, we need to get back to the requested field
         if field_path is not None:
             for field in field_path[:-1]:
-                if field in arrays.fields:
-                    arrays = arrays[field]
-                # tuples are a trickier since indices no longer match
-                else:
-                    if field.isdigit() and arrays.fields == ["0"]:
-                        arrays = arrays["0"]
-                    else:
-                        raise AssertionError(
-                            "The array was not constructed correctly. Please report this issue."
-                        )
+                arrays = arrays[field]
 
         expression_context = [(f, None) for f in arrays.fields]
 
@@ -918,19 +504,30 @@ class HasFields(Mapping):
             numpy_data = {}
             for f in arrays.fields:
                 try:
-                    numpy_data[f] = arrays[f].to_numpy()
-                except (ValueError, TypeError):
-                    try:
-                        numpy_data[f] = _awkward_to_numpy(arrays[f])
-                    except Exception:
-                        msg = f"Field {f} cannot be converted to NumPy/Pandas"
-                        raise ValueError(msg) from None
+                    numpy_data[f] = _rntuple_to_numpy(arrays[f])
+                except Exception:
+                    msg = f"Field {f} cannot be converted to NumPy/Pandas"
+                    raise ValueError(msg) from None
             if library.name == "pd":
                 pd = uproot.extras.pandas()
                 pandas_index = uproot.interpretation.library._pandas_basic_index(
                     pd, entry_start, entry_start + len(arrays)
                 )
-                pandas_data = pd.DataFrame(numpy_data, index=pandas_index)
+                pandas_dict = {}
+                for f, arr in numpy_data.items():
+                    try:
+                        if getattr(arr, "ndim", 1) > 1:
+                            pandas_dict[f] = list(arr)
+                        else:
+                            pandas_dict[f] = arr
+                    except Exception:
+                        msg = f"Field {f} cannot be converted to NumPy/Pandas"
+                        raise ValueError(msg) from None
+                try:
+                    pandas_data = pd.DataFrame(pandas_dict, index=pandas_index)
+                except Exception:
+                    msg = "RNTuple fields cannot be converted to NumPy/Pandas"
+                    raise ValueError(msg) from None
                 arrays = pandas_data
             else:
                 arrays = numpy_data
@@ -1017,6 +614,7 @@ class HasFields(Mapping):
                 to the Awkward ``__doc__`` parameter of the array.
                 if dict = {key:value} and ``library="ak"``, add the RField ``value`` to the
                 Awkward ``key`` parameter of the array.
+                A ``value`` of ``"title"`` (the TBranch attribute) reads the RField ``description``.
             how (None, str, or container type): Library-dependent instructions
                 for grouping. The only recognized container types are ``tuple``,
                 ``list``, and ``dict``. Note that the container *type itself*
@@ -1048,8 +646,7 @@ class HasFields(Mapping):
         See also :ref:`uproot.behaviors.RNTuple.HasFields.arrays` to read
         everything in a single step, without iteration.
 
-        See also :doc:`uproot.behaviors.RNTuple.iterate` to iterate over many
-        files.
+        See also :doc:`uproot.behaviors.TBranch.iterate` to iterate over many files.
         """
         # This temporarily provides basic functionality while expressions are properly implemented
         if expressions is not None:
@@ -1088,13 +685,15 @@ class HasFields(Mapping):
                 library=library,
                 backend=backend,
                 interpreter=interpreter,
+                ak_add_doc=ak_add_doc,
                 how=how,
                 filter_branch=filter_branch,
             )
             if report:
                 sub_entry_stop = min(start + step_size, entry_stop)
-                yield arrays, uproot.behaviors.TBranch.Report(
-                    self, start, sub_entry_stop
+                yield (
+                    arrays,
+                    uproot.behaviors.TBranch.Report(self, start, sub_entry_stop),
                 )
             else:
                 yield arrays
@@ -1599,7 +1198,9 @@ class HasFields(Mapping):
         if len(akform.contents) == 0:
             return
 
-        return _num_entries_for(self, akform, target_num_bytes, entry_start, entry_stop)
+        return _num_entries_for(
+            self.ntuple, akform, target_num_bytes, entry_start, entry_stop
+        )
 
     def __getitem__(self, where):
         original_where = where
@@ -1905,14 +1506,37 @@ def _get_recursive(hasfields, where):
         return None
 
 
-def _num_entries_for(ntuple, akform, target_num_bytes, entry_start, entry_stop):
-    clusters = ntuple.cluster_summaries
+def _cluster_range(clusters, entry_start, entry_stop):
+    """
+    Returns ``(start_cluster_idx, stop_cluster_idx, cluster_offset)``: the range of
+    clusters that hold the entries from ``entry_start`` to ``entry_stop`` (exclusive),
+    and the first entry of the first of those clusters, where the buffers read from
+    that range start. An empty entry range gives an empty cluster range.
+    """
     cluster_starts = numpy.array([c.num_first_entry for c in clusters])
-
-    start_cluster_idx = (
+    start_cluster_idx = int(
         numpy.searchsorted(cluster_starts, entry_start, side="right") - 1
     )
-    stop_cluster_idx = numpy.searchsorted(cluster_starts, entry_stop, side="right")
+    if entry_stop <= entry_start:
+        stop_cluster_idx = start_cluster_idx
+    else:
+        # a cluster that starts at entry_stop has no entries in the range
+        stop_cluster_idx = int(
+            numpy.searchsorted(cluster_starts, entry_stop, side="left")
+        )
+    cluster_offset = (
+        int(cluster_starts[start_cluster_idx]) if start_cluster_idx >= 0 else 0
+    )
+    return start_cluster_idx, stop_cluster_idx, cluster_offset
+
+
+def _num_entries_for(ntuple, akform, target_num_bytes, entry_start, entry_stop):
+    # a field or a set of fields has the cluster metadata on its RNTuple
+    ntuple = ntuple.ntuple
+    clusters = ntuple.cluster_summaries
+    start_cluster_idx, stop_cluster_idx, _ = _cluster_range(
+        clusters, entry_start, entry_stop
+    )
 
     target_cols = []
     _recursive_find(akform, target_cols)
@@ -1926,7 +1550,11 @@ def _num_entries_for(ntuple, akform, target_num_bytes, entry_start, entry_stop):
             )
             total_bytes += n_entries * dt.itemsize
 
-    total_entries = entry_stop - entry_start
+    # the bytes are those of whole clusters, so they are divided over the entries of
+    # those clusters rather than over the entries in the range
+    total_entries = sum(
+        c.num_entries for c in clusters[start_cluster_idx:stop_cluster_idx]
+    )
     if total_bytes == 0:
         num_entries = 0
     else:
@@ -1937,6 +1565,7 @@ def _num_entries_for(ntuple, akform, target_num_bytes, entry_start, entry_stop):
 
 
 def _regularize_step_size(ntuple, akform, step_size, entry_start, entry_stop):
+    uproot._util.check_step_size(step_size)
     if uproot._util.isint(step_size):
         return step_size
     target_num_bytes = uproot._util.memory_size(
@@ -2100,32 +1729,157 @@ def _fill_container_dict(container_dict, content, key, dtype_byte, dtype):
             container_dict[f"{key}-offsets"] = content
 
 
-def _awkward_to_numpy(data):
-    if isinstance(data, str):
-        return data
+_OPTION_FORMS = (
+    ak.forms.IndexedOptionForm,
+    ak.forms.ByteMaskedForm,
+    ak.forms.BitMaskedForm,
+    ak.forms.UnmaskedForm,
+)
 
-    if isinstance(data, ak.Array) and isinstance(data.layout, ak.contents.RecordArray):
-        try:
-            return data.to_numpy()
-        except (TypeError, ValueError):
-            fields = data.fields
-            arrays = [_awkward_to_numpy(data[f]) for f in fields]
-            dtypes = [arr.dtype if len(arr.shape) == 1 else "O" for arr in arrays]
-            tuple_array = [tuple(arr[i] for arr in arrays) for i in range(len(data))]
-            del arrays
-            return numpy.array(
-                tuple_array, dtype=list(zip(fields, dtypes, strict=True))
-            )
 
-    if not isinstance(data, Iterable) or len(data) == 0:
+def _is_string_form(form):
+    curr = form
+    while isinstance(curr, _OPTION_FORMS):
+        curr = curr.content
+    if isinstance(curr, (ak.forms.ListOffsetForm, ak.forms.ListForm)):
+        if curr.parameters.get("__array__") in ("string", "bytestring"):
+            return True
+        if (
+            isinstance(curr.content, ak.forms.NumpyForm)
+            and curr.content.parameters.get("__array__") == "char"
+        ):
+            return True
+    return False
+
+
+def _form_to_numpy_dtype(form, initial_sizes=()):
+    sizes = list(initial_sizes)
+    curr = form
+    while isinstance(curr, ak.forms.RegularForm):
+        sizes.append(curr.size)
+        curr = curr.content
+
+    if isinstance(curr, ak.forms.NumpyForm):
+        inner_dt = numpy.dtype(curr.primitive)
+        shape = tuple(sizes) + curr.inner_shape
+        if shape:
+            return numpy.dtype((inner_dt, shape))
+        return inner_dt
+
+    if isinstance(curr, ak.forms.RecordForm):
+        field_dtypes = []
+        for field in curr.fields:
+            content_form = curr.content(field)
+            field_dtypes.append((field, _form_to_numpy_dtype(content_form)))
+        record_dtype = numpy.dtype(field_dtypes)
+        if sizes:
+            return numpy.dtype((record_dtype, tuple(sizes)))
+        return record_dtype
+
+    if sizes:
+        return numpy.dtype((numpy.dtype(object), tuple(sizes)))
+    return numpy.dtype(object)
+
+
+def _rntuple_to_numpy(data):
+    if isinstance(data, ak.contents.Content):
+        data = ak.Array(data)
+    elif not isinstance(data, ak.Array):
         return numpy.asarray(data)
 
-    converted = [_awkward_to_numpy(item) for item in data]
+    form = data.layout.form
 
-    shapes = [c.shape if isinstance(c, numpy.ndarray) else (1,) for c in converted]
-    if len(set(shapes)) == 1:
-        return numpy.array(converted)
+    if _is_string_form(form):
+        lst = ak.to_list(data)
+        out = numpy.empty(len(lst), dtype=object)
+        out[:] = lst
+        return out
 
-    arr = numpy.empty(len(converted), dtype=object)
-    arr[:] = converted
-    return arr
+    if isinstance(form, _OPTION_FORMS):
+        curr = form
+        while isinstance(curr, (ak.forms.RegularForm, *_OPTION_FORMS)):
+            curr = curr.content
+        if isinstance(curr, ak.forms.NumpyForm):
+            return ak.to_numpy(data)
+        else:
+            if len(data) == 0:
+                return numpy.empty(0, dtype=object)
+            mask = ak.is_none(data).to_numpy()
+            projected = ak.Array(data.layout.project())
+            converted_proj = _rntuple_to_numpy(projected)
+            out = numpy.full(len(data), None, dtype=object)
+            for idx, val in zip(numpy.flatnonzero(~mask), converted_proj, strict=True):
+                out[idx] = val
+            return out
+
+    if isinstance(form, (ak.forms.ListOffsetForm, ak.forms.ListForm)):
+        if len(data) == 0:
+            return numpy.empty(0, dtype=object)
+        lo = data.layout.to_ListOffsetArray64(False)
+        offsets = numpy.asarray(lo.offsets)
+        start = offsets[0]
+        stop = offsets[-1]
+        inner = _rntuple_to_numpy(ak.Array(lo.content[start:stop]))
+        splits = numpy.split(inner, offsets[1:-1] - start)
+        out = numpy.empty(len(splits), dtype=object)
+        out[:] = splits
+        return out
+
+    if isinstance(form, ak.forms.RegularForm):
+        curr = form
+        while isinstance(curr, (ak.forms.RegularForm, *_OPTION_FORMS)):
+            curr = curr.content
+        if isinstance(curr, ak.forms.NumpyForm):
+            return ak.to_numpy(data)
+        else:
+            if len(data) == 0:
+                dt = _form_to_numpy_dtype(form)
+                base_dt, inner_shape = uproot.interpretation.numerical._dtype_shape(dt)
+                return numpy.empty((0, *inner_shape), dtype=base_dt)
+            flat = ak.flatten(data, axis=1)
+            flat_out = _rntuple_to_numpy(flat)
+            return flat_out.reshape((len(data), form.size, *flat_out.shape[1:]))
+
+    if isinstance(form, ak.forms.RecordForm):
+        try:
+            return ak.to_numpy(data)
+        except Exception:
+            pass
+
+        record_dtype = _form_to_numpy_dtype(form)
+        out = numpy.empty(len(data), dtype=record_dtype)
+        for field in form.fields:
+            c = _rntuple_to_numpy(data[field])
+            field_dt = record_dtype[field]
+            if field_dt.base == numpy.dtype(object):
+                if field_dt.shape == () and c.ndim > 1:
+                    c_out = numpy.empty(len(c), dtype=object)
+                    if numpy.ma.isMaskedArray(c):
+                        mask = numpy.ma.getmaskarray(c)
+                        for i in range(len(c)):
+                            m = mask[i]
+                            if m.all():
+                                c_out[i] = None
+                            elif m.any():
+                                row = c.data[i].astype(object)
+                                row[m] = None
+                                c_out[i] = row
+                            else:
+                                c_out[i] = c.data[i]
+                    else:
+                        for i in range(len(c)):
+                            c_out[i] = c[i]
+                    out[field] = c_out
+                elif numpy.ma.isMaskedArray(c):
+                    c_obj = c.data.astype(object)
+                    c_obj[numpy.ma.getmaskarray(c)] = None
+                    out[field] = c_obj
+                elif c.dtype != object:
+                    out[field] = c.astype(object)
+                else:
+                    out[field] = c
+            else:
+                out[field] = c
+        return out
+
+    return ak.to_numpy(data)

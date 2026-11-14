@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This is an internal module for writing TTrees in the "cascading" file writer. TTrees
@@ -98,9 +98,10 @@ class Tree:
         self._resize_factor = resize_factor
         self._has_unsupported_branches = False
         self._has_divergent_baskets = False
+        self._rewrite_blockers = ()
         self._needs_relocation_before_extend = False
 
-        if isinstance(branch_types, dict):
+        if isinstance(branch_types, Mapping):
             branch_types_items = branch_types.items()
         else:
             branch_types_items = branch_types
@@ -129,7 +130,7 @@ class Tree:
                         raise TypeError
                     branch_dtype = numpy.dtype(branch_type)
 
-                except (TypeError, ValueError) as err:
+                except (TypeError, ValueError, SyntaxError) as err:
                     if isinstance(
                         branch_type,
                         (awkward.types.Type, awkward.types.ArrayType),
@@ -151,40 +152,43 @@ class Tree:
 
             if branch_dict is not None:
                 self._check_not_counter(branch_name)
-                if branch_name not in self._branch_lookup:
-                    self._branch_lookup[branch_name] = len(self._branch_data)
-                    self._branch_data.append(
-                        {
-                            "kind": "record",
-                            "name": branch_name,
-                            "keys": list(branch_dict),
-                        }
-                    )
+                self._check_new_branch(branch_name)
+                self._branch_lookup[branch_name] = len(self._branch_data)
+                self._branch_data.append(
+                    {
+                        "kind": "record",
+                        "name": branch_name,
+                        "keys": list(branch_dict),
+                    }
+                )
 
-                    for key, content in branch_dict.items():
-                        subname = self._field_name(branch_name, key)
-                        try:
-                            dtype = numpy.dtype(content)
-                        except Exception as err:
-                            raise TypeError(
-                                f"values of a dict must be NumPy types\n\n    key {key!r} has type {content!r}"
-                            ) from err
-                        self._check_not_counter(subname)
-                        record_fields.add(subname)
-                        if subname not in self._branch_lookup:
-                            self._branch_lookup[subname] = len(self._branch_data)
-                            self._branch_data.append(
-                                self._branch_np(subname, content, dtype)
-                            )
+                for key, content in branch_dict.items():
+                    subname = self._field_name(branch_name, key)
+                    try:
+                        dtype = numpy.dtype(content)
+                    except Exception as err:
+                        raise TypeError(
+                            f"values of a dict must be NumPy types\n\n    key {key!r} has type {content!r}"
+                        ) from err
+                    self._check_not_counter(subname)
+                    record_fields.add(subname)
+                    self._check_new_branch(subname)
+                    self._branch_lookup[subname] = len(self._branch_data)
+                    self._branch_data.append(self._branch_np(subname, content, dtype))
 
             elif branch_dtype is not None:
                 if branch_dtype.subdtype is not None or branch_dtype.kind not in "iu":
                     self._check_not_counter(branch_name)
-                if branch_name not in self._branch_lookup:
+                index = self._branch_lookup.get(branch_name)
+                if index is None:
                     self._branch_lookup[branch_name] = len(self._branch_data)
                     self._branch_data.append(
                         self._branch_np(branch_name, branch_type, branch_dtype)
                     )
+                elif self._branch_data[index]["kind"] != "counter":
+                    # (a scalar integer may name the counter of a jagged branch
+                    # before it, which is then that counter)
+                    self._check_new_branch(branch_name)
 
             else:
                 parameters = branch_datashape.parameters
@@ -193,11 +197,11 @@ class Tree:
 
                 if parameters.get("__array__") == "string":
                     self._check_not_counter(branch_name)
-                    if branch_name not in self._branch_lookup:
-                        self._branch_lookup[branch_name] = len(self._branch_data)
-                        self._branch_data.append(
-                            self._branch_np(branch_name, branch_type, numpy.dtype(str))
-                        )
+                    self._check_new_branch(branch_name)
+                    self._branch_lookup[branch_name] = len(self._branch_data)
+                    self._branch_data.append(
+                        self._branch_np(branch_name, branch_type, numpy.dtype(str))
+                    )
 
                 elif parameters.get("__array__") == "bytes":
                     raise NotImplementedError("array of bytes")
@@ -253,29 +257,25 @@ class Tree:
                         if keys is None:
                             keys = [str(x) for x in range(len(contents))]
 
-                        if branch_name not in self._branch_lookup:
-                            self._branch_lookup[branch_name] = len(self._branch_data)
-                            self._branch_data.append(
-                                {"kind": "record", "name": branch_name, "keys": keys}
-                            )
+                        self._check_new_branch(branch_name)
+                        self._branch_lookup[branch_name] = len(self._branch_data)
+                        self._branch_data.append(
+                            {"kind": "record", "name": branch_name, "keys": keys}
+                        )
 
-                            for key, cont in zip(keys, contents, strict=True):
-                                subname = self._field_name(branch_name, key)
-                                dtype = self._branch_ak_to_np(cont)
-                                if dtype is None:
-                                    raise TypeError(
-                                        f"fields of a record must be NumPy types, though the record itself may be in a jagged array\n\n    field {key!r} has type {cont!s}"
-                                    )
-                                self._check_not_counter(subname)
-                                if subname not in self._branch_lookup:
-                                    self._branch_lookup[subname] = len(
-                                        self._branch_data
-                                    )
-                                    self._branch_data.append(
-                                        self._branch_np(
-                                            subname, cont, dtype, counter=counter
-                                        )
-                                    )
+                        for key, cont in zip(keys, contents, strict=True):
+                            subname = self._field_name(branch_name, key)
+                            dtype = self._branch_ak_to_np(cont)
+                            if dtype is None:
+                                raise TypeError(
+                                    f"fields of a record must be NumPy types, though the record itself may be in a jagged array\n\n    field {key!r} has type {cont!s}"
+                                )
+                            self._check_not_counter(subname)
+                            self._check_new_branch(subname)
+                            self._branch_lookup[subname] = len(self._branch_data)
+                            self._branch_data.append(
+                                self._branch_np(subname, cont, dtype, counter=counter)
+                            )
 
                     else:
                         dt = self._branch_ak_to_np(content)
@@ -283,11 +283,11 @@ class Tree:
                             raise TypeError(
                                 f"cannot write Awkward Array type to ROOT file:\n\n    {branch_datashape!s}"
                             )
-                        if branch_name not in self._branch_lookup:
-                            self._branch_lookup[branch_name] = len(self._branch_data)
-                            self._branch_data.append(
-                                self._branch_np(branch_name, dt, dt, counter=counter)
-                            )
+                        self._check_new_branch(branch_name)
+                        self._branch_lookup[branch_name] = len(self._branch_data)
+                        self._branch_data.append(
+                            self._branch_np(branch_name, dt, dt, counter=counter)
+                        )
 
                 elif type(branch_datashape).__name__ == "RecordType":
                     if hasattr(branch_datashape, "contents"):
@@ -301,26 +301,26 @@ class Tree:
                         keys = [str(x) for x in range(len(contents))]
 
                     self._check_not_counter(branch_name)
-                    if branch_name not in self._branch_lookup:
-                        self._branch_lookup[branch_name] = len(self._branch_data)
-                        self._branch_data.append(
-                            {"kind": "record", "name": branch_name, "keys": keys}
-                        )
+                    self._check_new_branch(branch_name)
+                    self._branch_lookup[branch_name] = len(self._branch_data)
+                    self._branch_data.append(
+                        {"kind": "record", "name": branch_name, "keys": keys}
+                    )
 
-                        for key, content in zip(keys, contents, strict=True):
-                            subname = self._field_name(branch_name, key)
-                            dtype = self._branch_ak_to_np(content)
-                            if dtype is None:
-                                raise TypeError(
-                                    f"fields of a record must be NumPy types, though the record itself may be in a jagged array\n\n    field {key!r} has type {content!s}"
-                                )
-                            self._check_not_counter(subname)
-                            record_fields.add(subname)
-                            if subname not in self._branch_lookup:
-                                self._branch_lookup[subname] = len(self._branch_data)
-                                self._branch_data.append(
-                                    self._branch_np(subname, content, dtype)
-                                )
+                    for key, content in zip(keys, contents, strict=True):
+                        subname = self._field_name(branch_name, key)
+                        dtype = self._branch_ak_to_np(content)
+                        if dtype is None:
+                            raise TypeError(
+                                f"fields of a record must be NumPy types, though the record itself may be in a jagged array\n\n    field {key!r} has type {content!s}"
+                            )
+                        self._check_not_counter(subname)
+                        record_fields.add(subname)
+                        self._check_new_branch(subname)
+                        self._branch_lookup[subname] = len(self._branch_data)
+                        self._branch_data.append(
+                            self._branch_np(subname, content, dtype)
+                        )
 
                 else:
                     raise TypeError(
@@ -350,6 +350,14 @@ class Tree:
             "fEstimate": 1000000,
         }
         self._key = None
+
+    def _check_new_branch(self, name):
+        if name in self._branch_lookup:
+            raise ValueError(
+                f"branch {name!r} is defined more than once; the fields of a record "
+                f"are branches too, named by field_name, so rename one of them or "
+                f"choose a different field_name"
+            )
 
     def _check_not_counter(self, name):
         index = self._branch_lookup.get(name)
@@ -395,7 +403,9 @@ class Tree:
 
         dims = ""
         if counter is not None:
-            dims = "[" + counter["fName"] + "]"
+            # ROOT finds the counter by its leaf's name, which needn't be its
+            # branch's name in a ROOT-written tree
+            dims = "[" + counter.get("leaf_name", counter["fName"]) + "]"
         if len(branch_shape) > 0:
             dims = dims + "".join("[" + str(x) + "]" for x in branch_shape)
 
@@ -522,61 +532,22 @@ class Tree:
         file._move_tree(oldloc, newloc)
 
         self._freesegments.release(start, stop)
+        self._freesegments.write(sink)
         sink.set_file_length(self._freesegments.fileheader.end)
         sink.flush()
 
-    def extend(self, file, sink, data):
-        if self._needs_relocation_before_extend:
-            # metadata_start/basket_metadata_start (computed structurally by
-            # _build_out(), see _load_existing_ttree) are only guaranteed
-            # correct for a tree actually laid out the way Uproot's own
-            # write_anew() lays one out. A tree loaded from an existing file
-            # may have been written by ROOT instead, with a byte-for-byte
-            # different (but semantically equivalent) layout Uproot's writer
-            # doesn't replicate -- write_updates() patching at Uproot's
-            # assumed offsets would then silently corrupt unrelated bytes.
-            # write_anew() here establishes Uproot's own canonical layout for
-            # real (the same thing add_branches() already always does, which
-            # is why it already works on ROOT-written files), so every
-            # write_updates() patch from here on is guaranteed to target the
-            # right bytes. Costs one full blob rewrite, but only once, on the
-            # first extend() after loading -- not on every call.
-            self._relocate(file, sink)
-            self._needs_relocation_before_extend = False
-
-        # expand capacity if this would REACH (not EXCEED) the existing capacity
-        # that's because completely a full fBasketEntry has nowhere to put the
-        # number of entries in the last basket (it's a fencepost principle thing),
-        # forcing ROOT and Uproot to look it up from the basket header.
-
-        if self._num_baskets >= self._basket_capacity - 1:
-            self._basket_capacity = max(
-                self._basket_capacity + 1,
-                math.ceil(self._basket_capacity * self._resize_factor),
-            )
-
-            for datum in self._branch_data:
-                if datum["kind"] == "record":
-                    continue
-
-                fBasketBytes = datum["fBasketBytes"]
-                fBasketEntry = datum["fBasketEntry"]
-                fBasketSeek = datum["fBasketSeek"]
-                datum["fBasketBytes"] = numpy.zeros(
-                    self._basket_capacity, uproot.models.TBranch._tbranch13_dtype1
-                )
-                datum["fBasketEntry"] = numpy.zeros(
-                    self._basket_capacity, uproot.models.TBranch._tbranch13_dtype2
-                )
-                datum["fBasketSeek"] = numpy.zeros(
-                    self._basket_capacity, uproot.models.TBranch._tbranch13_dtype3
-                )
-                datum["fBasketBytes"][: len(fBasketBytes)] = fBasketBytes
-                datum["fBasketEntry"][: len(fBasketEntry)] = fBasketEntry
-                datum["fBasketSeek"][: len(fBasketSeek)] = fBasketSeek
-                datum["fBasketEntry"][len(fBasketEntry)] = self._num_entries
-
-            self._relocate(file, sink)
+    def _prepare_extend(self, data, extra=()):
+        """
+        Checks ``data`` against this tree's branches and converts it to what
+        ``extend`` writes, without changing anything, so that a failure leaves
+        the tree as it was. ``extra`` are the datums of branches about to be
+        added, which ``data`` is checked as if they already were. Returns
+        ``(tofill, num_entries)``.
+        """
+        branch_data = self._branch_data + list(extra)
+        branch_lookup = dict(self._branch_lookup)
+        for i, datum in enumerate(extra):
+            branch_lookup[datum["fName"]] = len(self._branch_data) + i
 
         provided = None
 
@@ -616,7 +587,16 @@ class Tree:
                 if not uproot._util.from_module(
                     v, "pandas"
                 ) and not uproot._util.from_module(v, "awkward"):
-                    if not hasattr(v, "dtype") and not isinstance(v, Mapping):
+                    datum = branch_data[branch_lookup[k]] if k in branch_lookup else {}
+                    if datum.get("counter") is not None and not hasattr(v, "dtype"):
+                        # lists for a jagged branch are jagged, even if they all
+                        # happen to have the same length or there are none; the
+                        # type comes from the branch, not from the values
+                        v = _jagged_from_lists(  # noqa: PLW2901 (overwriting v)
+                            v, datum["dtype"], datum["shape"]
+                        )
+
+                    elif not hasattr(v, "dtype") and not isinstance(v, Mapping):
                         try:
                             with warnings.catch_warnings():
                                 warnings.simplefilter(
@@ -625,9 +605,10 @@ class Tree:
                                         numpy, "exceptions", numpy
                                     ).VisibleDeprecationWarning,
                                 )
-                                v = numpy.array(v)  # noqa: PLW2901 (overwriting v)
-                            if v.dtype == numpy.dtype("O"):
+                                array = numpy.array(v)
+                            if array.dtype == numpy.dtype("O"):
                                 raise Exception
+                            v = array  # noqa: PLW2901 (overwriting v)
                         except (
                             getattr(
                                 numpy, "exceptions", numpy
@@ -644,24 +625,24 @@ class Tree:
                     and v.ndim > 1
                     and not v.layout.purelist_isregular
                 ):
-                    kk = self._counter_name(k)
-                    vv = numpy.asarray(awkward.num(v, axis=1), dtype=">u4")
-                    if kk in provided and not numpy.array_equal(
-                        vv, numpy.asarray(provided[kk])
+                    if (
+                        k in branch_lookup
+                        and branch_data[branch_lookup[k]].get("counter") is not None
                     ):
-                        raise ValueError(
-                            f"branch {kk!r} provided both as an explicit array and generated as a counter, and they disagree"
-                        )
+                        kk = branch_data[branch_lookup[k]]["counter"]["fName"]
+                    else:
+                        kk = self._counter_name(k)
+                    vv = numpy.asarray(awkward.num(v, axis=1), dtype=">u4")
+                    if kk in provided:
+                        check_counter_agrees(kk, vv, provided[kk], counted=k)
                     provided[kk] = vv
 
-                if k in provided and not numpy.array_equal(v, provided[k]):
-                    raise ValueError(
-                        f"branch {k!r} provided both as an explicit array and generated as a counter, and they disagree"
-                    )
+                if k in provided:
+                    check_counter_agrees(k, provided[k], v)
                 provided[k] = v
 
         actual_branches = {}
-        for datum in self._branch_data:
+        for datum in branch_data:
             if datum["kind"] == "record":
                 if datum["name"] in provided:
                     recordarray = provided.pop(datum["name"])
@@ -720,13 +701,13 @@ class Tree:
                     f"'extend' must fill every branch with the same number of entries; {branch_name!r} has {len(branch_array)} entries"
                 )
 
-            datum = self._branch_data[self._branch_lookup[branch_name]]
-            if datum["kind"] == "record":
-                continue
+            datum = branch_data[branch_lookup[branch_name]]
 
             if datum["counter"] is None:
                 if datum["dtype"] == ">U0":
                     layout = awkward.to_layout(branch_array)
+                    if isinstance(layout, awkward.contents.IndexedArray):
+                        layout = layout.project()
                     if isinstance(
                         layout,
                         (
@@ -794,71 +775,91 @@ class Tree:
                             )
                         )
                     tofill.append((branch_name, datum["compression"], big_endian, None))
-                    if datum["kind"] == "counter" and big_endian.size > 0:
-                        datum["tleaf_maximum_value"] = max(
-                            big_endian.max(), datum["tleaf_maximum_value"]
-                        )
 
             else:
-                layout = branch_array.layout
-                while not isinstance(layout, awkward.contents.ListOffsetArray):
-                    if isinstance(layout, awkward.contents.IndexedArray):
-                        layout = layout.project()
-
-                    elif isinstance(layout, awkward.contents.ListArray):
-                        layout = layout.to_ListOffsetArray64(False)
-
-                    else:
-                        raise AssertionError(
-                            "how did this pass the type check?\n\n" + repr(layout)
-                        )
-
-                content = layout.content
-                offsets = numpy.asarray(layout.offsets)
-
-                if offsets[0] != 0:
-                    content = content[offsets[0] :]
-                    offsets = offsets - offsets[0]
-                if len(content) > offsets[-1]:
-                    content = content[: offsets[-1]]
-
-                shape = [len(content)]
-                while not isinstance(content, awkward.contents.NumpyArray):
-                    if isinstance(content, awkward.contents.IndexedArray):
-                        content = content.project()
-
-                    elif isinstance(content, awkward.contents.EmptyArray):
-                        content = content.to_NumpyArray(dtype=numpy.float64)
-
-                    elif isinstance(content, awkward.contents.RegularArray):
-                        shape.append(content.size)
-                        content = content.content
-
-                    else:
-                        raise AssertionError(
-                            "how did this pass the type check?\n\n" + repr(content)
-                        )
-
-                big_endian = numpy.asarray(content.data, dtype=datum["dtype"])
-                shape = tuple(shape) + big_endian.shape[1:]
-
-                if shape[1:] != datum["shape"]:
-                    raise ValueError(
-                        "'extend' must fill branches with a consistent shape: has {}, trying to fill with {}".format(
-                            datum["shape"],
-                            shape[1:],
-                        )
-                    )
-                big_endian_offsets = offsets.astype(">i4", copy=True)
-
-                tofill.append(
-                    (
-                        branch_name,
-                        datum["compression"],
-                        big_endian.reshape(-1),
-                        big_endian_offsets,
-                    )
+                big_endian, big_endian_offsets = _normalize_jagged_array(
+                    branch_name,
+                    branch_array,
+                    datum["dtype"],
+                    datum["shape"],
+                    operation="extend",
                 )
+                tofill.append(
+                    (branch_name, datum["compression"], big_endian, big_endian_offsets)
+                )
+
+        return tofill, num_entries
+
+    def extend(self, file, sink, data, prepared=None):
+        """
+        Writes one more basket per branch with ``data``. ``prepared`` is what
+        :ref:`_prepare_extend` returns for ``data``, if the caller already has it.
+        """
+        # validate everything before touching the file
+        if prepared is None:
+            prepared = self._prepare_extend(data)
+        tofill, num_entries = prepared
+
+        relocated = False
+        if self._needs_relocation_before_extend:
+            # metadata_start/basket_metadata_start (computed structurally by
+            # _build_out()) are only correct for a tree actually laid out the
+            # way Uproot's own write_anew() lays one out. A tree loaded from an existing file
+            # may have been written by ROOT instead, with a byte-for-byte
+            # different (but semantically equivalent) layout Uproot's writer
+            # doesn't replicate -- write_updates() patching at Uproot's
+            # assumed offsets would then silently corrupt unrelated bytes.
+            # write_anew() here establishes Uproot's own canonical layout for
+            # real (the same thing add_branches() already always does, which
+            # is why it already works on ROOT-written files), so every
+            # write_updates() patch from here on is guaranteed to target the
+            # right bytes. Costs one full blob rewrite, but only once, on the
+            # first extend() after loading -- not on every call.
+            self._relocate(file, sink)
+            self._needs_relocation_before_extend = False
+            relocated = True
+
+        # expand capacity if this would REACH (not EXCEED) the existing capacity
+        # that's because completely a full fBasketEntry has nowhere to put the
+        # number of entries in the last basket (it's a fencepost principle thing),
+        # forcing ROOT and Uproot to look it up from the basket header.
+
+        if self._num_baskets >= self._basket_capacity - 1:
+            self._basket_capacity = max(
+                self._basket_capacity + 1,
+                math.ceil(self._basket_capacity * self._resize_factor),
+            )
+
+            for datum in self._branch_data:
+                if datum["kind"] == "record":
+                    continue
+
+                fBasketBytes = datum["fBasketBytes"]
+                fBasketEntry = datum["fBasketEntry"]
+                fBasketSeek = datum["fBasketSeek"]
+                datum["fBasketBytes"] = numpy.zeros(
+                    self._basket_capacity, uproot.models.TBranch._tbranch13_dtype1
+                )
+                datum["fBasketEntry"] = numpy.zeros(
+                    self._basket_capacity, uproot.models.TBranch._tbranch13_dtype2
+                )
+                datum["fBasketSeek"] = numpy.zeros(
+                    self._basket_capacity, uproot.models.TBranch._tbranch13_dtype3
+                )
+                datum["fBasketBytes"][: len(fBasketBytes)] = fBasketBytes
+                datum["fBasketEntry"][: len(fBasketEntry)] = fBasketEntry
+                datum["fBasketSeek"][: len(fBasketSeek)] = fBasketSeek
+                datum["fBasketEntry"][len(fBasketEntry)] = self._num_entries
+
+            self._relocate(file, sink)
+            relocated = True
+
+        if num_entries == 0:
+            # write_anew() leaves what write_updates() patches, such as the
+            # counters' fMaximum, at placeholder values
+            if relocated:
+                self.write_updates(sink)
+            return
 
         # actually write baskets into the file
         uncompressed_bytes = 0
@@ -879,6 +880,10 @@ class Tree:
                 totbytes, zipbytes, location = self.write_np_basket(
                     sink, branch_name, compression, big_endian
                 )
+                if datum["kind"] == "counter" and big_endian.size > 0:
+                    datum["tleaf_maximum_value"] = max(
+                        int(big_endian.max()), datum["tleaf_maximum_value"]
+                    )
             else:
                 totbytes, zipbytes, location = self.write_jagged_basket(
                     sink, branch_name, compression, big_endian, big_endian_offsets
@@ -1035,7 +1040,7 @@ class Tree:
                     fCompress,
                     datum["fBasketSize"],
                     datum["fEntryOffsetLen"],
-                    self._num_baskets,  # fWriteBasket
+                    datum["arrays_write_stop"],  # fWriteBasket
                     self._num_entries,  # fEntryNumber
                 )
             )
@@ -1046,7 +1051,7 @@ class Tree:
             out.append(
                 uproot.models.TBranch._tbranch13_format2.pack(
                     datum["fOffset"],
-                    self._basket_capacity,  # fMaxBaskets
+                    len(datum["fBasketBytes"]),  # fMaxBaskets
                     datum["fSplitLevel"],
                     self._num_entries,  # fEntries
                     datum["fFirstEntry"],
@@ -1109,11 +1114,14 @@ class Tree:
                 dims = "".join("[" + str(x) + "]" for x in datum["shape"])
 
             if datum["counter"] is not None:
-                dims = "[" + datum["counter"]["fName"] + "]" + dims
+                counter = datum["counter"]
+                dims = "[" + counter.get("leaf_name", counter["fName"]) + "]" + dims
 
             # single TLeaf
-            leaf_name = datum["fName"].encode(errors="surrogateescape")
-            leaf_title = (datum["fName"] + dims).encode(errors="surrogateescape")
+            leaf_name = datum.get("leaf_name", datum["fName"])
+            leaf_title = datum.get("leaf_title", leaf_name + dims)
+            leaf_name = leaf_name.encode(errors="surrogateescape")
+            leaf_title = leaf_title.encode(errors="surrogateescape")
             leaf_name_length = (1 if len(leaf_name) < 255 else 5) + len(leaf_name)
             leaf_title_length = (1 if len(leaf_title) < 255 else 5) + len(leaf_title)
 
@@ -1364,7 +1372,7 @@ class Tree:
                     fCompress,
                     datum["fBasketSize"],
                     datum["fEntryOffsetLen"],
-                    self._num_baskets,  # fWriteBasket
+                    datum["arrays_write_stop"],  # fWriteBasket
                     self._num_entries,  # fEntryNumber
                 ),
             )
@@ -1374,7 +1382,7 @@ class Tree:
                 position,
                 uproot.models.TBranch._tbranch13_format2.pack(
                     datum["fOffset"],
-                    self._basket_capacity,  # fMaxBaskets
+                    len(datum["fBasketBytes"]),  # fMaxBaskets
                     datum["fSplitLevel"],
                     self._num_entries,  # fEntries
                     datum["fFirstEntry"],
@@ -1714,3 +1722,110 @@ def recarray_to_dict(array):
         else:
             out[field_name] = field
     return out
+
+
+def _jagged_from_lists(lists, dtype, shape):
+    """
+    Makes an Awkward Array of variable-length lists of ``dtype`` items with
+    ``shape`` from Python lists of lists for a jagged branch.
+    """
+    offsets = numpy.zeros(len(lists) + 1, dtype=numpy.int64)
+    numpy.cumsum([len(x) for x in lists], out=offsets[1:])
+    items = [item for x in lists for item in x]
+    dtype = dtype.newbyteorder("=")
+    if len(items) == 0:
+        content = numpy.empty((0, *shape), dtype=dtype)
+    else:
+        try:
+            content = numpy.asarray(items, dtype=dtype)
+        except ValueError:
+            content = None
+        if content is None or content.shape[1:] != shape:
+            raise ValueError(
+                f"'extend' must fill branches with a consistent shape: has {shape}, "
+                "trying to fill with lists of items of a different one"
+            )
+    return awkward.Array(
+        awkward.contents.ListOffsetArray(
+            awkward.index.Index64(offsets),
+            awkward.contents.NumpyArray(content),
+        )
+    )
+
+
+def check_counter_agrees(counter_name, generated, explicit, counted=None):
+    """
+    Raises a ValueError if a counter branch's values that were given explicitly
+    disagree with the ones generated from the jagged arrays it counts (such as
+    ``counted``, if it's known).
+    """
+    if not numpy.array_equal(generated, numpy.asarray(explicit)):
+        if counted is None:
+            raise ValueError(
+                f"branch {counter_name!r} provided both as an explicit array and "
+                "generated as a counter, and they disagree"
+            )
+        raise ValueError(
+            f"branch {counter_name!r} provided both as an explicit array and "
+            f"generated as a counter, and they disagree: it's the name of the "
+            f"counter of jagged branch {counted!r}, which counter_name can change"
+        )
+
+
+def _normalize_jagged_array(
+    branch_name, branch_array, target_dtype, target_shape, operation="extend"
+):
+    layout = branch_array.layout
+    while not isinstance(layout, awkward.contents.ListOffsetArray):
+        if isinstance(layout, awkward.contents.IndexedArray):
+            layout = layout.project()
+
+        elif isinstance(layout, awkward.contents.ListArray):
+            layout = layout.to_ListOffsetArray64(False)
+
+        else:
+            raise TypeError(
+                f"jagged branch {branch_name!r} can't be filled with this "
+                f"Awkward Array:\n\n{layout!r}"
+            )
+
+    content = layout.content
+    offsets = numpy.asarray(layout.offsets)
+
+    if offsets[0] != 0:
+        content = content[offsets[0] :]
+        offsets = offsets - offsets[0]
+    if len(content) > offsets[-1]:
+        content = content[: offsets[-1]]
+
+    shape = [len(content)]
+    while not isinstance(content, awkward.contents.NumpyArray):
+        if isinstance(content, awkward.contents.IndexedArray):
+            content = content.project()
+
+        elif isinstance(content, awkward.contents.EmptyArray):
+            content = content.to_NumpyArray(dtype=numpy.float64)
+
+        elif isinstance(content, awkward.contents.RegularArray):
+            shape.append(content.size)
+            content = content.content
+
+        else:
+            raise TypeError(
+                f"jagged branch {branch_name!r} can't be filled with lists "
+                f"of this Awkward Array:\n\n{content!r}"
+            )
+
+    big_endian = numpy.asarray(content.data, dtype=target_dtype)
+    shape = tuple(shape) + big_endian.shape[1:]
+
+    if shape[1:] != target_shape:
+        raise ValueError(
+            f"'{operation}' must fill branches with a consistent shape: has {target_shape}, trying to fill with {shape[1:]}"
+        )
+    # keep the fixed inner dimensions (if any) so that write_jagged_basket scales
+    # the offsets by them; a RegularArray's content can be longer than it needs
+    # to be, so drop the excess
+    big_endian = big_endian.reshape(-1)[: math.prod(shape)].reshape(shape)
+    big_endian_offsets = offsets.astype(">i4", copy=True)
+    return big_endian, big_endian_offsets

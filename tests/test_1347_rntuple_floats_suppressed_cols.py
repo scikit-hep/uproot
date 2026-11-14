@@ -1,5 +1,6 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
+import pytest
 import skhep_testdata
 import numpy as np
 
@@ -23,130 +24,29 @@ def quantize_float(value, bits, min, max):
     return quantized_float.astype(np.float32)
 
 
-def test_custom_floats():
+@pytest.mark.parametrize(
+    ("entry", "true_truncated", "true_quantized"),
+    [
+        (0, 1.23456789, 1.23456789),
+        (1, 1.4660155e13, 1.6666666),
+        (2, -6.2875986e-22, -6.2875986e-22),
+        (3, -1.9060668, -1.9060668),
+    ],
+)
+def test_custom_floats(entry, true_truncated, true_quantized):
     filename = skhep_testdata.data_path("test_float_types_rntuple_v1-0-0-0.root")
     with uproot.open(filename) as f:
-        obj = f["ntuple"]
+        row = f["ntuple"].arrays()[entry]
 
-        arrays = obj.arrays()
+    min_value = -2.0
+    max_value = 3.0
 
-        min_value = -2.0
-        max_value = 3.0
-
-        entry = arrays[0]
-        true_value = 1.23456789
-        assert entry.trunc10 == truncate_float(true_value, 10)
-        assert entry.trunc16 == truncate_float(true_value, 16)
-        assert entry.trunc24 == truncate_float(true_value, 24)
-        assert entry.trunc31 == truncate_float(true_value, 31)
-        assert np.isclose(
-            entry.quant1, quantize_float(true_value, 1, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant8, quantize_float(true_value, 8, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant16, quantize_float(true_value, 16, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant20, quantize_float(true_value, 20, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant24, quantize_float(true_value, 24, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant25, quantize_float(true_value, 25, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant32, quantize_float(true_value, 32, min_value, max_value)
-        )
-
-        entry = arrays[1]
-        true_value = 1.4660155e13
-        assert entry.trunc10 == truncate_float(true_value, 10)
-        assert entry.trunc16 == truncate_float(true_value, 16)
-        assert entry.trunc24 == truncate_float(true_value, 24)
-        assert entry.trunc31 == truncate_float(true_value, 31)
-        true_value = 1.6666666
-        assert np.isclose(
-            entry.quant1, quantize_float(true_value, 1, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant8, quantize_float(true_value, 8, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant16, quantize_float(true_value, 16, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant20, quantize_float(true_value, 20, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant24, quantize_float(true_value, 24, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant25, quantize_float(true_value, 25, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant32, quantize_float(true_value, 32, min_value, max_value)
-        )
-
-        entry = arrays[2]
-        true_value = -6.2875986e-22
-        assert entry.trunc10 == truncate_float(true_value, 10)
-        assert entry.trunc16 == truncate_float(true_value, 16)
-        assert entry.trunc24 == truncate_float(true_value, 24)
-        assert entry.trunc31 == truncate_float(true_value, 31)
-        assert np.isclose(
-            entry.quant1, quantize_float(true_value, 1, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant8, quantize_float(true_value, 8, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant16, quantize_float(true_value, 16, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant20, quantize_float(true_value, 20, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant24, quantize_float(true_value, 24, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant25,
-            quantize_float(true_value, 25, min_value, max_value),
-            atol=2e-07,
-        )
-        assert np.isclose(
-            entry.quant32, quantize_float(true_value, 32, min_value, max_value)
-        )
-
-        entry = arrays[3]
-        true_value = -1.9060668
-        assert entry.trunc10 == truncate_float(true_value, 10)
-        assert entry.trunc16 == truncate_float(true_value, 16)
-        assert entry.trunc24 == truncate_float(true_value, 24)
-        assert entry.trunc31 == truncate_float(true_value, 31)
-        assert np.isclose(
-            entry.quant1, quantize_float(true_value, 1, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant8, quantize_float(true_value, 8, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant16, quantize_float(true_value, 16, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant20, quantize_float(true_value, 20, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant24, quantize_float(true_value, 24, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant25, quantize_float(true_value, 25, min_value, max_value)
-        )
-        assert np.isclose(
-            entry.quant32, quantize_float(true_value, 32, min_value, max_value)
-        )
+    for bits in (10, 16, 24, 31):
+        assert row[f"trunc{bits}"] == truncate_float(true_truncated, bits)
+    for bits in (1, 8, 16, 20, 24, 25, 32):
+        expected = quantize_float(true_quantized, bits, min_value, max_value)
+        # one float32 step at this range, much less than the quantization of 20 bits
+        assert row[f"quant{bits}"] == pytest.approx(expected, rel=0, abs=5e-7)
 
 
 def test_multiple_representations():
@@ -164,4 +64,4 @@ def test_multiple_representations():
 
         arrays = obj.arrays()
 
-        assert np.allclose(arrays.real, [1, 2, 3])
+        assert arrays.real.tolist() == [1, 2, 3]

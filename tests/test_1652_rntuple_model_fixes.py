@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import numpy as np
 import pytest
@@ -65,7 +65,7 @@ def test_split_column_into_wider_destination():
     )
     _deserialize(destination, field_metadata)
 
-    np.testing.assert_allclose(destination.view(np.float32)[:num], values)
+    assert destination.view(np.float32)[:num].tolist() == values.tolist()
 
 
 def test_extract_bits_roundtrip():

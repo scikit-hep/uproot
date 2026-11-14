@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import numpy
 import pytest
@@ -86,9 +86,9 @@ def test_basket_boundary_jagged_and_strings(tmp_path):
         jagged = f["t"]["j"]
         strings = f["t"]["s"]
         for start, stop in [(0, 10), (5, 20), (10, 20), (0, 30), (7, 23)]:
-            assert len(jagged.array(entry_start=start, entry_stop=stop)) == (
-                stop - start
-            )
+            assert jagged.array(entry_start=start, entry_stop=stop).tolist() == [
+                [k] * ((k % 10 % 3) + 1) for k in range(start, stop)
+            ]
             result = strings.array(entry_start=start, entry_stop=stop).tolist()
             assert result == [f"str{k}" for k in range(start, stop)]
 
@@ -143,10 +143,7 @@ def test_rntuple_iterate_clamps_entry_stop(tmp_path):
         assert ranges == [(0, 30000), (30000, 40000)]
 
         # entry_start together with entry_stop must also be respected
-        total = sum(
-            len(arrays)
-            for arrays in nt.iterate(
-                step_size=15000, entry_start=10000, entry_stop=40000
-            )
-        )
-        assert total == 30000
+        chunks = list(nt.iterate(step_size=15000, entry_start=10000, entry_stop=40000))
+        assert [len(arrays) for arrays in chunks] == [15000, 15000]
+        assert chunks[0]["x"][0] == 10000
+        assert chunks[1]["x"][-1] == 39999

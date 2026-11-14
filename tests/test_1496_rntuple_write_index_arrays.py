@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import os
 
@@ -79,13 +79,5 @@ def test_writing_and_reading(tmp_path):
     arrays = obj.arrays()
 
     for f in data.fields:
-        if f in ("record_index64_option_array", "record_index32_option_array"):
-            assert [
-                t[0].tolist() if len(t) > 0 else None for t in arrays[f][:4]
-            ] == data[f].tolist()
-            assert [
-                t[0].tolist() if len(t) > 0 else None for t in arrays[f][4:]
-            ] == data[f].tolist()
-        else:
-            assert arrays[f][:4].tolist() == data[f].tolist()
-            assert arrays[f][4:].tolist() == data[f].tolist()
+        assert arrays[f][:4].tolist() == data[f].tolist()
+        assert arrays[f][4:].tolist() == data[f].tolist()

@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import os
 
@@ -18,3 +18,4 @@ def test(tmp_path):
 
     with uproot.open(filename) as file:
         assert isinstance(file["tree/branch"].interpretation, uproot.AsJagged)
+        assert file["tree/branch"].array().tolist() == [[1, 2, 3], [4, 5, 6]]

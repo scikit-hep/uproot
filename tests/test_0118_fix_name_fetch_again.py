@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import pytest
 import skhep_testdata
@@ -62,12 +62,12 @@ def test_numpy():
         )
 
         assert list(t.arrays("P3.Px", library="np").keys()) == ["P3.Px"]
-        with pytest.raises(Exception):
+        with pytest.raises(SyntaxError, match="invalid syntax"):
             t.arrays("/P3.Px", library="np")
         assert list(t.arrays("evt/P3/P3.Px", library="np").keys()) == ["evt/P3/P3.Px"]
         assert list(t.arrays("/evt/P3/P3.Px", library="np").keys()) == ["/evt/P3/P3.Px"]
         assert list(t["evt"].arrays("P3.Px", library="np").keys()) == ["P3.Px"]
-        with pytest.raises(Exception):
+        with pytest.raises(SyntaxError, match="invalid syntax"):
             t["evt"].arrays("/P3.Px", library="np")
         assert list(t["evt"].arrays("P3/P3.Px", library="np").keys()) == ["P3/P3.Px"]
         assert list(t["evt/P3"].arrays("P3.Px", library="np").keys()) == ["P3.Px"]
@@ -98,12 +98,12 @@ def test_awkward():
         assert t["evt/P3"].arrays(filter_name="P3/P3.Px", library="ak").fields == []
 
         assert t.arrays("P3.Px", library="ak").fields == ["P3.Px"]
-        with pytest.raises(Exception):
+        with pytest.raises(SyntaxError, match="invalid syntax"):
             t.arrays("/P3.Px", library="ak")
         assert t.arrays("evt/P3/P3.Px", library="ak").fields == ["evt/P3/P3.Px"]
         assert t.arrays("/evt/P3/P3.Px", library="ak").fields == ["/evt/P3/P3.Px"]
         assert t["evt"].arrays("P3.Px", library="ak").fields == ["P3.Px"]
-        with pytest.raises(Exception):
+        with pytest.raises(SyntaxError, match="invalid syntax"):
             t["evt"].arrays("/P3.Px", library="ak")
         assert t["evt"].arrays("P3/P3.Px", library="ak").fields == ["P3/P3.Px"]
         assert t["evt/P3"].arrays("P3.Px", library="ak").fields == ["P3.Px"]
@@ -152,7 +152,7 @@ def test_pandas():
         )
 
         assert t.arrays("P3.Px", library="pd").columns.tolist() == ["P3.Px"]
-        with pytest.raises(Exception):
+        with pytest.raises(SyntaxError, match="invalid syntax"):
             t.arrays("/P3.Px", library="pd")
         assert t.arrays("evt/P3/P3.Px", library="pd").columns.tolist() == [
             "evt/P3/P3.Px"
@@ -161,7 +161,7 @@ def test_pandas():
             "/evt/P3/P3.Px"
         ]
         assert t["evt"].arrays("P3.Px", library="pd").columns.tolist() == ["P3.Px"]
-        with pytest.raises(Exception):
+        with pytest.raises(SyntaxError, match="invalid syntax"):
             t["evt"].arrays("/P3.Px", library="pd")
         assert t["evt"].arrays("P3/P3.Px", library="pd").columns.tolist() == [
             "P3/P3.Px"

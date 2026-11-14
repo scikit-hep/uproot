@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 import os
 import uproot
 import pytest
@@ -36,11 +36,12 @@ def test_struct_with_union(tmp_path):
         obj.extend(data)
 
     obj = uproot.open(filepath)["ntuple"]
-    assert len(obj.keys()) == 2
+    assert obj.keys() == ["union1", "union2"]
+    assert obj.arrays().to_list() == data.to_list()
 
 
 def test_atomic():
     filepath = skhep_testdata.data_path("test_atomic_bitset_rntuple_v1-0-0-0.root")
     obj = uproot.open(filepath)["ntuple"]
 
-    assert len(obj["atomic_int"].keys()) == 0
+    assert obj["atomic_int"].keys() == []

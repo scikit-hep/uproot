@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines an :doc:`uproot.interpretation.Interpretation` and
@@ -417,8 +417,6 @@ class JaggedArray:
         indicates which subentry each item is, within its nested list.
         """
         counts = self._offsets[1:] - self._offsets[:-1]
-        if uproot._util.win:
-            counts = counts.astype(numpy.int32)
 
         assert entry_stop - entry_start == len(self._offsets) - 1
         indexes = numpy.arange(len(self._offsets) - 1, dtype=numpy.int64)

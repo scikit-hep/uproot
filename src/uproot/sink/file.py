@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines a physical layer for writing local files.
@@ -206,7 +206,8 @@ class FileSink:
         """
         Calls the file or file-like object's ``tell`` method.
         """
-        self._ensure()
+        if self._closed or not self._file:
+            self._ensure()
         return self._file.tell()
 
     def flush(self) -> None:

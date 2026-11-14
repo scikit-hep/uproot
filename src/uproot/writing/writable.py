@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines high-level functions and objects for file-writing.
@@ -476,6 +476,42 @@ class WritableFile(uproot.reading.CommonFileMethods):
         del self._trees[oldloc]
         self._trees[newloc] = tree
 
+    def _read_key(self, key, parent=None):
+        """
+        Deserializes the object at ``key`` (anything with ``seek_location``,
+        ``num_bytes`` and ``compressed_bytes``) from the sink, with
+        :doc:`uproot.writing._cascade._ReadForUpdate` as its file, so that the
+        whole file isn't read into memory.
+        """
+        readforupdate = self._read_for_update()
+        readforupdate.options["minimal_ttree_metadata"] = False
+
+        raw_bytes = self._sink.read(
+            key.seek_location,
+            key.num_bytes + key.compressed_bytes,
+        )
+        chunk = uproot.source.chunk.Chunk.wrap(
+            readforupdate, raw_bytes, start=key.seek_location
+        )
+        cursor = uproot.source.cursor.Cursor(key.seek_location, origin=key.num_bytes)
+        readonlykey = uproot.reading.ReadOnlyKey(
+            chunk, cursor, {}, readforupdate, parent, read_strings=True
+        )
+        return readonlykey.get()
+
+    def _read_for_update(self):
+        self._sink.flush()
+
+        def get_chunk(start, stop):
+            raw_bytes = self._sink.read(start, stop - start)
+            return uproot.source.chunk.Chunk.wrap(out, raw_bytes, start=start)
+
+        out = uproot.writing._cascade._ReadForUpdate(
+            self.file_path, self.uuid, get_chunk, self._cascading.tlist_of_streamers
+        )
+        out.options = dict(uproot.reading.open.defaults)
+        return out
+
 
 class WritableDirectory(MutableMapping):
     """
@@ -638,13 +674,13 @@ class WritableDirectory(MutableMapping):
 
     def __len__(self):
         return self._cascading.data.num_keys + sum(
-            len(self._subdir(x)) for x in self._cascading.data.dir_names
+            len(self._subdir(x)) for x in self._cascading.data.dir_keys
         )
 
     def __contains__(self, where):
         if self._cascading.data.haskey(where):
             return True
-        return any(where in self._subdir(x) for x in self._cascading.data.dir_names)
+        return any(where in self._subdir(x) for x in self._cascading.data.dir_keys)
 
     def __iter__(self):
         return self.iterkeys()
@@ -810,28 +846,13 @@ class WritableDirectory(MutableMapping):
 
         Note that this does not read any data from the file.
         """
-        filter_name = uproot._util.regularize_filter(filter_name)
-        filter_classname = uproot._util.regularize_filter(filter_classname)
-        for keyname, cyclenum, classname in self._cascading.data.key_triples:
-            if (filter_name is no_filter or filter_name(keyname)) and (
-                filter_classname is no_filter or filter_classname(classname)
-            ):
-                if cycle:
-                    yield f"{keyname};{cyclenum}"
-                else:
-                    yield keyname
-
-            if recursive and classname in ("TDirectory", "TDirectoryFile"):
-                for k1 in self._get(keyname, cyclenum).iterkeys(
-                    recursive=recursive,
-                    cycle=cycle,
-                    filter_name=filter_name,
-                    filter_classname=filter_classname,
-                ):
-                    k2 = f"{keyname}/{k1}"
-                    k3 = k2[: k2.index(";")] if ";" in k2 else k2
-                    if filter_name is no_filter or filter_name(k3):
-                        yield k2
+        yield from self._iter(
+            "keys",
+            recursive=recursive,
+            cycle=cycle,
+            filter_name=filter_name,
+            filter_classname=filter_classname,
+        )
 
     def itervalues(
         self,
@@ -851,18 +872,20 @@ class WritableDirectory(MutableMapping):
                 filter to select keys by C++ (decoded) classname.
 
         Returns objects in this ``TDirectory`` as an iterator over
-        :doc:`uproot.model.Model`.
+        :doc:`uproot.model.Model`, each name once, as its highest cycle (as
+        ``items(cycle=False)``).
 
         Note that this reads all objects that are selected by ``filter_name``
         and ``filter_classname``.
         """
-        for keyname in self.iterkeys(
+        for _, value in self._iter(
+            "items",
             recursive=recursive,
-            cycle=True,
+            cycle=False,
             filter_name=filter_name,
             filter_classname=filter_classname,
         ):
-            yield self[keyname]
+            yield value
 
     def iteritems(
         self,
@@ -889,16 +912,13 @@ class WritableDirectory(MutableMapping):
         Note that this reads all objects that are selected by ``filter_name``
         and ``filter_classname``.
         """
-        for keyname in self.iterkeys(
+        yield from self._iter(
+            "items",
             recursive=recursive,
-            cycle=True,
+            cycle=cycle,
             filter_name=filter_name,
             filter_classname=filter_classname,
-        ):
-            if not cycle:
-                at = keyname.index(";")
-                keyname = keyname[:at]  # noqa: PLW2901 (overwriting keyname)
-            yield keyname, self[keyname]
+        )
 
     def iterclassnames(
         self,
@@ -924,28 +944,79 @@ class WritableDirectory(MutableMapping):
 
         Note that this does not read any data from the file.
         """
+        yield from self._iter(
+            "classnames",
+            recursive=recursive,
+            cycle=cycle,
+            filter_name=filter_name,
+            filter_classname=filter_classname,
+        )
+
+    def _iter(
+        self,
+        what,
+        *,
+        recursive=True,
+        cycle=True,
+        filter_name=no_filter,
+        filter_classname=no_filter,
+    ):
+        """
+        Private generator shared by ``iterkeys``, ``iteritems``, and
+        ``iterclassnames``, like :ref:`uproot.reading.ReadOnlyDirectory._iter`.
+        The ``what`` argument selects what is yielded: ``"keys"`` yields names
+        (str), ``"items"`` yields (name, object) pairs, and ``"classnames"``
+        yields (name, classname) pairs.
+        """
         filter_name = uproot._util.regularize_filter(filter_name)
         filter_classname = uproot._util.regularize_filter(filter_classname)
-        for keyname, cyclenum, classname in self._cascading.data.key_triples:
+
+        triples = self._cascading.data.key_triples
+        if not cycle:
+            # without cycle numbers, a name stands for its highest cycle, as in
+            # self[name], so the cycles of each name are visited from the highest
+            order = {}
+            for keyname, _, _ in triples:
+                order.setdefault(keyname, len(order))
+            triples = sorted(triples, key=lambda t: (order[t[0]], -t[1]))
+
+        seen = set()
+        for keyname, cyclenum, classname in triples:
             if (filter_name is no_filter or filter_name(keyname)) and (
                 filter_classname is no_filter or filter_classname(classname)
             ):
-                if cycle:
-                    yield f"{keyname};{cyclenum}", classname
-                else:
-                    yield keyname, classname
+                out = f"{keyname};{cyclenum}" if cycle else keyname
+                if out not in seen:
+                    seen.add(out)
+                    if what == "keys":
+                        yield out
+                    elif what == "items":
+                        yield out, self._get(keyname, cyclenum)
+                    else:
+                        yield out, classname
 
             if recursive and classname in ("TDirectory", "TDirectoryFile"):
-                for k1, c1 in self._get(keyname, cyclenum).iterclassnames(
+                for sub in self._get(keyname, cyclenum)._iter(
+                    what,
                     recursive=recursive,
                     cycle=cycle,
-                    filter_name=filter_name,
+                    filter_name=no_filter,
                     filter_classname=filter_classname,
                 ):
+                    if what == "keys":
+                        k1 = sub
+                    else:
+                        k1, v = sub
                     k2 = f"{keyname}/{k1}"
                     k3 = k2[: k2.index(";")] if ";" in k2 else k2
-                    if filter_name is no_filter or filter_name(k3):
-                        yield k2, c1
+                    if (filter_name is no_filter or filter_name(k3)) and (
+                        k2 not in seen
+                    ):
+                        seen.add(k2)
+                        if what == "keys":
+                            yield k2
+                        else:
+                            yield k2, v
 
     def _get_del_search(self, where, isget):
         if "/" in where or ":" in where:
@@ -1042,33 +1113,7 @@ class WritableDirectory(MutableMapping):
                 return self._load_existing_ntuple(key)
 
         else:
-
-            def get_chunk(start, stop):
-                raw_bytes = self._file.sink.read(start, stop - start)
-                return uproot.source.chunk.Chunk.wrap(
-                    readforupdate, raw_bytes, start=start
-                )
-
-            readforupdate = uproot.writing._cascade._ReadForUpdate(
-                self._file.file_path,
-                self._file.uuid,
-                get_chunk,
-                self._file._cascading.tlist_of_streamers,
-            )
-
-            raw_bytes = self._file.sink.read(
-                key.seek_location,
-                key.num_bytes + key.compressed_bytes,
-            )
-
-            chunk = uproot.source.chunk.Chunk.wrap(readforupdate, raw_bytes)
-            cursor = uproot.source.cursor.Cursor(0, origin=key.num_bytes)
-
-            readonlykey = uproot.reading.ReadOnlyKey(
-                chunk, cursor, {}, readforupdate, self, read_strings=True
-            )
-
-            return readonlykey.get()
+            return self._file._read_key(key, self)
 
     def _load_existing_ttree(self, key):
         """
@@ -1101,51 +1146,25 @@ class WritableDirectory(MutableMapping):
             "u1": "B",
         }
 
-        # read using sink.read + Chunk.wrap + _ReadForUpdate (same as _get)
-        # avoids loading entire file into memory
-        self._file.sink.flush()
-
-        def _get_chunk(start, stop):
-            raw_bytes = self._file.sink.read(start, stop - start)
-            return uproot.source.chunk.Chunk.wrap(
-                _readforupdate, raw_bytes, start=start
-            )
-
-        _readforupdate = uproot.writing._cascade._ReadForUpdate(
-            self._file.file_path,
-            self._file.uuid,
-            _get_chunk,
-            self._file._cascading.tlist_of_streamers,
-        )
-        _readforupdate.options = dict(uproot.reading.open.defaults)
-        _readforupdate.options["minimal_ttree_metadata"] = False
-
-        _raw_bytes = self._file.sink.read(
-            key.seek_location,
-            key.num_bytes + key.compressed_bytes,
-        )
-        _chunk = uproot.source.chunk.Chunk.wrap(
-            _readforupdate, _raw_bytes, start=key.seek_location
-        )
-        _cursor = uproot.source.cursor.Cursor(key.seek_location, origin=key.num_bytes)
-        _readonlykey = uproot.reading.ReadOnlyKey(
-            _chunk, _cursor, {}, _readforupdate, self, read_strings=True
-        )
-        tree = _readonlykey.get()
+        tree = self._file._read_key(key, self)
         branches = list(tree.branches)
 
         fEntries = tree.member("fEntries")
 
         # metadata_start (TTree-level) and, per branch, metadata_start and
-        # basket_metadata_start are filled in below by casc._build_out(), which
-        # walks this cascade's layout the same way write_anew does -- rather than
-        # recovering them by searching the decompressed blob for the *current
-        # value* of a nearby field, which breaks whenever that value is 0 (e.g. a
-        # freshly mktree'd tree has fEntries == fTotBytes == fZipBytes == 0, and a
-        # search for zero bytes matches arbitrary unrelated data).
+        # basket_metadata_start are only known once Uproot has laid this tree
+        # out itself: add_branches() and the first extend() rewrite it with
+        # write_anew() (see _needs_relocation_before_extend) before any
+        # write_updates() relies on them.
 
         branch_data = []
         branch_lookup = {}
+        _counter_names = {}
+        # a counter's leaf needn't be named after its branch, and leaf names
+        # needn't be unique
+        _leaf_owners = {
+            id(leaf): b.name for b in branches for leaf in b.member("fLeaves")
+        }
         for b in branches:
             if b.classname != "TBranch":
                 # TBranchElement, TBranchObject, etc. use an on-disk layout (split
@@ -1171,8 +1190,12 @@ class WritableDirectory(MutableMapping):
                     dtype = numpy.dtype(str).newbyteorder(">")
                 else:
                     dtype = interpretation.numpy_dtype.newbyteorder(">")
-            except AttributeError:
-                # TBranchElement or other complex branch — skip
+            except (
+                AttributeError,
+                NotImplementedError,
+                uproot.interpretation.identify.UnknownInterpretation,
+            ):
+                # TBranch that this cascade can't extend — skip
                 continue
 
             if dtype.kind == "O":
@@ -1194,6 +1217,12 @@ class WritableDirectory(MutableMapping):
             # detect counter branches (e.g. njets for jagged jets array)
             _leaves = b.member("fLeaves")
             _is_counter = bool(_leaves) and bool(_leaves[0].member("fIsRange"))
+            _leafcount = _leaves[0].member("fLeafCount") if _leaves else None
+            _counter_names[b.name] = (
+                _leaf_owners.get(id(_leafcount), _leafcount.member("fName"))
+                if _leafcount is not None
+                else None
+            )
             bd = {
                 "fName": b.name,
                 "branch_type": dtype,
@@ -1210,12 +1239,10 @@ class WritableDirectory(MutableMapping):
                 "fFirstEntry": b.member("fFirstEntry"),
                 "fTotBytes": b.member("fTotBytes"),
                 "fZipBytes": b.member("fZipBytes"),
-                "fBasketBytes": b.member("fBasketBytes").copy(),
-                "fBasketEntry": b.member("fBasketEntry").copy(),
-                "fBasketSeek": b.member("fBasketSeek").copy(),
+                **_basket_tables(b),
                 "arrays_write_start": b.member("fWriteBasket"),
                 "arrays_write_stop": b.member("fWriteBasket"),
-                # filled in below by casc._build_out()
+                # filled in by write_anew(), before anything uses them
                 "metadata_start": None,
                 "basket_metadata_start": None,
                 "tleaf_reference_number": 0,
@@ -1226,6 +1253,9 @@ class WritableDirectory(MutableMapping):
                 ),
                 "tleaf_special_struct": _struct.Struct(">" + sc + sc),
             }
+            if _leaves:
+                bd["leaf_name"] = _leaves[0].member("fName")
+                bd["leaf_title"] = _leaves[0].member("fTitle")
             if dtype == ">U0":
                 # the length of the longest string written so far; extend()
                 # accumulates this as max(existing, new), so it must be
@@ -1239,8 +1269,10 @@ class WritableDirectory(MutableMapping):
 
         # fix counter references for jagged branches
         #
-        # fEntryOffsetLen > 0 alone isn't a reliable signal that a branch is
-        # jagged-with-a-counter: a string branch also gets fEntryOffsetLen > 0
+        # A resolved fLeafCount always means a jagged branch, but
+        # fEntryOffsetLen > 0 alone (the only signal for a file that doesn't set
+        # fLeafCount) isn't a reliable one. It can be 0 on a jagged branch whose
+        # last basket was empty, and a string branch also gets fEntryOffsetLen > 0
         # once it has data (its basket-internal offset table), but strings are
         # never counted by a separate branch. Without the dtype check, a string
         # branch could be wrongly paired with an unrelated same-named "n"+name
@@ -1250,10 +1282,9 @@ class WritableDirectory(MutableMapping):
         for bd in branch_data:
             if (
                 bd.get("fEntryOffsetLen", 0) > 0
-                and bd["counter"] is None
-                and bd.get("dtype") != ">U0"
-            ):
-                counter_nm = "n" + bd["fName"]
+                or _counter_names.get(bd["fName"]) is not None
+            ) and (bd["counter"] is None and bd.get("dtype") != ">U0"):
+                counter_nm = _counter_names.get(bd["fName"]) or "n" + bd["fName"]
                 counter_bd = next(
                     (x for x in branch_data if x["fName"] == counter_nm), None
                 )
@@ -1266,8 +1297,9 @@ class WritableDirectory(MutableMapping):
         # once a branch's accumulated data exceeds fBasketSize, so branches
         # with different per-entry sizes accumulate baskets at different
         # rates even when filled together from the start. Detect that here
-        # so extend()/add_branches() can refuse rather than silently use one
-        # branch's basket bookkeeping for all of them.
+        # so extend() can refuse rather than silently use one branch's basket
+        # bookkeeping for all of them; add_branches() only needs to know that
+        # one branch's count says nothing about the others.
         _supported_branches = [b for b in branches if b.classname == "TBranch"]
         _write_basket_values = {b.member("fWriteBasket") for b in _supported_branches}
         _max_basket_values = {b.member("fMaxBaskets") for b in _supported_branches}
@@ -1311,6 +1343,7 @@ class WritableDirectory(MutableMapping):
         casc._branch_lookup = branch_lookup
         casc._has_unsupported_branches = len(branch_data) != len(branches)
         casc._has_divergent_baskets = has_divergent_baskets
+        casc._rewrite_blockers = _rewrite_blockers(tree, branch_data, _counter_names)
         # metadata_start/basket_metadata_start were just derived structurally,
         # assuming this tree is laid out the way Uproot's own writer lays one
         # out. That's only actually true once Uproot itself has written this
@@ -1322,7 +1355,7 @@ class WritableDirectory(MutableMapping):
         # so it clears this flag itself once it does.
         casc._needs_relocation_before_extend = True
         casc._basket_capacity = (
-            _supported_branches[0].member("fMaxBaskets") if _supported_branches else 10
+            len(branch_data[0]["fBasketBytes"]) if branch_data else 10
         )
         casc._resize_factor = 10.0
         casc._counter_name = lambda counted: "n" + counted
@@ -1331,13 +1364,6 @@ class WritableDirectory(MutableMapping):
         casc._num_entries = fEntries
         casc._metadata = metadata
         casc._key = dir_key
-
-        # recovers casc._metadata_start and each branch's metadata_start /
-        # basket_metadata_start / tleaf_reference_number by walking the same
-        # layout write_anew would emit for this tree, rather than searching the
-        # blob for byte patterns; the returned chunks are discarded, nothing is
-        # written to the file
-        casc._build_out()
 
         path = (*self._path, name)
         writable_tree = WritableTree(path, self._file, casc)
@@ -1365,19 +1391,7 @@ class WritableDirectory(MutableMapping):
         Returns:
             The deserialized ``Model_RNTuple`` (read-side) object.
         """
-        self._file.sink.flush()
-
-        def _get_chunk(start, stop):
-            raw_bytes = self._file.sink.read(start, stop - start)
-            return uproot.source.chunk.Chunk.wrap(readforupdate, raw_bytes, start=start)
-
-        readforupdate = uproot.writing._cascade._ReadForUpdate(
-            self._file.file_path,
-            self._file.uuid,
-            _get_chunk,
-            self._file._cascading.tlist_of_streamers,
-        )
-        readforupdate.options = dict(uproot.reading.open.defaults)
+        readforupdate = self._file._read_for_update()
 
         raw_bytes = self._file.sink.read(
             key.seek_location,
@@ -1396,6 +1410,24 @@ class WritableDirectory(MutableMapping):
 
     def _load_existing_ntuple(self, key):
         """
+        Loads an existing RNTuple from disk, registering a new writable
+        :doc:`uproot.writing.writable.WritableNTuple` handle to it.
+
+        Args:
+            key: The ROOT key object pointing to the RNTuple in the file.
+
+        Returns:
+            :doc:`uproot.writing.writable.WritableNTuple`
+        """
+        cascading, column_encoding_error = self._load_ntuple_cascading(key)
+        path = (*self._path, key.name.string)
+        writable_ntuple = WritableNTuple(path, self._file, cascading)
+        writable_ntuple._column_encoding_error = column_encoding_error
+        self._file._new_ntuple(writable_ntuple)
+        return writable_ntuple
+
+    def _load_ntuple_cascading(self, key):
+        """
         Loads an existing RNTuple from disk and reconstructs a writable
         :doc:`uproot.writing.writable.WritableNTuple` object from it.
 
@@ -1408,7 +1440,8 @@ class WritableDirectory(MutableMapping):
             key: The ROOT key object pointing to the RNTuple in the file.
 
         Returns:
-            :doc:`uproot.writing.writable.WritableNTuple`
+            The :doc:`uproot.writing._cascadentuple.NTuple` and the error
+            message from checking its column encodings, or None.
         """
 
         import uproot.writing._cascade as casc
@@ -1527,6 +1560,7 @@ class WritableDirectory(MutableMapping):
             [],
             anchor,
         )
+        ntuple_cascading._key = key
         ntuple_cascading._header_key = casc.Key(
             am["fSeekHeader"] - _rblob_key_size,
             am["fLenHeader"],
@@ -1579,11 +1613,7 @@ class WritableDirectory(MutableMapping):
         ntuple_cascading._existing_page_list_envelopes = existing_page_list_envelopes
         ntuple_cascading._existing_field_records = existing_field_records
 
-        path = (*self._path, name)
-        writable_ntuple = WritableNTuple(path, self._file, ntuple_cascading)
-        writable_ntuple._column_encoding_error = _column_encoding_error
-        self._file._ntuples[key.seek_location] = writable_ntuple
-        return writable_ntuple
+        return ntuple_cascading, _column_encoding_error
 
     def _del(self, name, cycle):
         key = self._cascading.data.get_key(name, cycle)
@@ -1595,6 +1625,10 @@ class WritableDirectory(MutableMapping):
                 file_path=self.file_path,
                 object_path=self.object_path,
             )
+        for handles in (self._file._trees, self._file._ntuples):
+            handle = handles.pop(key.seek_location, None)
+            if handle is not None:
+                handle._deleted = True
         start = key.seek_location
         stop = start + key.num_bytes + key.compressed_bytes
         self._cascading.freesegments.release(start, stop)
@@ -2106,12 +2140,13 @@ in file {source.file_path} in directory {source.path}"""
             )
 
         for name, allocation in new_dirs.items():
-            self.mkdir(
-                name,
-                initial_directory_bytes=max(
-                    self._file.initial_directory_bytes, allocation
-                ),
-            )
+            if name != "":  # the root of the copy is this directory, not a new one
+                self.mkdir(
+                    name,
+                    initial_directory_bytes=max(
+                        self._file.initial_directory_bytes, allocation
+                    ),
+                )
 
         for _ in range(len(ranges)):
             chunk = notifications.get()
@@ -2170,6 +2205,151 @@ in file {source.file_path} in directory {source.path}"""
 
             uproot.writing.identify.add_to_directory(v, name, directory, streamers)
         self._file._cascading.streamers.update_streamers(self._file.sink, streamers)
+
+
+def _is_jagged(data):
+    if isinstance(data, awkward.Array):
+        return data.ndim > 1 and not data.layout.purelist_isregular
+    if isinstance(data, (list, tuple)):
+        try:
+            array = numpy.asarray(data)
+        except ValueError:
+            return True
+        # a list of lists that are all empty is rectangular only by accident;
+        # NumPy arrays are taken at their word, and so are deeper lists, which
+        # couldn't be written as a jagged array of one dimension anyway
+        return array.dtype.kind == "O" or (array.ndim == 2 and array.shape[1] == 0)
+    return False
+
+
+def _basket_tables(branch):
+    """
+    Returns a branch's fBasketBytes, fBasketEntry and fBasketSeek with the same
+    capacity: if its baskets fill its tables, TBranch.postprocess has added the
+    end of the last one to fBasketEntry, which then has one more item.
+    """
+    tables = {
+        "fBasketBytes": uproot.models.TBranch._tbranch13_dtype1,
+        "fBasketEntry": uproot.models.TBranch._tbranch13_dtype2,
+        "fBasketSeek": uproot.models.TBranch._tbranch13_dtype3,
+    }
+    capacity = max(len(branch.member(name)) for name in tables)
+    out = {}
+    for name, dtype in tables.items():
+        values = branch.member(name)
+        out[name] = numpy.zeros(capacity, dtype=dtype)
+        out[name][: len(values)] = values
+    return out
+
+
+def _jagged_content_dtype(cascading, data):
+    branch_type = data.type.content
+
+    dtype = None
+    if type(branch_type).__name__ == "ListType":
+        dtype = cascading._branch_ak_to_np(branch_type.content)
+    if dtype is None:
+        raise TypeError(
+            f"cannot write Awkward Array type to ROOT file:\n\n    {data.type!s}"
+        )
+    if 0 in dtype.shape:
+        raise ValueError(
+            f"cannot write a jagged array with an empty fixed-size dimension: {data.type!s}"
+        )
+    return dtype
+
+
+def _rewrite_blockers(tree, branch_data, counter_names):
+    """
+    Lists what ``Tree._build_out`` would lose if it rewrote this preexisting
+    TTree's metadata, which it only knows how to do for what Uproot itself
+    writes: every TTree or TBranch member that it doesn't round-trip, unless
+    this tree has nothing in it. The file's baskets are unaffected, but without
+    these the metadata can't describe them anymore.
+    """
+    blockers = []
+
+    if tree.member("fNClusterRange") > 0:
+        blockers.append("cluster ranges")
+    for member, description in [
+        ("fAliases", "aliases"),
+        ("fIndexValues", "index"),
+        ("fIndex", "index"),
+        ("fFriends", "friends"),
+        ("fUserInfo", "user info"),
+    ]:
+        if tree.has_member(member) and len(tree.member(member) or ()) > 0:
+            blockers.append(description)
+    for member, description in [("fTreeIndex", "index"), ("fBranchRef", "TRefs")]:
+        if tree.has_member(member) and tree.member(member) is not None:
+            blockers.append(description)
+
+    supported = [b for b in tree.branches if b.classname == "TBranch"]
+    for description, is_blocked in [
+        ("data in embedded baskets", lambda b: len(b.embedded_baskets) > 0),
+        ("baskets in another file", lambda b: b.member("fFileName") != ""),
+        ("subbranches", lambda b: len(b.member("fBranches")) > 0),
+        ("branches with several leaves", lambda b: len(b.member("fLeaves")) != 1),
+        (
+            "packed branches (Double32_t, Float16_t)",
+            lambda b: any(
+                leaf.classname in ("TLeafD32", "TLeafF16")
+                for leaf in b.member("fLeaves")
+            ),
+        ),
+        (
+            "branches with a different number of entries from the TTree",
+            lambda b: b.member("fEntries") != tree.member("fEntries"),
+        ),
+    ]:
+        if any(is_blocked(b) for b in supported):
+            blockers.append(description)
+
+    if any(
+        bd["counter"] is None and counter_names.get(bd["fName"]) is not None
+        for bd in branch_data
+    ):
+        blockers.append("jagged branches with a counter in another branch type")
+
+    # Tree._build_out writes a reference to a counter's TLeaf where the counter
+    # is, which a reader only knows if it has already read it
+    position = {bd["fName"]: i for i, bd in enumerate(branch_data)}
+    if any(
+        bd["counter"] is not None and position[bd["counter"]["fName"]] > i
+        for i, bd in enumerate(branch_data)
+    ):
+        blockers.append("counters after the branches they count")
+
+    return tuple(dict.fromkeys(blockers))
+
+
+class _ExistingCounters:
+    """
+    Reads the values of a tree's existing counter branches from their normal
+    baskets through the file's sink, reading the tree's metadata at most once.
+    ``uproot.open`` can't be used for this: it would close the object behind a
+    sink that wraps a file-like object, and ``_ReadForUpdate`` isn't enough of a
+    file for ``TBranch.array``, but it is for ``TBranch.basket``.
+    """
+
+    def __init__(self, writable_tree):
+        self._writable_tree = writable_tree
+        self._tree = None
+        self._values = {}
+
+    def __call__(self, datum):
+        name = datum["fName"]
+        if name not in self._values:
+            if self._tree is None:
+                self._tree = self._writable_tree._file._read_key(
+                    self._writable_tree._cascading._key
+                )
+            branch = self._tree[name]
+            out = [numpy.empty(0, dtype=datum["dtype"])]
+            for i in range(branch.num_baskets):
+                out.append(branch.basket(i).data.view(datum["dtype"]))
+            self._values[name] = numpy.concatenate(out)
+        return self._values[name]
 
 
 class WritableTree:
@@ -2253,11 +2433,16 @@ class WritableTree:
         self._path = path
         self._file = file
         self._cascading = cascading
+        self._deleted = False
 
     def __repr__(self):
         return "<WritableTree {} at 0x{:012x}>".format(
             repr("/" + "/".join(self._path)), id(self)
         )
+
+    def _check_not_deleted(self):
+        if self._deleted:
+            raise ValueError("this TTree was deleted")
 
     @property
     def path(self):
@@ -2416,13 +2601,25 @@ class WritableTree:
         """
         return self._cascading.num_baskets
 
-    def add_branches(self, branches):
+    def _check_rewritable(self, operation):
+        blockers = self._cascading._rewrite_blockers
+        if len(blockers) > 0:
+            raise NotImplementedError(
+                f"{operation} would rewrite this TTree's metadata, which is not yet "
+                f"supported for a TTree with {', '.join(blockers)}: Uproot would "
+                "lose them, and possibly the ability to read this TTree"
+            )
+
+    def add_branches(self, branches, *, counter_name=None):
         """
         Args:
             branches (dict of str -> array): Names and data of new branches.
+            counter_name (callable of str -> str, optional): Function to generate
+                counter-TBranch names for Awkward Arrays of variable-length lists.
+                Defaults to the tree's configured counter_name (typically ``"n" + name``).
 
         Adds new branches to this TTree in-place. Only the new branch data and
-        an updated TTree header are written; existing data is never touched.
+        an updated TTree header are written; existing baskets are never touched.
 
         .. code-block:: python
 
@@ -2436,18 +2633,34 @@ class WritableTree:
             the branch listing for a tree with ``TBranchElement`` branches
             would silently drop them, so this raises ``NotImplementedError``
             for such trees instead. This mirrors the same restriction on
-            :ref:`uproot.writing.writable.WritableTree.extend`.
+            :ref:`uproot.writing.writable.WritableTree.extend`. The same goes
+            for other things that the rewritten listing would lose, such as
+            data in embedded baskets, cluster ranges, and packed branches.
+
+            A new branch always gets one basket, so this also raises
+            ``NotImplementedError`` for a tree whose branches all have the same
+            number of baskets, if that number is more than one: the result
+            couldn't be extended anymore.
         """
         if self._file.sink.closed:
             raise ValueError("cannot modify a TTree in a closed file")
+        self._check_not_deleted()
+        self._commit_branches(self._stage_branches(branches, counter_name))
 
-        source = self._path[-1]
-
-        # navigate to the correct directory (handles subdirectories)
-        directory = self._file.root_directory
-        for part in self._path[:-1]:
-            directory = directory[part]
-
+    def _stage_branches(
+        self,
+        branches,
+        counter_name=None,
+        existing_counters=None,
+        operation="add_branches",
+    ):
+        """
+        Checks new ``branches`` and builds their TBranch descriptions and basket
+        contents, without changing the tree. Returns a list of
+        ``(name, datum, array, offsets)`` for :ref:`_commit_branches`, counters
+        first. ``existing_counters`` is an ``_ExistingCounters`` to share, and
+        ``operation`` names what's adding the branches in error messages.
+        """
         # validate all branches have same length as existing tree; self._cascading
         # is already fully flushed and current on disk by the end of every
         # extend()/add_branches() call (the same trust extend() itself places in
@@ -2455,20 +2668,16 @@ class WritableTree:
         # disk here
         if self._cascading is None:
             raise RuntimeError(
-                "_cascading is None — this should not happen; please report this bug"
+                "_cascading is None: this should not happen; please report this bug"
             )
         casc = self._cascading
-        num_entries = casc._num_entries
 
-        for branch_name, branch_data in branches.items():
-            arr = numpy.asarray(branch_data)
-            if len(arr) != num_entries:
-                raise ValueError(
-                    f"branch {branch_name!r} has {len(arr)} entries but TTree has "
-                    f"{num_entries} entries; all new branches must match the tree length"
-                )
-            if branch_name in casc._branch_lookup:
-                raise ValueError(f"branch {branch_name!r} already exists in this TTree")
+        if counter_name is not None and not callable(counter_name):
+            raise TypeError("counter_name must be a callable or None")
+        resolve_counter = (
+            counter_name if counter_name is not None else casc._counter_name
+        )
+        num_entries = casc._num_entries
 
         # _load_existing_ttree leaves TBranchElement (and other non-TBranch)
         # branches out of casc._branch_data entirely, so rewriting the branch
@@ -2476,132 +2685,261 @@ class WritableTree:
         # silently drop them from the file
         if casc._has_unsupported_branches:
             raise NotImplementedError(
-                "add_branches for files with TBranchElement (or other non-TBranch) "
-                "branches is not yet supported via the cascade approach"
-            )
-        if casc._has_divergent_baskets:
-            # this cascade tracks one fWriteBasket/fMaxBaskets pair per tree, not
-            # per branch, but nothing guarantees every branch in a preexisting
-            # tree agrees on either (e.g. a ROOT-written tree whose branches
-            # have different per-entry sizes, and so flush baskets at different
-            # rates); rewriting the branch listing would apply one branch's
-            # basket bookkeeping to every branch, corrupting the others
-            raise NotImplementedError(
-                "add_branches for a TTree whose branches do not all have the same "
-                "number of baskets / basket capacity is not yet supported via the "
-                "cascade approach"
-            )
-        if casc._num_baskets > 1:
-            # add_branches always back-fills a new branch with exactly one
-            # basket spanning every existing entry (see below), regardless of
-            # how many baskets the tree's other branches already have. On a
-            # tree with only one basket that coincidentally matches, but on
-            # any tree with more, it would silently create the very
-            # divergent-basket-count state the guard above exists to reject
-            # -- turning every future extend() on this tree into a permanent
-            # NotImplementedError, with no warning at add_branches() time.
-            raise NotImplementedError(
-                "add_branches for a TTree that already has more than one basket "
-                "is not yet supported via the cascade approach: the new branch "
-                "would only ever get one basket, permanently diverging from the "
-                "other branches' basket counts and blocking any future extend() "
-                "on this tree"
+                f"{operation} for TTrees with branches that Uproot can't write "
+                "(TBranchElements and other non-TBranch branches, or TBranches that "
+                "it can't interpret) is not yet supported via the cascade approach"
             )
 
-        # add new branch dicts to cascade
-        compression = casc._freesegments.fileheader.compression
-        for branch_name, branch_data in branches.items():
-            arr = numpy.asarray(branch_data)
-            if arr.dtype.kind == "O":
-                raise TypeError(
-                    f"branch {branch_name!r} has object dtype — only simple numeric "
-                    f"types are supported for add_branches"
+        self._check_rewritable(operation)
+
+        # A new branch always gets exactly one basket spanning every existing
+        # entry. A tree with one basket stays uniform that way, but on a uniform
+        # tree with more it would create a divergent one, turning every future
+        # extend() into a NotImplementedError. A tree that's already divergent
+        # has no such thing to lose; casc._num_baskets is just its first branch's
+        # count, so it says nothing about that tree either way.
+        if not casc._has_divergent_baskets:
+            if casc._num_baskets > 1:
+                raise NotImplementedError(
+                    f"{operation} for a TTree that already has more than one basket "
+                    "is not yet supported via the cascade approach: the new branch "
+                    "would only ever get one basket, permanently diverging from the "
+                    "other branches' basket counts and blocking any future extend() "
+                    "on this tree"
                 )
-            dtype = arr.dtype.newbyteorder(">")
-            new_bd = casc._branch_np(branch_name, arr.dtype, dtype)
-            new_bd["compression"] = compression
-            casc._branch_data.append(new_bd)
+            if casc._num_baskets == 0 and num_entries > 0:
+                raise NotImplementedError(
+                    f"{operation} for a TTree with entries but no baskets is not "
+                    "yet supported via the cascade approach"
+                )
+
+        # Phase 1: Pure Validation & Staging (No mutation of casc yet)
+        validated_branches = {}
+        counters_to_create = {}
+        explicit_counters = []
+        if existing_counters is None:
+            existing_counters = _ExistingCounters(self)
+
+        for branch_name, branch_data in branches.items():
+            if branch_name in casc._branch_lookup:
+                raise ValueError(f"branch {branch_name!r} already exists in this TTree")
+
+            is_jag = _is_jagged(branch_data)
+            if is_jag:
+                if not isinstance(branch_data, awkward.Array):
+                    data = awkward.from_iter(branch_data)
+                else:
+                    data = branch_data
+
+                if len(data) != num_entries:
+                    raise ValueError(
+                        f"branch {branch_name!r} has {len(data)} entries but TTree has "
+                        f"{num_entries} entries; all new branches must match the tree length"
+                    )
+
+                dt = _jagged_content_dtype(casc, data)
+
+                c_name = resolve_counter(branch_name)
+                counter_arr = numpy.asarray(awkward.num(data, axis=1), dtype=">i4")
+
+                if c_name in casc._branch_lookup:
+                    existing = casc._branch_data[casc._branch_lookup[c_name]]
+                    if existing["kind"] != "counter":
+                        raise ValueError(
+                            f"counter {c_name!r} for jagged branch {branch_name!r} "
+                            f"collides with a branch of the same name that is not a counter branch; "
+                            "add_branches with a counter_name can name the counter differently"
+                        )
+                    if num_entries > 0 and not numpy.array_equal(
+                        counter_arr, existing_counters(existing)
+                    ):
+                        raise ValueError(
+                            f"counter {c_name!r} for jagged branch {branch_name!r} "
+                            f"disagrees with the existing counter branch's lengths"
+                        )
+                elif c_name in branches:
+                    if _is_jagged(branches[c_name]):
+                        raise ValueError(
+                            f"counter {c_name!r} for jagged branch {branch_name!r} "
+                            "collides with another new jagged branch of the same name; "
+                            "counter_name can name the counter differently"
+                        )
+                    uproot.writing._cascadetree.check_counter_agrees(
+                        c_name, counter_arr, branches[c_name], counted=branch_name
+                    )
+                    if c_name not in explicit_counters:
+                        explicit_counters.append(c_name)
+                elif c_name in counters_to_create:
+                    if not numpy.array_equal(counters_to_create[c_name], counter_arr):
+                        raise ValueError(
+                            f"counter {c_name!r} for jagged branch {branch_name!r} "
+                            f"disagrees with another jagged branch using the same counter"
+                        )
+                else:
+                    counters_to_create[c_name] = counter_arr
+
+                validated_branches[branch_name] = (data, c_name, dt)
+            else:
+                arr = numpy.asarray(branch_data)
+                if len(arr) != num_entries:
+                    raise ValueError(
+                        f"branch {branch_name!r} has {len(arr)} entries but TTree has "
+                        f"{num_entries} entries; all new branches must match the tree length"
+                    )
+                if arr.dtype.kind == "O":
+                    raise TypeError(
+                        f"branch {branch_name!r} has object dtype: only simple numeric "
+                        f"types are supported for {operation}"
+                    )
+                if 0 in arr.shape[1:]:
+                    raise ValueError(
+                        f"branch {branch_name!r} has an empty fixed-size dimension: "
+                        f"shape {arr.shape}"
+                    )
+                validated_branches[branch_name] = (arr, None, None)
+
+        # Phase 2: Build Branch Descriptors & Normalize Data Upfront
+        compression = casc._freesegments.fileheader.compression
+        counter_dtype = numpy.dtype(numpy.int32)
+
+        def make_counter_bd(c_name):
+            bd = casc._branch_np(c_name, counter_dtype, counter_dtype, kind="counter")
+            bd["compression"] = compression
+            return bd
+
+        staged_counter_bds = {}
+        staged_branch_bds = []
+
+        # 1. Staged auto-generated counters
+        for c_name, counter_arr in counters_to_create.items():
+            staged_counter_bds[c_name] = (make_counter_bd(c_name), counter_arr)
+
+        # 2. Staged explicit counters (in deterministic insertion order)
+        for c_name in explicit_counters:
+            arr = validated_branches[c_name][0]
+            int32_arr = numpy.asarray(arr, dtype=">i4")
+            staged_counter_bds[c_name] = (make_counter_bd(c_name), int32_arr)
+
+        # 3. Staged user-provided branches
+        for branch_name, (data, c_name, dt) in validated_branches.items():
+            if branch_name in explicit_counters:
+                continue
+            if c_name is not None:
+                if c_name in casc._branch_lookup:
+                    counter_bd = casc._branch_data[casc._branch_lookup[c_name]]
+                else:
+                    counter_bd = staged_counter_bds[c_name][0]
+                jagged_bd = casc._branch_np(branch_name, dt, dt, counter=counter_bd)
+                jagged_bd["compression"] = compression
+                big_endian, big_endian_offsets = (
+                    uproot.writing._cascadetree._normalize_jagged_array(
+                        branch_name,
+                        data,
+                        jagged_bd["dtype"],
+                        jagged_bd["shape"],
+                        operation=operation,
+                    )
+                )
+                staged_branch_bds.append(
+                    (branch_name, jagged_bd, big_endian, big_endian_offsets)
+                )
+            else:
+                dtype = numpy.dtype((data.dtype, data.shape[1:]))
+                new_bd = casc._branch_np(branch_name, dtype, dtype, kind="normal")
+                new_bd["compression"] = compression
+                staged_branch_bds.append(
+                    (branch_name, new_bd, data.astype(new_bd["dtype"]), None)
+                )
+
+        return [
+            (c_name, counter_bd, counter_arr, None)
+            for c_name, (counter_bd, counter_arr) in staged_counter_bds.items()
+        ] + staged_branch_bds
+
+    def _append_staged(self, staged):
+        casc = self._cascading
+        for branch_name, datum, _, _ in staged:
+            casc._branch_data.append(datum)
             casc._branch_lookup[branch_name] = len(casc._branch_data) - 1
 
-        # rewrite TTree metadata blob with new branches included -- this relocates
-        # the tree (frees its old space, allocates new space for the larger
-        # blob), so the WritableFile._trees cache needs to move with it, the same
-        # way extend()'s own basket-capacity-expansion relocation does via
-        # file._move_tree(); otherwise a stale entry at the old location lingers
-        # in that cache indefinitely
-        oldloc = casc._key.seek_location
-        casc.write_anew(self._file.sink)
-        self._file._move_tree(oldloc, casc._key.seek_location)
-        # this write_anew() just established Uproot's own canonical layout for
-        # real, so a subsequent extend() on this same cascade doesn't need to
-        # redundantly do it again
+    def _remove_staged(self, staged):
+        casc = self._cascading
+        del casc._branch_data[len(casc._branch_data) - len(staged) :]
+        for branch_name, _, _, _ in staged:
+            del casc._branch_lookup[branch_name]
+
+    def _commit_branches(self, staged):
+        """
+        Writes the baskets of branches from :ref:`_stage_branches`, then the
+        tree metadata that refers to them. A failure before the metadata is
+        rewritten leaves the tree as it was, on disk and here: at worst, some
+        unreferenced bytes that no TBranch points to. Once the metadata is being
+        rewritten, the new branches stay, as they're on disk.
+        """
+        casc = self._cascading
+        num_entries = casc._num_entries
+        orig_fTotBytes = casc._metadata["fTotBytes"]
+        orig_fZipBytes = casc._metadata["fZipBytes"]
+        sink = self._file.sink
+
+        self._append_staged(staged)
+        try:
+            # one basket for each new branch, like the others have, unless the
+            # tree's branches have different numbers of baskets already: then
+            # one basket if there's anything to put in it
+            if casc._num_baskets == 1 or (
+                casc._has_divergent_baskets and num_entries > 0
+            ):
+                for branch_name, datum, array, offsets in staged:
+                    if offsets is None:
+                        totbytes, zipbytes, location = casc.write_np_basket(
+                            sink, branch_name, datum["compression"], array
+                        )
+                        if datum["kind"] == "counter" and array.size > 0:
+                            datum["tleaf_maximum_value"] = max(
+                                int(array.max()), datum["tleaf_maximum_value"]
+                            )
+                    else:
+                        totbytes, zipbytes, location = casc.write_jagged_basket(
+                            sink, branch_name, datum["compression"], array, offsets
+                        )
+                        # a branch's fEntryOffsetLen stays at its default if
+                        # there are no entries; 0 means it has no offsets at all.
+                        # Only Uproot before #1802 wrote an empty basket.
+                        if len(offsets) > 1:  # pragma: no branch  (see above)
+                            datum["fEntryOffsetLen"] = 4 * (len(offsets) - 1)
+
+                    datum["fTotBytes"] += totbytes
+                    datum["fZipBytes"] += zipbytes
+                    datum["fBasketBytes"][0] = zipbytes
+                    datum["fBasketSeek"][0] = location
+                    datum["fBasketEntry"][1] = num_entries
+                    datum["arrays_write_start"] = 0
+                    datum["arrays_write_stop"] = 1
+                    casc._metadata["fTotBytes"] += totbytes
+                    casc._metadata["fZipBytes"] += zipbytes
+
+        except Exception:
+            self._remove_staged(staged)
+            casc._metadata["fTotBytes"] = orig_fTotBytes
+            casc._metadata["fZipBytes"] = orig_fZipBytes
+            raise
+
+        casc._relocate(self._file, sink)
         casc._needs_relocation_before_extend = False
-
-        # write one basket per new branch
-        old_num_baskets = casc._num_baskets
-        casc._num_baskets = 0
-        for branch_name, branch_data in branches.items():
-            arr = numpy.asarray(branch_data).astype(
-                casc._branch_data[casc._branch_lookup[branch_name]]["dtype"]
-            )
-            totbytes, zipbytes, location = casc.write_np_basket(
-                self._file.sink, branch_name, compression, arr
-            )
-            datum = casc._branch_data[casc._branch_lookup[branch_name]]
-            datum["fTotBytes"] += totbytes
-            datum["fZipBytes"] += zipbytes
-            datum["fBasketBytes"][0] = zipbytes
-            datum["fBasketSeek"][0] = location
-            datum["fBasketEntry"][1] = num_entries
-            datum["arrays_write_start"] = 0
-            datum["arrays_write_stop"] = 1
-            casc._metadata["fTotBytes"] += totbytes
-            casc._metadata["fZipBytes"] += zipbytes
-
-        casc._num_baskets = old_num_baskets
-        casc.write_updates(self._file.sink)
-
-        # write_updates() stamps every branch's fWriteBasket with the tree-wide
-        # casc._num_baskets (old_num_baskets) -- correct for the pre-existing
-        # branches, which really do have that many baskets, but wrong for the
-        # brand-new branches just written above: add_branches always writes
-        # exactly one basket per new branch (indexed 0 above), so their real
-        # fWriteBasket is 1, not old_num_baskets. Left uncorrected, the file
-        # claims baskets the new branch never wrote, and reading it back later
-        # fails to account for the true number of entries.
-        base = casc._key.seek_location + casc._key.num_bytes
-        for branch_name in branches:
-            datum = casc._branch_data[casc._branch_lookup[branch_name]]
-            self._file.sink.write(
-                base + datum["metadata_start"],
-                uproot.models.TBranch._tbranch13_format1.pack(
-                    0,  # fCompress (write_updates also always writes 0 here; see its comment)
-                    datum["fBasketSize"],
-                    datum["fEntryOffsetLen"],
-                    1,  # fWriteBasket -- this branch has exactly one basket
-                    casc._num_entries,  # fEntryNumber
-                ),
-            )
-
-        self._file.sink.flush()
-
-        # update in-memory directory cache
-        dir_key_obj = directory._cascading.data.get_key(source)
-        dir_key_obj._seek_location = casc._key.seek_location
-
-        # update self._cascading so subsequent extend uses correct metadata
-        writable_tree = uproot.writing.writable.WritableTree(
-            self._path, self._file, casc
-        )
-        self._file._trees[casc._key.seek_location] = writable_tree
-        self._cascading = casc
+        casc.write_updates(sink)
 
     def extend(self, data, *, accept_new_fields=False):
         """
         Args:
             data (dict of str \u2192 arrays): More array data to add to the TTree.
             accept_new_fields (bool): If True, new fields in data are automatically added
-                with zeros back-filled for existing entries before extending.
+                with zeros back-filled for existing entries before extending: empty
+                lists for jagged fields, or lists of zeros if a jagged field's
+                counter (per the tree's ``counter_name``) already exists. A new
+                field given as a list of lists that all have the same length gets
+                a fixed size, like a NumPy array; pass an Awkward Array to make
+                it jagged.
 
         This method adds data to an existing TTree, whether it was created through
         assignment or :doc:`uproot.writing.writable.WritableDirectory.mktree`.
@@ -2623,32 +2961,35 @@ class WritableTree:
 
         .. warning::
 
-            **As a word of warning,** be sure that each call to :ref:`uproot.writing.writable.WritableTree.extend` includes at least 100 kB per branch/array. (NumPy and Awkward Arrays have an `nbytes <https://numpy.org/doc/stable/reference/generated/numpy.ndarray.nbytes.html>`__ property; you want at least ``100000`` per array.) If you ask Uproot to write very small TBaskets, it will spend more time working on TBasket overhead than actually writing data. The absolute worst case is one-entry-per-:ref:`uproot.writing.writable.WritableTree.extend`. See `#428 (comment) <https://github.com/scikit-hep/uproot5/pull/428#issuecomment-908703486>`__.
+            **As a word of warning,** be sure that each call to :ref:`uproot.writing.writable.WritableTree.extend` includes at least 100 kB per branch/array. (NumPy and Awkward Arrays have an `nbytes <https://numpy.org/doc/stable/reference/generated/numpy.ndarray.nbytes.html>`__ property; you want at least ``100000`` per array.) If you ask Uproot to write very small TBaskets, it will spend more time working on TBasket overhead than actually writing data. The absolute worst case is one-entry-per-:ref:`uproot.writing.writable.WritableTree.extend`. See `#428 (comment) <https://github.com/scikit-hep/uproot/pull/428#issuecomment-908703486>`__.
 
         .. note::
 
             On a tree reopened with :doc:`uproot.writing.writable.WritableDirectory.update`,
             only trees whose branches are all plain ``TBranch`` (not
-            ``TBranchElement``, e.g. split objects) are supported, and only
-            trees whose branches all agree on basket count/capacity (true by
-            construction for a tree Uproot itself wrote and has not touched
-            with :ref:`uproot.writing.writable.WritableTree.add_branches`
-            since). Either case raises ``NotImplementedError`` rather than
+            ``TBranchElement``, e.g. split objects) are supported, only trees
+            with no data in embedded baskets, and only trees whose branches all
+            agree on basket count/capacity (true by construction for a tree
+            Uproot itself wrote and has not touched with
+            :ref:`uproot.writing.writable.WritableTree.add_branches` since).
+            Trees with anything else Uproot can't rewrite, such as cluster
+            ranges and packed branches, aren't supported either.
+            Any of these cases raises ``NotImplementedError`` rather than
             desynchronizing or corrupting the tree's branches.
         """
-        if self._cascading is None:
-            raise RuntimeError(
-                "_cascading is None — this should not happen; please report this bug"
-            )
+        self._check_not_deleted()
         if self._cascading._has_unsupported_branches:
             # _load_existing_ttree leaves TBranchElement (and other non-TBranch)
             # branches out of _branch_data entirely, so extend() would only add
             # entries to the branches it knows about, desynchronizing entry
             # counts across the tree's branches
             raise NotImplementedError(
-                "extend for files with TBranchElement (or other non-TBranch) "
-                "branches is not yet supported via the cascade approach"
+                "extend for TTrees with branches that Uproot can't write "
+                "(TBranchElements and other non-TBranch branches, or TBranches that "
+                "it can't interpret) is not yet supported via the cascade approach"
             )
+        # the first extend() on a tree loaded from a file rewrites its metadata
+        self._check_rewritable("extend")
         if self._cascading._has_divergent_baskets:
             # this cascade tracks one fWriteBasket/fMaxBaskets pair per tree, not
             # per branch, but nothing guarantees every branch in a preexisting
@@ -2769,35 +3110,54 @@ class WritableTree:
                         "'extend' was given data that do not correspond to any branch: "
                         + repr(next(iter(new_fields)))
                     )
-                # add_branches() (used below to back-fill zeros for new fields)
-                # only creates simple scalar TBranch, with no counter-branch
-                # support -- it cannot create a new jagged branch. Left
-                # unchecked, numpy.asarray(v) below raises a confusing,
-                # awkward-internal "cannot convert to RegularArray" error for
-                # any jagged new field, instead of saying plainly that this
-                # isn't supported.
-                _jagged_new_fields = [
-                    k
-                    for k, v in new_fields.items()
-                    if isinstance(v, awkward.Array)
-                    and v.ndim > 1
-                    and not v.layout.purelist_isregular
-                ]
-                if _jagged_new_fields:
-                    raise NotImplementedError(
-                        f"accept_new_fields does not yet support jagged (variable-length) "
-                        f"new fields: {_jagged_new_fields}. Call add_branches() with a "
-                        f"scalar zero-filled backfill for this field first (which itself "
-                        f"does not yet support jagged branches either), or restructure the "
-                        f"data to not introduce a jagged field via extend()."
-                    )
-                zeros = {
-                    k: numpy.zeros(
-                        self._cascading._num_entries, dtype=numpy.asarray(v).dtype
-                    )
-                    for k, v in new_fields.items()
-                }
-                self.add_branches(zeros)
+                # back-fill the existing entries with zeros, or for a jagged
+                # field, with empty lists, unless it shares an existing counter:
+                # then with lists of zeros as long as the counter says
+                casc = self._cascading
+                num_entries = casc._num_entries
+                existing_counters = _ExistingCounters(self)
+                backfill = {}
+                for k, v in new_fields.items():
+                    if _is_jagged(v):
+                        dtype = _jagged_content_dtype(casc, awkward.Array(v))
+                        dtype, shape = dtype.subdtype or (dtype, ())
+                        counts = numpy.zeros(num_entries, dtype=numpy.int64)
+                        counter = casc._counter_name(k)
+                        if num_entries > 0 and counter in casc._branch_lookup:
+                            existing = casc._branch_data[casc._branch_lookup[counter]]
+                            if existing["kind"] == "counter":
+                                counts = existing_counters(existing)
+                        offsets = numpy.zeros(num_entries + 1, dtype=numpy.int64)
+                        numpy.cumsum(counts, out=offsets[1:])
+                        backfill[k] = awkward.Array(
+                            awkward.contents.ListOffsetArray(
+                                awkward.index.Index64(offsets),
+                                awkward.contents.NumpyArray(
+                                    numpy.zeros((offsets[-1], *shape), dtype=dtype)
+                                ),
+                            )
+                        )
+                    else:
+                        array = numpy.asarray(v)
+                        backfill[k] = numpy.zeros(
+                            (num_entries, *array.shape[1:]), dtype=array.dtype
+                        )
+
+                # check all of data against the tree with its new branches
+                # before writing any of them, so that a rejected extend()
+                # doesn't leave them behind
+                staged = self._stage_branches(
+                    backfill,
+                    existing_counters=existing_counters,
+                    operation="extend with accept_new_fields=True",
+                )
+                prepared = casc._prepare_extend(
+                    data, extra=[datum for _, datum, _, _ in staged]
+                )
+                self._commit_branches(staged)
+                casc.extend(self._file, self._file.sink, data, prepared=prepared)
+                return
+
         self._cascading.extend(self._file, self._file.sink, data)
 
     def show(
@@ -2953,32 +3313,49 @@ class WritableNTuple:
         self._file = file
         self._cascading = cascading
         self._column_encoding_error = None
+        self._deleted = False
 
     def __repr__(self):
         return "<WritableNTuple {} at 0x{:012x}>".format(
             repr("/" + "/".join(self._path)), id(self)
         )
 
+    def _check_not_deleted(self):
+        if self._deleted:
+            raise ValueError("this RNTuple was deleted")
+
     def _existing_key(self):
         """
         Resolves this RNTuple's :doc:`uproot.writing._cascade.Key` by walking
         down to its containing directory (not always the file's root
         directory — this RNTuple may live in a subdirectory) and looking up
-        its name there, at whatever is currently its latest cycle.
+        its name and cycle there.
         """
         directory = self._file.root_directory
         for part in self._path[:-1]:
             directory = directory[part]
-        key = directory._cascading.data.get_key(self._path[-1])
+        cycle = self._cascading.key.cycle
+        key = directory._cascading.data.get_key(self._path[-1], cycle)
         if key is None:
             raise uproot.KeyInFileError(
                 self._path[-1],
-                cycle="any",
+                cycle=cycle,
                 keys=directory._cascading.data.key_names,
                 file_path=self.file_path,
                 object_path=self.object_path,
             )
         return directory, key
+
+    def _reload_cascading(self):
+        """
+        Replaces this RNTuple's cascading with one read back from disk, keeping
+        this object as the file's one handle to it.
+        """
+        directory, key = self._existing_key()
+        self._cascading, self._column_encoding_error = directory._load_ntuple_cascading(
+            key
+        )
+        self._file._new_ntuple(self)
 
     @property
     def path(self):
@@ -3102,7 +3479,7 @@ class WritableNTuple:
 
         .. warning::
 
-            **As a word of warning,** be sure that each call to :ref:`uproot.writing.writable.WritableNTuple.extend` includes at least 100 kB per branch/array. (NumPy and Awkward Arrays have an `nbytes <https://numpy.org/doc/stable/reference/generated/numpy.ndarray.nbytes.html>`__ property; you want at least ``100000`` per array.) If you ask Uproot to write very small TBaskets, it will spend more time working on TBasket overhead than actually writing data. The absolute worst case is one-entry-per-:ref:`uproot.writing.writable.WritableTree.extend`. See `#428 (comment) <https://github.com/scikit-hep/uproot5/pull/428#issuecomment-908703486>`__.
+            **As a word of warning,** be sure that each call to :ref:`uproot.writing.writable.WritableNTuple.extend` includes at least 100 kB per branch/array. (NumPy and Awkward Arrays have an `nbytes <https://numpy.org/doc/stable/reference/generated/numpy.ndarray.nbytes.html>`__ property; you want at least ``100000`` per array.) If you ask Uproot to write very small TBaskets, it will spend more time working on TBasket overhead than actually writing data. The absolute worst case is one-entry-per-:ref:`uproot.writing.writable.WritableTree.extend`. See `#428 (comment) <https://github.com/scikit-hep/uproot/pull/428#issuecomment-908703486>`__.
 
         .. note::
 
@@ -3114,6 +3491,7 @@ class WritableNTuple:
             practice, ``extend``/``add_fields`` after reopening a file only
             work reliably on RNTuples that Uproot itself wrote.
         """
+        self._check_not_deleted()
         if self._column_encoding_error is not None:
             raise ValueError(self._column_encoding_error)
         # if _column_counts has more columns than _column_keys, reload cascading
@@ -3121,9 +3499,7 @@ class WritableNTuple:
         if len(self._cascading._column_counts) > len(
             self._cascading._header._column_keys
         ):
-            directory, key = self._existing_key()
-            reloaded = directory._load_existing_ntuple(key)
-            self._cascading = reloaded._cascading
+            self._reload_cascading()
 
         if isinstance(data, dict):
             existing_keys = set(self._cascading._header._akform.fields)
@@ -3146,9 +3522,7 @@ class WritableNTuple:
                         for k in new_field_names
                     }
                 )
-                directory, key = self._existing_key()
-                reloaded = directory._load_existing_ntuple(key)
-                self._cascading = reloaded._cascading
+                self._reload_cascading()
 
         self._cascading.extend(self._file, self._file.sink, data)
 
@@ -3192,22 +3566,18 @@ class WritableNTuple:
             reopening a file only work reliably on RNTuples that Uproot itself
             wrote.
         """
+        self._check_not_deleted()
         if self._column_encoding_error is not None:
             raise ValueError(self._column_encoding_error)
 
         import uproot.writing._cascadentuple as cnt
 
         if not hasattr(self._cascading, "_existing_footer"):
-            # this RNTuple was created in this same session (e.g. via mkrntuple or
-            # directory assignment) rather than loaded from an existing file by
-            # _load_existing_ntuple, so it never got the _existing_* attributes
-            # add_fields needs. Whatever has been written so far is already on
-            # disk (mkrntuple/assignment/extend all flush immediately), so it can
-            # be loaded the same way a preexisting RNTuple opened via
-            # uproot.update() would be.
-            directory, key = self._existing_key()
-            reloaded = directory._load_existing_ntuple(key)
-            self._cascading = reloaded._cascading
+            # This RNTuple was created in this session or its read-side snapshot
+            # was invalidated by extend(). Whatever has been written so far is
+            # already on disk (mkrntuple/assignment/extend all flush immediately),
+            # so it can be loaded like an RNTuple opened via uproot.update().
+            self._reload_cascading()
 
         compression_code = cnt._compression_code(
             self._cascading._freesegments.fileheader.compression
@@ -3303,7 +3673,7 @@ class WritableNTuple:
                                     break
                         if found is None:
                             raise ValueError(
-                                f"Field {'.'.join(parts[:part_idx+1])!r} not found in this RNTuple"
+                                f"Field {'.'.join(parts[: part_idx + 1])!r} not found in this RNTuple"
                             )
                         current_parent_id = found[0]
                         parent_field_id = found[0]
@@ -3497,7 +3867,7 @@ def _is_type_specification(obj):
         if isinstance(obj, str):
             try:
                 numpy.dtype(obj)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, SyntaxError):
                 pass
             else:
                 continue
@@ -3532,7 +3902,7 @@ def _type_specification_to_awkward_form(obj):
         # so we can try to convert it to a string Awkward understands
         try:
             dt = numpy.dtype(obj)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, SyntaxError):
             pass
         else:
             obj = dt

@@ -6,7 +6,7 @@ import numpy as np
 ak = pytest.importorskip("awkward")
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def physlite_file():
     """Fixture that returns an open EventData rntp from the test ROOT file."""
     file_path = skhtd.data_path("uproot-physlite-rntuple_v1-0-0-0.root")
@@ -98,3 +98,11 @@ def test_truth_muon_containers(physlite_file):
     assert np.all(
         np.isin(ak.to_numpy(ak.flatten(arrays["TruthMuonsAuxDyn:pdgId"])), mu_pdgid)
     ), "Retrieved pdgids are not 13/-13"
+    assert arrays["TruthMuonsAuxDyn:pdgId"][:6].tolist() == [
+        [13],
+        [-13],
+        [-13],
+        [13],
+        [13],
+        [],
+    ]

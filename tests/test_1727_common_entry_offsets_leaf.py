@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """``HasBranches.common_entry_offsets`` over both ends of the branch family: a leaf, a
 split parent without ``TBaskets``, a selection that matches nothing, an empty ``TTree``.
 """

@@ -151,7 +151,7 @@ def _as_TGraph(
         new_maxY = np.max(y)
     elif not isinstance(maxY, numbers.Real):
         raise ValueError(
-            f"uproot.as_TGraph minY has to be None or a number, not {type(maxY)}"
+            f"uproot.as_TGraph maxY has to be None or a number, not {type(maxY)}"
         )
     else:
         new_maxY = maxY

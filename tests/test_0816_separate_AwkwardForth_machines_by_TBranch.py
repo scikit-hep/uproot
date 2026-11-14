@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import numpy as np
 import pytest
@@ -36,16 +36,22 @@ def test(do_hack):
             == "100 * {offline_akt4_pf_NOSYS_SumPtTrkPt500: var * var * float32, offline_akt4_pf_NOSYS_NumTrkPt1000: var * var * int32, offline_akt4_pf_NOSYS_TrackWidthPt1000: var * var * float32}"
         )
 
-        for v in vv_branches:
-            assert (
-                str(t[f"offline_akt4_pf_NOSYS_SumPtTrkPt500"].array().type)
-                == "100 * var * var * float32"
-            )
-            assert (
-                str(t[f"offline_akt4_pf_NOSYS_NumTrkPt1000"].array().type)
-                == "100 * var * var * int32"
-            )
-            assert (
-                str(t[f"offline_akt4_pf_NOSYS_TrackWidthPt1000"].array().type)
-                == "100 * var * var * float32"
-            )
+        # each TBranch must have kept its own type after reading them together
+        assert (
+            str(t[f"offline_akt4_pf_NOSYS_SumPtTrkPt500"].array().type)
+            == "100 * var * var * float32"
+        )
+        assert (
+            str(t[f"offline_akt4_pf_NOSYS_NumTrkPt1000"].array().type)
+            == "100 * var * var * int32"
+        )
+        assert (
+            str(t[f"offline_akt4_pf_NOSYS_TrackWidthPt1000"].array().type)
+            == "100 * var * var * float32"
+        )
+
+        # three different branches, not one branch read three times: each has
+        # its own data, the same as when it's read alone
+        together = [jetinfo[name].tolist() for name in vv_branches]
+        assert together == [t[name].array().tolist() for name in vv_branches]
+        assert together[0] != together[1] != together[2] != together[0]

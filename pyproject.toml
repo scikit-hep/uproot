@@ -21,7 +21,7 @@ extra = [
 test = [
   "aiohttp",
   "deflate",
-  "graphed[awkward,parquet]>=0.0.5; python_version >= '3.11'",
+  "graphed[awkward,parquet]>=0.0.9; python_version >= '3.11'",
   "graphed-executors>=0.0.3; python_version >= '3.11'",
   "isal",
   "moto[s3,server]",
@@ -29,7 +29,7 @@ test = [
   "pytest-cov",
   "pytest-rerunfailures",
   "pytest-xdist",
-  "s3fs",
+  "s3fs>=2023.1.0",
   "vector; python_version >= '3.11'",
   { include-group = "test-core" }
 ]
@@ -38,7 +38,7 @@ test-core = [
   "pytest>=6",
   "rangehttpserver",
   "requests",
-  "scikit-hep-testdata"
+  "scikit-hep-testdata>=0.6.9"
 ]
 test-gpu-cu12 = [
   "kvikio-cu12",
@@ -118,8 +118,8 @@ s3 = ["s3fs"]
 xrootd = ["fsspec-xrootd>=0.5.0"]
 
 [project.urls]
-Download = "https://github.com/scikit-hep/uproot5/releases"
-Homepage = "https://github.com/scikit-hep/uproot5"
+Download = "https://github.com/scikit-hep/uproot/releases"
+Homepage = "https://github.com/scikit-hep/uproot"
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/uproot/version.py"
@@ -128,7 +128,7 @@ version-file = "src/uproot/version.py"
 source = "vcs"
 
 [tool.pytest.ini_options]
-addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config"]
+addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config", "-p", "no:anyio"]  # no test uses anyio's plugin, which breaks pytest >= 9.2 with anyio < 4.15
 filterwarnings = [
   "error",
   "default:module 'sre_.*' is deprecated:DeprecationWarning",

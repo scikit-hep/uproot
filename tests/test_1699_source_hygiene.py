@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """Regression tests for executor, chunk, and unknown-class fixes (see #1688).
 
@@ -44,7 +44,7 @@ def test_submit_during_shutdown_is_rejected(use_resources):
         executor = uproot.source.futures.ThreadPoolExecutor(1)
         submit = executor.submit
         error = RuntimeError
-
+    message = "resource is closed" if use_resources else "cannot submit a task after"
     # occupy the only worker so that shutdown's join() blocks until released
     started, release = threading.Event(), threading.Event()
 
@@ -66,14 +66,14 @@ def test_submit_during_shutdown_is_rejected(use_resources):
             time.sleep(0.001)
         # shutdown is still joining the busy worker; a late submit must be
         # rejected rather than queued behind the sentinel and never run
-        with pytest.raises(error):
+        with pytest.raises(error, match=message):
             submit(lambda *args: 42)
     finally:
         release.set()
         closer.join(10)
 
     assert blocked.result(timeout=10) == "done"
-    with pytest.raises(error):
+    with pytest.raises(error, match=message):
         submit(lambda *args: 42)
 
 

@@ -1,8 +1,8 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
-Regression tests for https://github.com/scikit-hep/uproot5/pull/1653
-(part of https://github.com/scikit-hep/uproot5/issues/1646).
+Regression tests for https://github.com/scikit-hep/uproot/pull/1653
+(part of https://github.com/scikit-hep/uproot/issues/1646).
 
 Covers:
 - ``HTTPSource.chunks`` range-batching: every batch's ``Range`` header must
@@ -78,16 +78,18 @@ def _make_source(http_max_header_bytes):
 
 
 @pytest.mark.parametrize(
-    "ranges, http_max_header_bytes",
+    "ranges, http_max_header_bytes, batch_sizes",
     [
-        ([(0, 5)], 1000),  # single range, single batch
-        ([(0, 5), (10, 15), (20, 25)], 1000),  # several ranges, single batch
-        ([(i * 10, i * 10 + 5) for i in range(8)], 20),  # many small batches
-        ([(0, 5), (10, 15), (20, 25), (30, 35)], 18),  # mixed batch sizes
-        ([(0, 5), (1000000, 1000005)], 12),  # overflow on the last range
+        ([(0, 5)], 1000, [1]),  # single range, single batch
+        ([(0, 5), (10, 15), (20, 25)], 1000, [3]),  # several ranges, single batch
+        ([(i * 10, i * 10 + 5) for i in range(8)], 20, [2, 2, 2, 2]),  # small batches
+        ([(0, 5), (10, 15), (20, 25), (30, 35)], 18, [2, 1, 1]),  # mixed batch sizes
+        ([(0, 5), (1000000, 1000005)], 12, [1, 1]),  # overflow on the last range
     ],
 )
-def test_chunks_batching_covers_every_range_exactly_once(ranges, http_max_header_bytes):
+def test_chunks_batching_covers_every_range_exactly_once(
+    ranges, http_max_header_bytes, batch_sizes
+):
     source, recorder = _make_source(http_max_header_bytes)
     notifications = queue.Queue()
 
@@ -96,8 +98,7 @@ def test_chunks_batching_covers_every_range_exactly_once(ranges, http_max_header
     # one chunk per requested range, one submitted future per batch
     assert len(chunks) == len(ranges)
     assert len(source._executor.submitted) == len(recorder.calls)
-    assert len(recorder.calls) >= 1
-
+    assert [len(call["batch"]) for call in recorder.calls] == batch_sizes
     covered = []
     for call in recorder.calls:
         batch = call["batch"]
@@ -136,7 +137,7 @@ def test_closed_source_raises_instead_of_hanging(http_server, use_threads):
     # submitting onto the closed executor must raise rather than enqueue onto a
     # dead pool (which would hang waiting on a notification that never arrives)
     future = uproot.source.http.HTTPResource.partfuture({}, 0, 100)
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match="resource is closed for file"):
         source._executor.submit(future)
 
 

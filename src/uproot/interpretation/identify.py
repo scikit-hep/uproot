@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines utilities for identifying the
@@ -306,7 +306,7 @@ def _float16_or_double32(branch, context, leaf, is_float16, dims):
             transformed = ast.Expression(
                 _float16_double32_walk_ast(parsed, branch, source)
             )
-            spec = eval(compile(transformed, repr(title), "eval"))
+            spec = eval(compile(transformed, "<dynamic>", "eval"))
         except (UnknownInterpretation, SyntaxError):
             spec = ()
 
@@ -327,7 +327,7 @@ def _float16_or_double32(branch, context, leaf, is_float16, dims):
             low, high, num_bits = spec
 
         else:
-            num_bits = "no brackets"
+            low, high, num_bits = 0, 0, "no brackets"
 
     if not is_float16:
         if num_bits == "no brackets":
@@ -469,6 +469,16 @@ def interpretation_of(branch, context, simplify=True):
                 return uproot.interpretation.jagged.AsJagged(out)
 
         else:
+            if any(
+                leaf.member("fLeafCount") is not None
+                for leaf in branch.member("fLeaves")
+            ):
+                raise UnknownInterpretation(
+                    "leaf-list with non-null fLeafCount",
+                    branch.file.file_path,
+                    branch.object_path,
+                )
+
             from_dtype = []
             for leaf in branch.member("fLeaves"):
                 from_dtype.append(
@@ -483,18 +493,9 @@ def interpretation_of(branch, context, simplify=True):
             else:
                 to_dtype = from_dtype
 
-            if all(
-                leaf.member("fLeafCount") is None for leaf in branch.member("fLeaves")
-            ):
-                return uproot.interpretation.numerical.AsDtype(
-                    numpy.dtype((from_dtype, dims)), numpy.dtype((to_dtype, dims))
-                )
-            else:
-                raise UnknownInterpretation(
-                    "leaf-list with non-null fLeafCount",
-                    branch.file.file_path,
-                    branch.object_path,
-                )
+            return uproot.interpretation.numerical.AsDtype(
+                numpy.dtype((from_dtype, dims)), numpy.dtype((to_dtype, dims))
+            )
 
     except NotNumerical:
         if (
@@ -556,6 +557,12 @@ def interpretation_of(branch, context, simplify=True):
                 if (
                     isinstance(branch.streamer, uproot.streamers.Model_TStreamerObject)
                     or not branch._streamer_isTClonesArray
+                    # ROOT writes a TArray member with a custom streamer, without
+                    # a per-item byte count, so the items follow each other directly
+                    or (
+                        isinstance(model_cls, type)
+                        and issubclass(model_cls, uproot.models.TArray.Model_TArray)
+                    )
                 ):
                     model_cls = uproot.containers.AsArray(False, False, model_cls, dims)
                 else:
@@ -619,7 +626,7 @@ def _parse_expect(what, tokens, i, typename, file):
 
 
 def _parse_ignore_extra_arguments(tokens, i, typename, file, at_most):
-    while tokens[i].group(0) == ",":
+    while i < len(tokens) and tokens[i].group(0) == ",":
         if at_most == 0:
             _parse_error(tokens[i].start() + 1, typename, file)
         i, _values = _parse_node(tokens, i + 1, typename, file, True, False, False)
@@ -1108,7 +1115,7 @@ def _parse_node(tokens, i, typename, file, quote, header, inner_header):
             i, keys = _parse_node(
                 tokens, i + 2, typename, file, quote, inner_header, inner_header
             )
-            while tokens[i].group(0) == ",":
+            while i < len(tokens) and tokens[i].group(0) == ",":
                 i, keys = _parse_node(
                     tokens, i + 1, typename, file, quote, inner_header, inner_header
                 )

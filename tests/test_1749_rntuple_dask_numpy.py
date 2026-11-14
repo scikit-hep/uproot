@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 from __future__ import annotations
 
@@ -158,7 +158,7 @@ def test_rntuple_dask_numpy_jagged_regular_chunk(tmp_path):
     result = a.compute()
     assert result.dtype == np.dtype(object)
     assert result.shape == (3,)
-    assert np.array_equal(result[0], [1.0, 2.0])
+    assert [x.tolist() for x in result] == [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]
 
     # Mixed file (irregular + regular) — step_size=1 forces single-entry chunks.
     mixed_path = os.path.join(tmp_path, "jagged_mixed.root")
@@ -170,7 +170,7 @@ def test_rntuple_dask_numpy_jagged_regular_chunk(tmp_path):
     ].compute()
     assert result2.dtype == np.dtype(object)
     assert result2.shape == (3,)
-    assert len(result2[2]) == 0
+    assert [x.tolist() for x in result2] == [[1.0, 2.0], [3.0], []]
 
     # Multi-file: one regular, one irregular.
     multi = uproot.dask(
@@ -178,6 +178,14 @@ def test_rntuple_dask_numpy_jagged_regular_chunk(tmp_path):
     )["j"].compute()
     assert multi.dtype == np.dtype(object)
     assert multi.shape == (6,)
+    assert [x.tolist() for x in multi] == [
+        [1.0, 2.0],
+        [3.0, 4.0],
+        [5.0, 6.0],
+        [1.0, 2.0],
+        [3.0],
+        [],
+    ]
 
 
 def test_rntuple_dask_numpy_jagged_regular_chunk_open_files_false(tmp_path):
@@ -201,6 +209,14 @@ def test_rntuple_dask_numpy_jagged_regular_chunk_open_files_false(tmp_path):
     )["j"].compute()
     assert multi.dtype == np.dtype(object)
     assert multi.shape == (6,)
+    assert [x.tolist() for x in multi] == [
+        [1.0, 2.0],
+        [3.0, 4.0],
+        [5.0, 6.0],
+        [1.0, 2.0],
+        [3.0],
+        [],
+    ]
 
 
 def test_rntuple_dask_numpy_collection_of_structs(tmp_path):
@@ -234,7 +250,7 @@ def test_rntuple_dask_numpy_collection_of_structs(tmp_path):
     assert "jets.pt" in filtered
     result_pt = filtered["jets.pt"].compute()
     assert result_pt.dtype == np.dtype(object)
-    assert result_pt.shape == (3,)
+    assert [x.tolist() for x in result_pt] == [[1.0], [], [3.0]]
 
     # open_files=False on collection of structs.
     dask_delayed = uproot.dask(f"{filepath}:ntuple", library="np", open_files=False)
@@ -243,7 +259,7 @@ def test_rntuple_dask_numpy_collection_of_structs(tmp_path):
     assert "jets.pt" in dask_delayed
     result_pt_delayed = dask_delayed["jets.pt"].compute()
     assert result_pt_delayed.dtype == np.dtype(object)
-    assert result_pt_delayed.shape == (3,)
+    assert [x.tolist() for x in result_pt_delayed] == [[1.0], [], [3.0]]
 
 
 def test_rntuple_dask_numpy_regular_array_of_structs(tmp_path):
@@ -261,16 +277,14 @@ def test_rntuple_dask_numpy_regular_array_of_structs(tmp_path):
     # Single-file read: declared shape and computed shape must match (5, 3)
     a = uproot.dask(f"{path3}:ntuple", library="np")["s.a"]
     assert a.shape == (5, 3)
-    computed = a.compute()
-    assert computed.shape == (5, 3)
+    assert a.compute().tolist() == [[1, 1, 1]] * 5
     assert np.array_equal(a[:, 0].compute(), np.ones(5, dtype=np.int64))
 
     # open_files=False delayed-open read
     a_delayed = uproot.dask(f"{path3}:ntuple", library="np", open_files=False)["s.a"]
     assert np.isnan(a_delayed.shape[0])
     assert a_delayed.shape[1] == 3
-    computed_delayed = a_delayed.compute()
-    assert computed_delayed.shape == (5, 3)
+    assert a_delayed.compute().tolist() == [[1, 1, 1]] * 5
     assert np.array_equal(a_delayed[:, 0].compute(), np.ones(5, dtype=np.int64))
 
     # Cross-file read with size mismatch (size 3 vs 4) raises ValueError

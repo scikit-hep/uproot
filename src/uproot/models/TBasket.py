@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines a versionless model for ``TBasket``, including much of the
@@ -93,7 +93,7 @@ class Model_TBasket(uproot.model.Model):
         )
 
         return interpretation.final_array(
-            [basket_array],
+            {0: basket_array},
             0,
             self.num_entries,
             [0, self.num_entries],

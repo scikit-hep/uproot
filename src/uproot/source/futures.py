@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines a Python-like Future and Executor for Uproot in three levels:
@@ -464,6 +464,13 @@ class ResourceTrivialExecutor(TrivialExecutor):
         Stops the :doc:`uproot.source.futures.ResourceTrivialExecutor`
         """
         self.__exit__(None, None, None)
+
+    @property
+    def num_workers(self) -> int:
+        """
+        Always 0: tasks run in the thread that submits them.
+        """
+        return 0
 
     @property
     def closed(self) -> bool:
