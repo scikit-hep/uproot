@@ -243,8 +243,8 @@ def to_writable(obj):
                 fName=default_name,
                 fTitle=getattr(axis, "label", getattr(obj, "name", "")),
                 fNbins=len(axis),
-                fXmin=axis.edges[0],
-                fXmax=axis.edges[-1],
+                fXmin=_axis_edges(axis)[0],
+                fXmax=_axis_edges(axis)[-1],
                 fXbins=_fXbins_maybe_regular(axis, boost_histogram),
                 fLabels=_fLabels_maybe_categorical(axis, boost_histogram),
             )
@@ -337,7 +337,7 @@ def to_writable(obj):
                         )
                     else:
                         # Regular axis: prepend and append a bin width to edges for flow bins.
-                        _edges = obj.axes[0].edges
+                        _edges = _axis_edges(obj.axes[0])
                         width = _edges[1] - _edges[0]
                         _edges = numpy.insert(_edges, 0, _edges[0] - width)
                         _edges = numpy.append(_edges, _edges[-1] + width)
@@ -381,7 +381,7 @@ def to_writable(obj):
                     )
             else:
                 fTsumw, fTsumw2, fTsumwx, fTsumwx2 = _root_stats_1d(
-                    data_noflow, obj.axes[0].edges
+                    data_noflow, _axis_edges(obj.axes[0])
                 )
                 return to_TH1x(
                     fName=None,
@@ -410,7 +410,9 @@ def to_writable(obj):
                     fTsumwy,
                     fTsumwy2,
                     fTsumwxy,
-                ) = _root_stats_2d(data_noflow, obj.axes[0].edges, obj.axes[1].edges)
+                ) = _root_stats_2d(
+                    data_noflow, _axis_edges(obj.axes[0]), _axis_edges(obj.axes[1])
+                )
                 return to_TH2x(
                     fName=None,
                     fTitle=title,
@@ -448,9 +450,9 @@ def to_writable(obj):
                     fTsumwyz,
                 ) = _root_stats_3d(
                     data_noflow,
-                    obj.axes[0].edges,
-                    obj.axes[1].edges,
-                    obj.axes[2].edges,
+                    _axis_edges(obj.axes[0]),
+                    _axis_edges(obj.axes[1]),
+                    _axis_edges(obj.axes[2]),
                 )
                 return to_TH3x(
                     fName=None,
@@ -689,9 +691,29 @@ def to_writable(obj):
         )
 
 
+def _axis_edges(axis):
+    """
+    Returns the bin edges of a PlottableHistogram axis as a NumPy array.
+
+    Uses ``axis.edges`` if the axis has it, but it is not part of the
+    PlottableHistogram protocol, so otherwise the edges are built from
+    ``len(axis)`` and ``axis[i]``, which is a ``(lower, upper)`` pair for a
+    continuous axis and a label for a discrete one (given integer edges).
+    """
+    edges = getattr(axis, "edges", None)
+    if edges is not None:
+        return numpy.asarray(edges() if callable(edges) else edges)
+
+    if len(axis) == 0 or not isinstance(axis[0], tuple):
+        return numpy.arange(len(axis) + 1, dtype=numpy.float64)
+    return numpy.array(
+        [axis[0][0]] + [axis[i][1] for i in range(len(axis))], dtype=numpy.float64
+    )
+
+
 def _fXbins_maybe_regular(axis, boost_histogram):
     if boost_histogram is None:
-        edges = axis.edges
+        edges = _axis_edges(axis)
         fXmin, fXmax = edges[0], edges[-1]
         if numpy.allclose(edges, numpy.linspace(fXmin, fXmax, len(edges))):
             return numpy.array([], dtype=">f8")
