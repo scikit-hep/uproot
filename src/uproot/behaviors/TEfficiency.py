@@ -192,22 +192,30 @@ def _feldman_cousins_scalar(total, passed, level):
     return lower, upper
 
 
-def feldman_cousins(total, passed, level, upper):
+def feldman_cousins_interval(total, passed, level):
     """
-    Feldman-Cousins interval boundary, as ``TEfficiency::FeldmanCousins``.
+    Feldman-Cousins interval, as ``TEfficiency::FeldmanCousinsInterval``.
+    Returns a 2-tuple of lower and upper boundaries.
     """
     total, passed = numpy.broadcast_arrays(
         numpy.asarray(total, numpy.float64), numpy.asarray(passed, numpy.float64)
     )
-    # each bin requires a Neyman construction, so compute each distinct
-    # (total, passed) pair only once; both bounds are cached together
+    # each bin requires a Neyman construction, which yields both bounds, so
+    # compute each distinct (total, passed) pair only once
     pairs = numpy.stack([total.ravel(), passed.ravel()], axis=-1)
     unique, inverse = numpy.unique(pairs, axis=0, return_inverse=True)
     bounds = numpy.array(
         [_feldman_cousins_scalar(float(t), float(p), float(level)) for t, p in unique],
         dtype=numpy.float64,
-    ).reshape(-1, 2)
-    return bounds[numpy.ravel(inverse), 1 if upper else 0].reshape(total.shape)
+    ).reshape(-1, 2)[numpy.ravel(inverse)]
+    return bounds[:, 0].reshape(total.shape), bounds[:, 1].reshape(total.shape)
+
+
+def feldman_cousins(total, passed, level, upper):
+    """
+    Feldman-Cousins interval boundary, as ``TEfficiency::FeldmanCousins``.
+    """
+    return feldman_cousins_interval(total, passed, level)[1 if upper else 0]
 
 
 def _mid_p_scalar(total, passed, level, upper):
@@ -574,11 +582,16 @@ class TEfficiency:
                 error_high = numpy.where(eff + delta > 1, 1.0 - eff, delta)
 
         else:
-            boundary = _frequentist_boundaries.get(
-                self.member("fStatisticOption"), clopper_pearson
-            )
-            error_low = eff - boundary(total, passed, level, False)
-            error_high = boundary(total, passed, level, True) - eff
+            option = self.member("fStatisticOption")
+            if option == 4:
+                # both bounds come from the same (expensive) construction
+                lower, upper = feldman_cousins_interval(total, passed, level)
+            else:
+                boundary = _frequentist_boundaries.get(option, clopper_pearson)
+                lower = boundary(total, passed, level, False)
+                upper = boundary(total, passed, level, True)
+            error_low = eff - lower
+            error_high = upper - eff
 
         return eff, error_low, error_high
 
