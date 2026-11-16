@@ -471,7 +471,7 @@ Eager workflows can be converted to dask graphs that encode the order and interd
 
 The dask graph for this can be visualized with ``pt.visualize()``. The resultant image is shown below.
 
-.. image:: https://github.com/scikit-hep/uproot5/raw/main/docs-img/diagrams/example-dask-graph.png
+.. image:: https://github.com/scikit-hep/uproot/raw/main/docs-img/diagrams/example-dask-graph.png
     :alt: dask-graph-example
     :width: 300px
     :align: center
@@ -1279,7 +1279,7 @@ The arrays also have to have the same lengths as each other, though only in the 
 
 .. warning::
 
-    **As a word of warning,** be sure that each call to :ref:`uproot.writing.writable.WritableTree.extend` includes at least 100 kB per branch/array. (NumPy and Awkward Arrays have an `nbytes <https://numpy.org/doc/stable/reference/generated/numpy.ndarray.nbytes.html>`__ property; you want at least ``100000`` per array.) If you ask Uproot to write very small TBaskets, such as the examples with length ``5`` above, it will spend more time working on TBasket overhead than actually writing data. The absolute worst case is one-entry-per-:ref:`uproot.writing.writable.WritableTree.extend`. See `#428 (comment) <https://github.com/scikit-hep/uproot5/pull/428#issuecomment-908703486>`__.
+    **As a word of warning,** be sure that each call to :ref:`uproot.writing.writable.WritableTree.extend` includes at least 100 kB per branch/array. (NumPy and Awkward Arrays have an `nbytes <https://numpy.org/doc/stable/reference/generated/numpy.ndarray.nbytes.html>`__ property; you want at least ``100000`` per array.) If you ask Uproot to write very small TBaskets, such as the examples with length ``5`` above, it will spend more time working on TBasket overhead than actually writing data. The absolute worst case is one-entry-per-:ref:`uproot.writing.writable.WritableTree.extend`. See `#428 (comment) <https://github.com/scikit-hep/uproot/pull/428#issuecomment-908703486>`__.
 
 Specifying the compression
 --------------------------

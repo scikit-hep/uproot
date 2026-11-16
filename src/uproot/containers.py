@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module interpretations and models for standard containers, such as
@@ -45,6 +45,16 @@ def _content_cache_key(content):
         return content.__name__
     else:
         return content.cache_key
+
+
+def _empty_like_nested(model):
+    """
+    An empty array of the type that :ref:`uproot.containers._read_nested` returns.
+    """
+    if isinstance(model, numpy.dtype):
+        return numpy.empty(0, model)
+    else:
+        return numpy.empty(0, _stl_object_type)
 
 
 def _read_nested(
@@ -114,7 +124,7 @@ def _read_nested(
 
 def _tostring(value):
     if isinstance(value, str):
-        return repr(value)
+        return repr(str(value))
     else:
         return str(value)
 
@@ -296,6 +306,9 @@ class AsDynamic(AsContainer):
     def __init__(self, model=None):
         self._model = model
 
+    def __hash__(self):
+        return hash((AsDynamic, self._model))
+
     @property
     def model(self):
         """
@@ -326,7 +339,7 @@ class AsDynamic(AsContainer):
         if self._model is None:
             return "void*"
         else:
-            return uproot.model.classname_decode(self._model.__name__)[0]
+            return _content_typename(self._model)
 
     def awkward_form(self, file, context):
         if self._model is None:
@@ -342,6 +355,9 @@ class AsDynamic(AsContainer):
         cursor.skip(1)
         cls = file.class_named(classname)
         return cls.read(chunk, cursor, context, file, selffile, parent)
+
+    def __eq__(self, other):
+        return isinstance(other, AsDynamic) and self._model == other._model
 
 
 class AsFIXME(AsContainer):
@@ -379,7 +395,11 @@ class AsFIXME(AsContainer):
 
     def read(self, chunk, cursor, context, file, selffile, parent, header=True):
         raise uproot.deserialization.DeserializationError(
-            self.message + "; please file a bug report!", None, None, None, None
+            self.message + "; please file a bug report!",
+            chunk,
+            cursor,
+            context,
+            file.file_path,
         )
 
     def __eq__(self, other):
@@ -636,6 +656,11 @@ class AsArray(AsContainer):
         if isinstance(values, numpy.dtype) and inner_shape:
             raise RuntimeError("Logic error: the dtype should have contained the shape")
 
+    def __hash__(self):
+        return hash(
+            (AsArray, self._header, self._speedbump, self._values, self._inner_shape)
+        )
+
     @property
     def speedbump(self):
         """
@@ -729,14 +754,21 @@ class AsArray(AsContainer):
 in file {selffile.file_path}"""
                 )
 
-            if forth_obj is not None:
-                temp_jump = cursor._index - start_cursor._index
-                if temp_jump != 0:
-                    forth_stash.pre_code.append(f"{temp_jump} stream skip\n")
+            if num_bytes is None:
+                raise uproot.deserialization.DeserializationError(
+                    f"{self.typename} has a header without a byte count, so its "
+                    "length is unknown",
+                    chunk,
+                    cursor,
+                    context,
+                    selffile.file_path,
+                )
 
             if isinstance(self._values, numpy.dtype):
-                remainder = chunk.get(
-                    cursor.index, cursor.index + num_bytes, cursor, context
+                if forth_obj is not None:
+                    raise uproot.interpretation.objects.CannotBeForth()
+                remainder = cursor.bytes(
+                    chunk, start_cursor.index + num_bytes - cursor.index, context
                 )
                 return remainder.view(self._values).reshape(-1, *self.inner_shape)
 
@@ -748,8 +780,13 @@ in file {selffile.file_path}"""
                     forth_stash.init_code.append(
                         f"0 node{offsets_num}-offsets <- stack\n"
                     )
+                    # the array ends where its header says (not at the end of the
+                    # entry, if it's in another container): at its start plus
+                    # the byte count without kByteCountMask plus the count itself
                     forth_stash.pre_code.append(
-                        "0 bytestops I-> stack \nbegin\ndup stream pos <>\nwhile\nswap 1 + swap\n"
+                        f"0 stream pos stream !I-> stack {uproot.const.kByteCountMask} - + 4 +\n"
+                        f"{cursor.index - start_cursor.index - 4} stream skip\n"
+                        "begin\ndup stream pos <>\nwhile\nswap 1 + swap\n"
                     )
                     if len(self.inner_shape) > 0:
                         forth_stash.post_code.append(
@@ -801,6 +838,8 @@ in file {selffile.file_path}"""
                 cursor.skip(1)
 
             if isinstance(self._values, numpy.dtype):
+                if forth_obj is not None:
+                    raise uproot.interpretation.objects.CannotBeForth()
                 remainder = chunk.remainder(cursor.index, cursor, context)
                 return remainder.view(self._values).reshape(-1, *self.inner_shape)
 
@@ -847,6 +886,23 @@ in file {selffile.file_path}"""
                         forth_obj.pop_active_node()
 
                 return uproot._util.objectarray1d(out).reshape(-1, *self.inner_shape)
+
+    def __eq__(self, other):
+        if not (
+            isinstance(other, AsArray)
+            and self._header == other._header
+            and self._speedbump == other._speedbump
+            and self._inner_shape == other._inner_shape
+        ):
+            return False
+
+        # a numpy.dtype compares equal to anything that numpy.dtype accepts,
+        # such as a Model class (dtype("O")), so only compare like with like
+        return (
+            isinstance(self._values, numpy.dtype)
+            == isinstance(other._values, numpy.dtype)
+            and self._values == other._values
+        )
 
 
 class AsVectorLike(AsContainer):
@@ -1432,16 +1488,38 @@ class AsMap(AsContainer):
             if forth_obj is not None:
                 raise uproot.interpretation.objects.CannotBeForth()
             length = cursor.field(chunk, _stl_container_size, context)
-            keys, values = [], []
+            # start from empty arrays of the right dtype, so that an empty map
+            # has the same dtypes as the others
+            keys = [_empty_like_nested(self._keys)]
+            values = [_empty_like_nested(self._values)]
+            # objectwise, strings are written without a header
+            keys_header = not isinstance(self._keys, AsString)
+            values_header = not isinstance(self._values, AsString)
             for _ in range(length):
                 keys.append(
                     _read_nested(
-                        self._keys, 1, chunk, cursor, context, file, selffile, parent
+                        self._keys,
+                        1,
+                        chunk,
+                        cursor,
+                        context,
+                        file,
+                        selffile,
+                        parent,
+                        header=keys_header,
                     )
                 )
                 values.append(
                     _read_nested(
-                        self._values, 1, chunk, cursor, context, file, selffile, parent
+                        self._values,
+                        1,
+                        chunk,
+                        cursor,
+                        context,
+                        file,
+                        selffile,
+                        parent,
+                        header=values_header,
                     )
                 )
             out = STLMap(numpy.concatenate(keys), numpy.concatenate(values))

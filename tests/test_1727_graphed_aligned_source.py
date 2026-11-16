@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """``uproot.graphed(align_baskets=True)``: blind partitions snap to the ``TBasket``
 boundaries of the branches a partition reads, when it is read."""
 

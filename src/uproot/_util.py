@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines utilities for internal use. This is not a public interface
@@ -289,6 +289,21 @@ def is_remote_url(file_path: str) -> bool:
     return parsed.scheme not in ("", "file", "local")
 
 
+def is_local_path(file_path: str) -> bool:
+    """
+    Returns True if fsspec reads file_path from the local filesystem alone: no remote
+    scheme and no ``protocol::`` chain, in which fsspec takes a ``::``-separated part as a
+    protocol when it is a known one or lowercase letters only.
+    """
+    if is_remote_url(file_path):
+        return False
+    protocols = set(fsspec.available_protocols())
+    return not any(
+        part in protocols or re.fullmatch("[a-z]*", part)
+        for part in file_path.split("::")[:-1]
+    )
+
+
 def _normalize_remote_url(file_path: str) -> str:
     # fsspec's own normal form keeps each protocol's semantics: object stores and HTTP servers
     # can hold different objects at "a//b" and "a/b", so no POSIX normalization on top of it
@@ -424,10 +439,13 @@ def _edit_distance(a: str, b: str) -> int:
     return rows[len(a)][len(b)]
 
 
-def _check_unknown_options(options: dict, file_path=None, stacklevel: int = 3) -> None:
+def _check_unknown_options(
+    options: dict, file_path=None, stacklevel: int = 3, all_local: bool | None = False
+) -> None:
     """
     Raise on unrecognized options for uproot's own sources and warn about likely
-    misspellings of uproot options for fsspec, whose storage options are open-ended.
+    misspellings of uproot options for fsspec, whose storage options are open-ended;
+    ``all_local`` refuses those too, and ``None`` (files not resolved yet) defers them.
     Handlers that are not uproot Sources are skipped here and rejected later by
     ``file_path_to_source_class``.
 
@@ -453,19 +471,30 @@ def _check_unknown_options(options: dict, file_path=None, stacklevel: int = 3) -
     ):
         return
 
-    if issubclass(source_cls, uproot.source.fsspec.FSSpecSource):
-        for key in unknown:
-            matches = [k for k in sorted(known) if _edit_distance(key, k) <= 2]
-            if matches:
+    fsspec_source = issubclass(source_cls, uproot.source.fsspec.FSSpecSource)
+    if fsspec_source and all_local is None:
+        return
+    matches = {
+        key: [k for k in sorted(known) if _edit_distance(key, k) <= 2]
+        for key in unknown
+    }
+    if fsspec_source and not all_local:
+        for key, near in matches.items():
+            if near:
                 warnings.warn(
                     f"option {key!r} is passed to fsspec as a storage option; "
-                    f"did you mean the uproot option {matches[0]!r}?",
+                    f"did you mean the uproot option {near[0]!r}?",
                     stacklevel=stacklevel,
                 )
     else:
+        named = ", ".join(
+            repr(key) + (f" (did you mean {near[0]!r}?)" if near else "")
+            for key, near in matches.items()
+        )
         raise TypeError(
-            f"unrecognized option(s) for {source_cls.__name__}: "
-            f"{', '.join(map(repr, unknown))}; valid options are {sorted(known)}"
+            f"unrecognized option(s) for "
+            f"{'local files' if fsspec_source else source_cls.__name__}: "
+            f"{named}; valid options are {sorted(known)}"
         )
 
 
@@ -535,7 +564,7 @@ Functions that accept many files (uproot.iterate, etc.) also allow:
          Examples: Path("rel/*.root"), "/abs/*.root:tdirectory/ttree"
    * dict: keys are filesystem paths, values are objects-within-ROOT paths.
          Example: {{"/data_v1/*.root": "ttree_v1", "/data_v2/*.root": "ttree_v2"}}
-   * already-open TTree objects.
+   * already-open TTree or RNTuple objects.
    * iterables of the above.
 """)
 
@@ -697,7 +726,7 @@ def awkward_form(model, file, context):
                 # directly return; don't cache RecordForms in _primitive_awkward_form
                 return awkward.forms.RecordForm(contents, fields)
             else:
-                raise AssertionError(f"{model!r}: {type(model)}")
+                raise TypeError(f"no Awkward Form for NumPy dtype {model!r}")
 
         return _primitive_awkward_form[model]
 
@@ -725,10 +754,7 @@ def recursively_fix_awkward_form_of_iter(awkward, interpretation, form):
             parameters=form.parameters,
         )
     elif isinstance(interpretation, uproot.interpretation.objects.AsObjects):
-        if uproot.interpretation.objects.awkward_can_optimize(interpretation, form):
-            return form
-        else:
-            return uproot._util.awkward_form_of_iter(awkward, form)
+        return uproot._util.awkward_form_of_iter(awkward, form)
     else:
         return form
 
@@ -800,12 +826,9 @@ def awkward_form_of_iter(awkward, form):
         )
         return out
     elif isinstance(form, awkward.forms.RecordForm):
-        contents = {
-            k: awkward_form_of_iter(awkward, v) for k, v in form.contents.items()
-        }
         return awkward.forms.RecordForm(
-            list(contents.values()),
-            list(contents.keys()),
+            [awkward_form_of_iter(awkward, v) for v in form.contents],
+            None if form.is_tuple else form.fields,
             parameters=form.parameters,
         )
     elif isinstance(form, awkward.forms.RegularForm):
@@ -996,7 +1019,7 @@ def regularize_steps(steps):
 
 
 def _regularize_files_inner(
-    files, parse_colon, counter, HasBranches, steps_allowed, **options
+    files, parse_colon, counter, hasbranches_types, steps_allowed, **options
 ):
     files2 = regularize_path(files)
 
@@ -1053,7 +1076,7 @@ def _regularize_files_inner(
                             yield match, object_path, maybe_steps
                             seen.add(match)
 
-    elif isinstance(files, HasBranches):
+    elif isinstance(files, hasbranches_types):
         yield files, None, maybe_steps
 
     elif isinstance(files, dict):
@@ -1076,7 +1099,7 @@ def _regularize_files_inner(
                 key,
                 False,
                 counter,
-                HasBranches,
+                hasbranches_types,
                 steps_allowed,
                 **options,
             ):
@@ -1086,7 +1109,7 @@ def _regularize_files_inner(
         for file in files:
             counter[0] += 1
             for file_path, object_path, maybe_steps in _regularize_files_inner(
-                file, parse_colon, counter, HasBranches, steps_allowed, **options
+                file, parse_colon, counter, hasbranches_types, steps_allowed, **options
             ):
                 yield file_path, object_path, maybe_steps
 
@@ -1094,8 +1117,8 @@ def _regularize_files_inner(
         raise TypeError(
             "'files' must be a file path/URL (string or Path), possibly with "
             "a glob pattern (for local files), a dict of "
-            "{path/URL: TTree/TBranch name}, actual TTree/TBranch objects, or "
-            f"an iterable of such things, not {files!r}"
+            "{path/URL: TTree/TBranch/RNTuple name}, actual TTree/TBranch/RNTuple "
+            f"objects, or an iterable of such things, not {files!r}"
         )
 
 
@@ -1103,13 +1126,14 @@ def regularize_files(files, steps_allowed, **options):
     """
     Common code for regularizing the possible file inputs accepted by uproot so they can be used by uproot internal functions.
     """
+    from uproot.behaviors.RNTuple import HasFields
     from uproot.behaviors.TBranch import HasBranches
 
     out = []
     seen = set()
     counter = [0]
     for file_path, object_path, maybe_steps in _regularize_files_inner(
-        files, True, counter, HasBranches, steps_allowed, **options
+        files, True, counter, (HasBranches, HasFields), steps_allowed, **options
     ):
         if isinstance(file_path, str):
             key = (counter[0], file_path, object_path)
@@ -1134,12 +1158,13 @@ def regularize_object_path(
     file_path, object_path, custom_classes, allow_missing, options
 ):
     """
-    Returns the TTree object from given object and file paths.
+    Returns the TTree or RNTuple object from given object and file paths.
     """
+    from uproot.behaviors.RNTuple import HasFields
     from uproot.behaviors.TBranch import HasBranches, _NoClose
     from uproot.reading import ReadOnlyFile
 
-    if isinstance(file_path, HasBranches):
+    if isinstance(file_path, (HasBranches, HasFields)):
         return _NoClose(file_path)
 
     directory = ReadOnlyFile(
@@ -1154,27 +1179,27 @@ def regularize_object_path(
 
 def object_in_directory(directory, object_path, allow_missing):
     """
-    Returns the object at ``object_path`` in an open ``directory`` — the file's single ``TTree``
+    Returns the object at ``object_path`` in an open ``directory`` — the file's single ``TTree`` or ``RNTuple``
     when ``object_path`` is None — or None when ``allow_missing`` and it is absent.
     """
     file_path = directory.file.file_path
     if object_path is None:
-        trees = directory.keys(filter_classname="TTree", cycle=False)
-        if len(trees) == 0:
+        objs = directory.keys(filter_classname=["TTree", "ROOT::RNTuple"], cycle=False)
+        if len(objs) == 0:
             if allow_missing:
                 return None
             else:
-                raise ValueError(f"no TTrees found\nin file {file_path}")
-        elif len(trees) == 1:
-            return directory[trees[0]]
+                raise ValueError(f"no TTrees or RNTuples found\nin file {file_path}")
+        elif len(objs) == 1:
+            return directory[objs[0]]
         else:
-            ttree_str = ", ".join(repr(x) for x in trees)
+            obj_str = ", ".join(repr(x) for x in objs)
             raise ValueError(
-                """TTree object paths must be specified in the 'files' """
+                """TTree or RNTuple object paths must be specified in the 'files' """
                 """as {"filenames*.root": "path"} if any files have """
-                f"""more than one TTree
+                f"""more than one TTree or RNTuple
 
-    TTrees: {ttree_str}
+    TTrees/RNTuples: {obj_str}
 
 in file {file_path}"""
             )
@@ -1186,14 +1211,14 @@ in file {file_path}"""
 
 
 def _content_cls_from_name(awkward, name):
-    if name.endswith(("32", "64")):
-        name = name[-2:]
-    elif name.endswith("U32"):
-        name = name[-3:]
+    if name.endswith("8_U32"):
+        name = name[:-5]
     elif name.endswith(("8_32", "8_64")):
-        name = name[-4:]
-    elif name.endswith("8_U32"):
-        name = name[-5:]
+        name = name[:-4]
+    elif name.endswith("U32"):
+        name = name[:-3]
+    elif name.endswith(("32", "64")):
+        name = name[:-2]
     return getattr(awkward.contents, name)
 
 

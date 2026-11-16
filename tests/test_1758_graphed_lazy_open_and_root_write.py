@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """``uproot.graphed`` opens only the first file that has the ``TTree`` (``open_files=True`` opens
 every file), and ``uproot.root_write`` writes ROOT parts beside a ``graphed.aggregate_plan``'s
 reductions from the same read."""
@@ -93,7 +93,9 @@ def test_only_the_first_file_with_the_tree_is_opened(tmp_path, monkeypatch):
     opened.clear()
     assert _run(_sum_plan(lazy.x)) == 135.0
     assert sorted(opened) == [a, b, c]  # each file is opened when it is read
-    with pytest.raises(ValueError, match="no TTrees found in\n\n    {'.*nott.root'"):
+    with pytest.raises(
+        ValueError, match="no TTrees or RNTuples found in\n\n    {'.*nott.root'"
+    ):
         uproot.graphed(files[:1], allow_missing=True)
     with pytest.raises(TypeError, match="known_base_form= opens no file"):
         uproot.graphed(

@@ -21,7 +21,7 @@ prek -a --quiet                      # lint/format (pre-commit: black, ruff, etc
 - Test files are named `test_<issue-or-PR-number>_<short_description>.py`. New tests for a fix or feature go in a new file numbered after the issue/PR.
 - Tests pull sample ROOT files via `skhep_testdata`; many tests need network access. Markers: `slow`, `network`, `distributed`, `xrootd`.
 - Pytest treats warnings as errors (`filterwarnings = error`).
-- Ruff lints `src/` but not `tests/`; isort requires `from __future__ import annotations` in every module. Every source file starts with the license header line `# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE`.
+- Ruff lints `src/` but not `tests/`; isort requires `from __future__ import annotations` in every module. Every source file starts with the license header line `# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE`.
 - Version is derived from git tags via hatch-vcs (`src/uproot/version.py` is generated; don't edit).
 
 ## Architecture

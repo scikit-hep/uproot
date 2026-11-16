@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import pytest
 import skhep_testdata
@@ -29,5 +29,8 @@ def test_read_efficiency_with_streamer():
 
 def test_read_efficiency_without_streamer(reset_classes):
     with uproot.open(skhep_testdata.data_path("uproot-issue209.root")) as fp:
-        with pytest.raises(NotImplementedError):
-            assert fp["TEfficiencyName"]
+        with pytest.raises(
+            NotImplementedError,
+            match=r"streamerless memberwise serialization of class AsVector\(pair<double,double>\)",
+        ):
+            fp["TEfficiencyName"]

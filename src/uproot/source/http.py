@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines a physical layer for remote files, accessed via HTTP(S).
@@ -100,6 +100,7 @@ def get_num_bytes(file_path: str, parsed_url: urllib.parse.ParseResult, timeout)
     response = connection.getresponse()
 
     while 300 <= response.status < 400:
+        response.close()
         connection.close()
         for k, x in response.getheaders():
             if k.lower() == "location":
@@ -117,10 +118,12 @@ for URL {file_path}"""
             )
 
     if response.status == 404:
+        response.close()
         connection.close()
         raise uproot._util._file_not_found(file_path, "HTTP(S) returned 404")
 
     if response.status != 200:
+        response.close()
         connection.close()
         raise http.client.HTTPException(
             f"""HTTP response was {response.status}, rather than 200, in attempt to get file size
@@ -129,9 +132,11 @@ in file {file_path}"""
 
     for k, x in response.getheaders():
         if k.lower() == "content-length" and x.strip() != "0":
+            response.close()
             connection.close()
             return int(x)
     else:
+        response.close()
         connection.close()
         raise http.client.HTTPException(
             f"""response headers did not include content-length: {dict(response.getheaders())}
@@ -197,10 +202,12 @@ class HTTPResource(uproot.source.chunk.Resource):
         response = connection.getresponse()
 
         if response.status == 404:
+            response.close()
             connection.close()
             raise uproot._util._file_not_found(self.file_path, "HTTP(S) returned 404")
 
         if 300 <= response.status < 400:
+            response.close()
             connection.close()
             for k, x in response.getheaders():
                 if k.lower() == "location":
@@ -221,6 +228,7 @@ for URL {self._file_path}"""
             )
 
         if response.status != 206:
+            response.close()
             connection.close()
             raise http.client.HTTPException(
                 f"""remote server responded with status {response.status}, rather than 206 (range requests)
@@ -324,6 +332,7 @@ for URL {self._file_path}"""
 
         def task(resource):
             nonlocal connection
+            response = None
             try:
                 response = connection.getresponse()
 
@@ -364,6 +373,8 @@ for URL {source.file_path}"""
                     future._set_excinfo(err)
 
             finally:
+                if response is not None:
+                    response.close()
                 connection.close()
 
         return uproot.source.futures.ResourceFuture(task)
@@ -565,7 +576,13 @@ class _ResponseBuffer:
             try:
                 index = self.already_read.index(b"\n")
             except ValueError:
-                self.already_read = self.already_read + self.stream.read(self.CHUNK)
+                data = self.stream.read(self.CHUNK)
+                if len(data) == 0:
+                    # End of stream: there's no newline to wait for.
+                    out = self.already_read
+                    self.already_read = b""
+                    return out
+                self.already_read = self.already_read + data
             else:
                 out = self.already_read[: index + 1]
                 self.already_read = self.already_read[index + 1 :]
@@ -662,6 +679,9 @@ class HTTPSource(uproot.source.chunk.Source):
         ranges: list[tuple[int, int]],
         notifications: queue.Queue,
     ) -> list[uproot.source.chunk.Chunk]:
+        if len(ranges) == 0:
+            # nothing to request (and a Range header needs at least one range)
+            return []
         if self._fallback is None:
             self._num_requests += 1
             self._num_requested_chunks += len(ranges)

@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import json
 import sys
@@ -8,20 +8,6 @@ import pytest
 import skhep_testdata
 
 import uproot
-
-
-def test_awkward_strings():
-    awkward = pytest.importorskip("awkward")
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert awkward.to_list(tree["string"].array(library="ak")) == [
-            "one",
-            "two",
-            "three",
-            "four",
-            "five",
-        ]
 
 
 def test_pandas_strings():

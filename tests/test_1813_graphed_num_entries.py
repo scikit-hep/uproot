@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """``_GraphedTTreeSource.num_entries`` and the files ``uproot.graphed`` opens outside a worker."""
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines a series of rules for identifying Python objects that can be written
@@ -187,7 +187,7 @@ def to_writable(obj):
         except TypeError:
             # flow=True is not supported, fallback to allocate-and-fill
 
-            tmp = obj.values()
+            tmp = data_noflow = obj.values()
             s = tmp.shape
             d = tmp.dtype.newbyteorder(">")
             if ndim == 1:
@@ -381,7 +381,7 @@ def to_writable(obj):
                     )
             else:
                 fTsumw, fTsumw2, fTsumwx, fTsumwx2 = _root_stats_1d(
-                    obj.values(flow=False), obj.axes[0].edges
+                    data_noflow, obj.axes[0].edges
                 )
                 return to_TH1x(
                     fName=None,
@@ -410,9 +410,7 @@ def to_writable(obj):
                     fTsumwy,
                     fTsumwy2,
                     fTsumwxy,
-                ) = _root_stats_2d(
-                    obj.values(flow=False), obj.axes[0].edges, obj.axes[1].edges
-                )
+                ) = _root_stats_2d(data_noflow, obj.axes[0].edges, obj.axes[1].edges)
                 return to_TH2x(
                     fName=None,
                     fTitle=title,
@@ -449,7 +447,7 @@ def to_writable(obj):
                     fTsumwxz,
                     fTsumwyz,
                 ) = _root_stats_3d(
-                    obj.values(flow=False),
+                    data_noflow,
                     obj.axes[0].edges,
                     obj.axes[1].edges,
                     obj.axes[2].edges,
@@ -476,11 +474,15 @@ def to_writable(obj):
                     fZaxis=axes[2],
                 )
 
+        else:
+            raise AssertionError(f"ndim is 1, 2, or 3 by now, but it is {len(axes)}")
+
     elif (
         isinstance(obj, (tuple, list))
         and 2 <= len(obj) <= 5  # might have a histogram title as the last item
         and all(isinstance(x, numpy.ndarray) for x in obj[:-1])
         and isinstance(obj[-1], (numpy.ndarray, str))
+        and 1 <= len(obj[0].shape) <= 3
         and len(obj[0].shape) == sum(int(isinstance(x, numpy.ndarray)) for x in obj[1:])
         and all(len(x.shape) == 1 for x in obj[1:] if isinstance(x, numpy.ndarray))
     ):
@@ -888,19 +890,17 @@ def to_TArray(data):
     if data.ndim != 1:
         raise ValueError("data to convert to TArray must be one-dimensional")
 
-    if issubclass(data.dtype.type, numpy.int8):
-        cls = uproot.models.TArray.Model_TArrayC
-    elif issubclass(data.dtype.type, numpy.int16):
-        cls = uproot.models.TArray.Model_TArrayS
-    elif issubclass(data.dtype.type, numpy.int32):
-        cls = uproot.models.TArray.Model_TArrayI
-    elif issubclass(data.dtype.type, numpy.int64):
-        cls = uproot.models.TArray.Model_TArrayL
-    elif issubclass(data.dtype.type, numpy.float32):
-        cls = uproot.models.TArray.Model_TArrayF
-    elif issubclass(data.dtype.type, numpy.float64):
-        cls = uproot.models.TArray.Model_TArrayD
-    else:
+    # dispatch on kind and size, since distinct C types of the same size (such as
+    # long and long long) are distinct numpy scalar types
+    cls = {
+        ("i", 1): uproot.models.TArray.Model_TArrayC,
+        ("i", 2): uproot.models.TArray.Model_TArrayS,
+        ("i", 4): uproot.models.TArray.Model_TArrayI,
+        ("i", 8): uproot.models.TArray.Model_TArrayL,
+        ("f", 4): uproot.models.TArray.Model_TArrayF,
+        ("f", 8): uproot.models.TArray.Model_TArrayD,
+    }.get((data.dtype.kind, data.dtype.itemsize))
+    if cls is None:
         raise ValueError(
             f"data to convert to TArray must have signed integer or floating-point type, not {data.dtype!r}"
         )

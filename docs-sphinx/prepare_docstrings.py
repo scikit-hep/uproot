@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import importlib
 import inspect
@@ -215,11 +215,11 @@ def handle_class(classname, cls):
 
     fullfilename = importlib.import_module(cls.__module__).__file__
     shortfilename = fullfilename[fullfilename.rindex("uproot/") :]
-    link = "`{} <https://github.com/scikit-hep/uproot5/blob/{}/src/{}>`__".format(
+    link = "`{} <https://github.com/scikit-hep/uproot/blob/{}/src/{}>`__".format(
         cls.__module__, latest_commit, shortfilename
     )
     try:
-        linelink = "`line {0} <https://github.com/scikit-hep/uproot5/blob/{1}/src/{2}#L{0}>`__".format(
+        linelink = "`line {0} <https://github.com/scikit-hep/uproot/blob/{1}/src/{2}#L{0}>`__".format(
             inspect.getsourcelines(cls)[1], latest_commit, shortfilename
         )
     except OSError:
@@ -283,10 +283,10 @@ def handle_function(functionname, cls):
 
     fullfilename = importlib.import_module(cls.__module__).__file__
     shortfilename = fullfilename[fullfilename.rindex("uproot/") :]
-    link = "`{} <https://github.com/scikit-hep/uproot5/blob/{}/src/{}>`__".format(
+    link = "`{} <https://github.com/scikit-hep/uproot/blob/{}/src/{}>`__".format(
         cls.__module__, latest_commit, shortfilename
     )
-    linelink = "`line {0} <https://github.com/scikit-hep/uproot5/blob/{1}/src/{2}#L{0}>`__".format(
+    linelink = "`line {0} <https://github.com/scikit-hep/uproot/blob/{1}/src/{2}#L{0}>`__".format(
         inspect.getsourcelines(cls)[1], latest_commit, shortfilename
     )
 

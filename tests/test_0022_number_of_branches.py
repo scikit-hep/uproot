@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import json
 import sys
@@ -89,7 +89,7 @@ def test_interpretation():
         assert arrays[0].tolist() == list(range(241, 256)) + list(range(0, 15))
         assert arrays[1].tolist() == list(range(-15, 15))
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="multiple interpretations"):
             sample.arrays([("i1", ">u1"), ("i1", None)], library="np", how=tuple)
 
 
@@ -162,7 +162,7 @@ def test_aliases():
         assert arrays["one"].tolist() == list(range(85, 115))
         assert arrays["two"].tolist() == list(range(85, 115))
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="recursively defined with aliases"):
             sample.arrays(
                 ["one", "two"], aliases={"one": "two", "two": "one"}, library="np"
             )

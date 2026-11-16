@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This is an internal module for writing RNTuple in the "cascading" file writer.
@@ -329,11 +329,7 @@ class NTuple_Header(CascadeLeaf):
         super().__init__(location, aloc)
 
     def __repr__(self):
-        return "{}({}, {})".format(
-            type(self).__name__,
-            self._location,
-            ", ".join([repr(x) for x in self._akform]),
-        )
+        return f"{type(self).__name__}({self._location}, {self._akform!r})"
 
     def _build_field_col_records(
         self, akform, field_name=None, parent_fid=None, add_field=True, description=""
@@ -953,6 +949,15 @@ class NTuple(CascadeNode):
                 parameters=data.parameters,
             )
 
+        # A chunk whose lists are all empty has Awkward's "unknown" type in those
+        # places; take the type from the stored schema. Anything else must already
+        # match, so that enforce_type can't silently convert other values.
+        data_form = data.form.to_dict(verbose=False)
+        if _contains_unknown(data_form) and _matches_except_unknown(
+            data_form, akform.to_dict(verbose=False)
+        ):
+            data = _to_packed(awkward.enforce_type(data, akform.type).layout)
+
         if data.form != self._header._akform:
             msg = f"Data is not compatible with this RNTuple. Expected {self._header._akform}, got {data.form}"
             raise ValueError(msg)
@@ -1085,6 +1090,11 @@ class NTuple(CascadeNode):
         )
         self.sync(sink)
 
+        # The write-side footer and page lists changed; the read-side snapshot
+        # used by add_fields() is now out of date.
+        self.__dict__.pop("_existing_footer", None)
+        self.__dict__.pop("_existing_page_list_envelopes", None)
+
     def sync(self, sink):
         """
         Pushes everything written so far to storage, along with the FreeSegments
@@ -1163,7 +1173,6 @@ class NTuple(CascadeNode):
             anchor_raw_data,
             len(anchor_raw_data),
             replaces=self._key,
-            big=False,
         )
         self._anchor.location = self._key.location + self._key.allocation
         #### Anchor end ##############################
@@ -1178,7 +1187,13 @@ def _to_packed_form(form):
                 "i64", _to_packed_form(form.content), parameters=form.parameters
             )
         case awkward.forms.EmptyForm:
-            return form
+            raise TypeError(
+                "cannot create an RNTuple from data with Awkward's 'unknown' type "
+                "(for example, lists that are all empty): any column type picked "
+                "for it would become the RNTuple's permanent schema. Create the "
+                "RNTuple with an explicit type first, e.g. "
+                "file.mkrntuple('ntuple', {'muons': 'var * float64'}), then extend it."
+            )
         case awkward.forms.IndexedForm:
             return _to_packed_form(form.content)
         case awkward.forms.IndexedOptionForm:
@@ -1221,23 +1236,64 @@ def _to_packed_form(form):
             raise NotImplementedError(msg)
 
 
+def _contains_unknown(form_dict):
+    """Whether a form (as ``Form.to_dict``) contains Awkward's "unknown" type."""
+    if isinstance(form_dict, dict):
+        return form_dict.get("class") == "EmptyArray" or any(
+            _contains_unknown(value) for value in form_dict.values()
+        )
+    if isinstance(form_dict, list):
+        return any(_contains_unknown(value) for value in form_dict)
+    return False
+
+
+def _matches_except_unknown(data_form, form):
+    """
+    Whether two forms (as ``Form.to_dict``) are equal, except where ``data_form``
+    has Awkward's "unknown" type, which matches anything. Record fields are
+    compared by name, since their order may differ.
+    """
+    if isinstance(data_form, dict) and data_form.get("class") == "EmptyArray":
+        return True
+    if isinstance(data_form, dict) and isinstance(form, dict):
+        if data_form.keys() != form.keys():
+            return False
+        if data_form.get("class") == "RecordArray" and data_form.get("fields"):
+            if form.get("fields") is None or set(data_form["fields"]) != set(
+                form["fields"]
+            ):
+                return False
+            contents = dict(zip(form["fields"], form["contents"], strict=True))
+            if not all(
+                _matches_except_unknown(content, contents[field])
+                for field, content in zip(
+                    data_form["fields"], data_form["contents"], strict=True
+                )
+            ):
+                return False
+            return all(
+                _matches_except_unknown(data_form[key], form[key])
+                for key in data_form
+                if key not in ("fields", "contents")
+            )
+        return all(
+            _matches_except_unknown(data_form[key], form[key]) for key in data_form
+        )
+    if isinstance(data_form, list) and isinstance(form, list):
+        return len(data_form) == len(form) and all(
+            _matches_except_unknown(x, y) for x, y in zip(data_form, form, strict=True)
+        )
+    return data_form == form
+
+
 def _to_packed(layout):
     """
     This is similar to `to_packed` in Awkward, but a bit more consistent.
     """
     match layout.__class__:
-        case awkward.contents.BitMaskedArray:
-            next = layout.to_IndexedOptionArray64()
-            content = _to_packed(next._content[: layout.length])
-            return awkward.contents.IndexedOptionArray(
-                next._index, content, parameters=next.parameters
-            )
-        case awkward.contents.ByteMaskedArray:
-            next = layout.to_IndexedOptionArray64()
-            content = _to_packed(next._content[: layout._mask.length])
-            return awkward.contents.IndexedOptionArray(
-                next._index, content, parameters=next.parameters
-            )
+        case awkward.contents.BitMaskedArray | awkward.contents.ByteMaskedArray:
+            # the content of an option has no entries for the missing values on disk
+            return _to_packed(layout.to_IndexedOptionArray64())
         case awkward.contents.EmptyArray:
             return layout
         case awkward.contents.IndexedArray:

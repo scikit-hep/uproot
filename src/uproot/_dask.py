@@ -192,7 +192,7 @@ def dask(
             "/data_v1/tree2.root": {"object_path": "ttree_v1", "steps": [0, 10000, 20000, ...]}}}
 
       (This ``files`` pattern is incompatible with ``step_size`` and ``steps_per_file``.)
-    * already-open TTree objects.
+    * already-open TTree or RNTuple objects.
     * iterables of the above.
 
     ..
@@ -638,6 +638,11 @@ def _branch_or_field_numpy_dtype(branch):
                 else:
                     raise KeyError(f"field {p!r} not found in form {form!r}")
         return _form_to_numpy_dtype(form, initial_sizes=sizes)
+    elif isinstance(branch.interpretation, uproot.interpretation.grouped.AsGrouped):
+        raise NotImplementedError(
+            f"uproot.dask with library='np' cannot read the grouped TBranch "
+            f"{branch.name!r}: select its sub-branches or use library='ak'"
+        )
     else:
         return branch.interpretation.numpy_dtype
 
@@ -782,6 +787,8 @@ def _get_dask_array(
         total_entries = sum(ttree.num_entries for ttree in ttrees)
         step_size = max(1, math.ceil(total_entries / (total_files * steps_per_file)))
 
+    common_keys = _normalize_grouped_keys(ttrees[0], common_keys, full_paths)
+
     dask_dict = {}
 
     step_sum = 0
@@ -891,6 +898,7 @@ def _get_dask_array_delay_open(
     )
     if isinstance(obj, HasFields):
         common_keys = _with_subfield_keys(obj, common_keys)
+    common_keys = _normalize_grouped_keys(obj, common_keys, full_paths)
 
     dask_dict = {}
 
@@ -1808,9 +1816,9 @@ def _trees_and_keys(
 
     if len(ttrees) == 0:
         raise ValueError(
-            "allow_missing=True and no TTrees found in\n\n    {}".format(
+            "allow_missing=True and no TTrees or RNTuples found in\n\n    {}".format(
                 "\n    ".join(
-                    f"{{{f.file_path if isinstance(f, HasBranches) else f!r}: {f.object_path if isinstance(f, HasBranches) else o!r}}}"
+                    f"{{{f.file.file_path if isinstance(f, (HasBranches, HasFields)) else f!r}: {f.object_path if isinstance(f, (HasBranches, HasFields)) else o!r}}}"
                     for f, o, *_ in files
                 )
             )
@@ -1828,7 +1836,7 @@ def _trees_and_keys(
         raise ValueError(
             "TTrees in\n\n    {}\n\nhave no TBranches in common".format(
                 "\n    ".join(
-                    f"{{{f.file_path if isinstance(f, HasBranches) else f!r}: {f.object_path if isinstance(f, HasBranches) else o!r}}}"
+                    f"{{{f.file.file_path if isinstance(f, (HasBranches, HasFields)) else f!r}: {f.object_path if isinstance(f, (HasBranches, HasFields)) else o!r}}}"
                     for f, o, *_ in files
                 )
             )

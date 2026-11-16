@@ -118,8 +118,8 @@ s3 = ["s3fs"]
 xrootd = ["fsspec-xrootd>=0.5.0"]
 
 [project.urls]
-Download = "https://github.com/scikit-hep/uproot5/releases"
-Homepage = "https://github.com/scikit-hep/uproot5"
+Download = "https://github.com/scikit-hep/uproot/releases"
+Homepage = "https://github.com/scikit-hep/uproot"
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/uproot/version.py"
@@ -128,7 +128,7 @@ version-file = "src/uproot/version.py"
 source = "vcs"
 
 [tool.pytest.ini_options]
-addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config"]
+addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config", "-p", "no:anyio"]  # no test uses anyio's plugin, which breaks pytest >= 9.2 with anyio < 4.15
 filterwarnings = [
   "error",
   "default:module 'sre_.*' is deprecated:DeprecationWarning",

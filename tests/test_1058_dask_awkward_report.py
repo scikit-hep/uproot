@@ -21,10 +21,12 @@ def test_with_report(allowed):
         open_files=False,
         allow_read_errors_with_report=allowed,
     )
-    _, creport = dask.compute(collection, report)
+    computed, creport = dask.compute(collection, report)
+    assert len(computed) == 2 * 2304  # the bad file is left out
     assert creport[0].exception is None  # test_path1 is good
     assert creport[1].exception is None  # test_path2 is good
     assert creport[2].exception == "FileNotFoundError"  # test_path3 is a bad file
+    assert test_path3 in creport[2].message
 
 
 def test_with_report_exception_missed():
@@ -40,8 +42,8 @@ def test_with_report_exception_missed():
             ValueError,  # allow ValueErrors, but that's not what happens!
         ),
     )
-    with pytest.raises(FileNotFoundError):
-        _, creport = dask.compute(collection, report)
+    with pytest.raises(FileNotFoundError, match=test_path3):
+        dask.compute(collection, report)
 
 
 def test_with_report_known_divisions():
@@ -55,8 +57,10 @@ def test_with_report_known_divisions():
     )
     assert collection.known_divisions
     assert collection.divisions == (0, 1152, 2304)
+    with uproot.open(test_path + ":events") as tree:
+        expected = tree["M"].array()
     (ccollection,) = dask.compute(collection)
-    assert len(ccollection) == 2304
+    assert ccollection.M.tolist() == expected.tolist()
     collection, report = uproot.dask(
         files,
         library="ak",
@@ -66,5 +70,5 @@ def test_with_report_known_divisions():
     assert not collection.known_divisions
     assert collection.divisions == (None, None, None)
     ccollection, creport = dask.compute(collection, report)
-    assert len(ccollection) == 2304
-    assert creport[0].exception is None
+    assert ccollection.M.tolist() == expected.tolist()
+    assert creport.exception.tolist() == [None, None]

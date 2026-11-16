@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines utilities for modeling C++ objects as Python objects and the
@@ -92,6 +92,7 @@ def reset_classes():
     reload(uproot.models.TList)
     reload(uproot.models.THashList)
     reload(uproot.models.TObjArray)
+    reload(uproot.models.TClonesArray)
     reload(uproot.models.TObjString)
     reload(uproot.models.TAtt)
     reload(uproot.models.TDatime)
@@ -1689,7 +1690,7 @@ class DynamicModel(VersionedModel):
         cls = type(self)
         class_data, instance_data = state
         for k, v in class_data.items():
-            if not hasattr(cls, k):
+            if k not in cls.__dict__:
                 setattr(cls, k, v)
         cls.__bases__ = (
             tuple(x for x in class_data["behaviors"] if x not in cls.__bases__)

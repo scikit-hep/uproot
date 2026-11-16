@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import json
 import sys
@@ -14,29 +14,49 @@ from uproot.interpretation.numerical import AsDtype
 from uproot.interpretation.objects import AsObjects
 
 
-@pytest.mark.skip(
-    reason="Implement non-memberwise std::map; we have a sample (map<string,double>)"
-)
 def test_nonmemberwise_asmap():
     with uproot.open(skhep_testdata.data_path("uproot-issue243.root")) as file:
         branch = file["triggerList/triggerMap"]
-        interp = uproot.interpretation.identify.interpretation_of(branch, {}, False)
-        py = branch.array(library="np", entry_stop=2)
+        assert branch.interpretation == AsObjects(
+            AsMap(True, AsString(True), numpy.dtype(">f8"))
+        )
+        py = branch.array(library="np", entry_stop=3)
 
-    with uproot.open(skhep_testdata.data_path("uproot-issue-268.root")) as file:
-        branch = file["aTree/VtxTracks/channels_"]
-        interp = uproot.interpretation.identify.interpretation_of(branch, {}, False)
-        py = branch.array(library="np", entry_stop=2)
+    assert [x.tolist() for x in py] == [
+        {
+            "HLT_2j35_bmv2c1070_split_2j35_bmv2c1085_split_L14J15.0ETA25": 1.0,
+            "HLT_4j35_bmv2c1077_split_L14J15.0ETA25": 1.0,
+        },
+        {
+            "HLT_2j35_bmv2c1070_split_2j35_bmv2c1085_split_L14J15.0ETA25": 1.0,
+            "HLT_4j35_bmv2c1077_split_L14J15.0ETA25": 1.0,
+        },
+        {},
+    ]
 
     with uproot.open(skhep_testdata.data_path("uproot-issue-268.root")) as file:
         branch = file["aTree/VtxTracks2TofHits/match_"]
-        interp = uproot.interpretation.identify.interpretation_of(branch, {}, False)
-        py = branch.array(library="np", entry_stop=2)
+        assert branch.interpretation == AsObjects(
+            AsMap(True, numpy.dtype(">i2"), numpy.dtype(">i2"))
+        )
+        match = branch.array(library="np", entry_stop=2)
+        inverted = file["aTree/VtxTracks2TofHits/match_inverted_"].array(
+            library="np", entry_stop=2
+        )
 
+    assert list(match[0].tolist().items())[:4] == [(0, 0), (3, 1), (5, 2), (9, 3)]
+    assert [len(x) for x in match] == [29, 20]
+    for forward, backward in zip(match, inverted, strict=True):
+        assert {v: k for k, v in forward.tolist().items()} == backward.tolist()
+
+
+def test_nonmemberwise_asmap_in_memberwise_vector_is_not_implemented():
     with uproot.open(skhep_testdata.data_path("uproot-issue-268.root")) as file:
-        branch = file["aTree/VtxTracks2TofHits/match_inverted_"]
-        interp = uproot.interpretation.identify.interpretation_of(branch, {}, False)
-        py = branch.array(library="np", entry_stop=2)
+        with pytest.raises(
+            NotImplementedError,
+            match=r"memberwise serialization of AsVector\(AnalysisTree::Track\)",
+        ):
+            file["aTree/VtxTracks/channels_"].array(library="np", entry_stop=2)
 
 
 def test_typename():
@@ -114,102 +134,14 @@ def test_typename():
         )
 
 
-def test_string():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert tree["string"].array(library="np").tolist() == [
-            "one",
-            "two",
-            "three",
-            "four",
-            "five",
-        ]
-
-
-def test_tstring():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert tree["tstring"].array(library="np").tolist() == [
-            "one",
-            "two",
-            "three",
-            "four",
-            "five",
-        ]
-
-
-def test_vector_int32():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [x.tolist() for x in tree["vector_int32"].array(library="np")] == [
-            [1],
-            [1, 2],
-            [1, 2, 3],
-            [1, 2, 3, 4],
-            [1, 2, 3, 4, 5],
-        ]
-
-
-def test_vector_string():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [x.tolist() for x in tree["vector_string"].array(library="np")] == [
-            ["one"],
-            ["one", "two"],
-            ["one", "two", "three"],
-            ["one", "two", "three", "four"],
-            ["one", "two", "three", "four", "five"],
-        ]
-
-
-def test_vector_tstring():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [x.tolist() for x in tree["vector_tstring"].array(library="np")] == [
-            ["one"],
-            ["one", "two"],
-            ["one", "two", "three"],
-            ["one", "two", "three", "four"],
-            ["one", "two", "three", "four", "five"],
-        ]
-
-
-def test_vector_vector_int32():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [
-            x.tolist() for x in tree["vector_vector_int32"].array(library="np")
-        ] == [
-            [[1]],
-            [[1], [1, 2]],
-            [[1], [1, 2], [1, 2, 3]],
-            [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4]],
-            [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]],
-        ]
-
-
-def test_vector_vector_string():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [
-            x.tolist() for x in tree["vector_vector_string"].array(library="np")
-        ] == [
-            [["one"]],
-            [["one"], ["one", "two"]],
-            [["one"], ["one", "two"], ["one", "two", "three"]],
-            [
-                ["one"],
-                ["one", "two"],
-                ["one", "two", "three"],
-                ["one", "two", "three", "four"],
-            ],
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("string", ["one", "two", "three", "four", "five"]),
+        ("tstring", ["one", "two", "three", "four", "five"]),
+        ("vector_int32", [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]]),
+        (
+            "vector_string",
             [
                 ["one"],
                 ["one", "two"],
@@ -217,42 +149,82 @@ def test_vector_vector_string():
                 ["one", "two", "three", "four"],
                 ["one", "two", "three", "four", "five"],
             ],
-        ]
-
-
-def test_vector_set_int32():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [x.tolist() for x in tree["vector_set_int32"].array(library="np")] == [
-            [{1}],
-            [{1}, {1, 2}],
-            [{1}, {1, 2}, {1, 2, 3}],
-            [{1}, {1, 2}, {1, 2, 3}, {1, 2, 3, 4}],
+        ),
+        (
+            "vector_tstring",
             [
-                {1},
-                {1, 2},
-                {1, 2, 3},
-                {1, 2, 3, 4},
-                {1, 2, 3, 4, 5},
+                ["one"],
+                ["one", "two"],
+                ["one", "two", "three"],
+                ["one", "two", "three", "four"],
+                ["one", "two", "three", "four", "five"],
             ],
-        ]
-
-
-def test_vector_set_string():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [x.tolist() for x in tree["vector_set_string"].array(library="np")] == [
-            [{"one"}],
-            [{"one"}, {"one", "two"}],
-            [{"one"}, {"one", "two"}, {"one", "two", "three"}],
+        ),
+        (
+            "vector_vector_int32",
             [
-                {"one"},
-                {"one", "two"},
-                {"one", "two", "three"},
-                {"one", "two", "three", "four"},
+                [[1]],
+                [[1], [1, 2]],
+                [[1], [1, 2], [1, 2, 3]],
+                [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4]],
+                [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]],
             ],
+        ),
+        (
+            "vector_vector_string",
+            [
+                [["one"]],
+                [["one"], ["one", "two"]],
+                [["one"], ["one", "two"], ["one", "two", "three"]],
+                [
+                    ["one"],
+                    ["one", "two"],
+                    ["one", "two", "three"],
+                    ["one", "two", "three", "four"],
+                ],
+                [
+                    ["one"],
+                    ["one", "two"],
+                    ["one", "two", "three"],
+                    ["one", "two", "three", "four"],
+                    ["one", "two", "three", "four", "five"],
+                ],
+            ],
+        ),
+        (
+            "vector_set_int32",
+            [
+                [{1}],
+                [{1}, {1, 2}],
+                [{1}, {1, 2}, {1, 2, 3}],
+                [{1}, {1, 2}, {1, 2, 3}, {1, 2, 3, 4}],
+                [{1}, {1, 2}, {1, 2, 3}, {1, 2, 3, 4}, {1, 2, 3, 4, 5}],
+            ],
+        ),
+        (
+            "vector_set_string",
+            [
+                [{"one"}],
+                [{"one"}, {"one", "two"}],
+                [{"one"}, {"one", "two"}, {"one", "two", "three"}],
+                [
+                    {"one"},
+                    {"one", "two"},
+                    {"one", "two", "three"},
+                    {"one", "two", "three", "four"},
+                ],
+                [
+                    {"one"},
+                    {"one", "two"},
+                    {"one", "two", "three"},
+                    {"one", "two", "three", "four"},
+                    {"one", "two", "three", "four", "five"},
+                ],
+            ],
+        ),
+        ("set_int32", [{1}, {1, 2}, {1, 2, 3}, {1, 2, 3, 4}, {1, 2, 3, 4, 5}]),
+        (
+            "set_string",
             [
                 {"one"},
                 {"one", "two"},
@@ -260,351 +232,255 @@ def test_vector_set_string():
                 {"one", "two", "three", "four"},
                 {"one", "two", "three", "four", "five"},
             ],
-        ]
-
-
-def test_set_int32():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [x.tolist() for x in tree["set_int32"].array(library="np")] == [
-            {1},
-            {1, 2},
-            {1, 2, 3},
-            {1, 2, 3, 4},
-            {1, 2, 3, 4, 5},
-        ]
-
-
-def test_set_string():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [x.tolist() for x in tree["set_string"].array(library="np")] == [
-            {"one"},
-            {"one", "two"},
-            {"one", "two", "three"},
-            {"one", "two", "three", "four"},
-            {"one", "two", "three", "four", "five"},
-        ]
-
-
-def test_map_int32_int16():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [x.tolist() for x in tree["map_int32_int16"].array(library="np")] == [
-            {1: 1},
-            {1: 1, 2: 2},
-            {1: 1, 2: 2, 3: 3},
-            {1: 1, 2: 2, 3: 3, 4: 4},
-            {1: 1, 2: 2, 3: 3, 4: 4, 5: 5},
-        ]
-
-
-def test_map_int32_vector_int16():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [
-            x.tolist() for x in tree["map_int32_vector_int16"].array(library="np")
-        ] == [
-            {1: [1]},
-            {1: [1], 2: [1, 2]},
-            {1: [1], 2: [1, 2], 3: [1, 2, 3]},
-            {1: [1], 2: [1, 2], 3: [1, 2, 3], 4: [1, 2, 3, 4]},
-            {1: [1], 2: [1, 2], 3: [1, 2, 3], 4: [1, 2, 3, 4], 5: [1, 2, 3, 4, 5]},
-        ]
-
-
-def test_map_int32_vector_string():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [
-            x.tolist() for x in tree["map_int32_vector_string"].array(library="np")
-        ] == [
-            {1: ["one"]},
-            {1: ["one"], 2: ["one", "two"]},
-            {1: ["one"], 2: ["one", "two"], 3: ["one", "two", "three"]},
-            {
-                1: ["one"],
-                2: ["one", "two"],
-                3: ["one", "two", "three"],
-                4: ["one", "two", "three", "four"],
-            },
-            {
-                1: ["one"],
-                2: ["one", "two"],
-                3: ["one", "two", "three"],
-                4: ["one", "two", "three", "four"],
-                5: ["one", "two", "three", "four", "five"],
-            },
-        ]
-
-
-def test_map_int32_set_int16():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [
-            x.tolist() for x in tree["map_int32_set_int16"].array(library="np")
-        ] == [
-            {1: {1}},
-            {1: {1}, 2: {1, 2}},
-            {1: {1}, 2: {1, 2}, 3: {1, 2, 3}},
-            {1: {1}, 2: {1, 2}, 3: {1, 2, 3}, 4: {1, 2, 3, 4}},
-            {
-                1: {1},
-                2: {1, 2},
-                3: {1, 2, 3},
-                4: {1, 2, 3, 4},
-                5: {1, 2, 3, 4, 5},
-            },
-        ]
-
-
-def test_map_int32_set_string():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [
-            x.tolist() for x in tree["map_int32_set_string"].array(library="np")
-        ] == [
-            {1: {"one"}},
-            {1: {"one"}, 2: {"one", "two"}},
-            {1: {"one"}, 2: {"one", "two"}, 3: {"one", "two", "three"}},
-            {
-                1: {"one"},
-                2: {"one", "two"},
-                3: {"one", "two", "three"},
-                4: {"one", "two", "three", "four"},
-            },
-            {
-                1: {"one"},
-                2: {"one", "two"},
-                3: {"one", "two", "three"},
-                4: {"one", "two", "three", "four"},
-                5: {"one", "two", "three", "four", "five"},
-            },
-        ]
-
-
-def test_map_string_int16():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [x.tolist() for x in tree["map_string_int16"].array(library="np")] == [
-            {"one": 1},
-            {"one": 1, "two": 2},
-            {"one": 1, "two": 2, "three": 3},
-            {"one": 1, "two": 2, "three": 3, "four": 4},
-            {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5},
-        ]
-
-
-def test_map_string_vector_int16():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [
-            x.tolist() for x in tree["map_string_vector_int16"].array(library="np")
-        ] == [
-            {"one": [1]},
-            {"one": [1], "two": [1, 2]},
-            {"one": [1], "two": [1, 2], "three": [1, 2, 3]},
-            {"one": [1], "two": [1, 2], "three": [1, 2, 3], "four": [1, 2, 3, 4]},
-            {
-                "one": [1],
-                "two": [1, 2],
-                "three": [1, 2, 3],
-                "four": [1, 2, 3, 4],
-                "five": [1, 2, 3, 4, 5],
-            },
-        ]
-
-
-def test_map_string_vector_string():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [
-            x.tolist() for x in tree["map_string_vector_string"].array(library="np")
-        ] == [
-            {"one": ["one"]},
-            {"one": ["one"], "two": ["one", "two"]},
-            {"one": ["one"], "two": ["one", "two"], "three": ["one", "two", "three"]},
-            {
-                "one": ["one"],
-                "two": ["one", "two"],
-                "three": ["one", "two", "three"],
-                "four": ["one", "two", "three", "four"],
-            },
-            {
-                "one": ["one"],
-                "two": ["one", "two"],
-                "three": ["one", "two", "three"],
-                "four": ["one", "two", "three", "four"],
-                "five": ["one", "two", "three", "four", "five"],
-            },
-        ]
-
-
-def test_map_string_set_int16():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [
-            x.tolist() for x in tree["map_string_set_int16"].array(library="np")
-        ] == [
-            {"one": {1}},
-            {"one": {1}, "two": {1, 2}},
-            {"one": {1}, "two": {1, 2}, "three": {1, 2, 3}},
-            {
-                "one": {1},
-                "two": {1, 2},
-                "three": {1, 2, 3},
-                "four": {1, 2, 3, 4},
-            },
-            {
-                "one": {1},
-                "two": {1, 2},
-                "three": {1, 2, 3},
-                "four": {1, 2, 3, 4},
-                "five": {1, 2, 3, 4, 5},
-            },
-        ]
-
-
-def test_map_string_set_string():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [
-            x.tolist() for x in tree["map_string_set_string"].array(library="np")
-        ] == [
-            {"one": {"one"}},
-            {"one": {"one"}, "two": {"one", "two"}},
-            {
-                "one": {"one"},
-                "two": {"one", "two"},
-                "three": {"one", "two", "three"},
-            },
-            {
-                "one": {"one"},
-                "two": {"one", "two"},
-                "three": {"one", "two", "three"},
-                "four": {"one", "two", "three", "four"},
-            },
-            {
-                "one": {"one"},
-                "two": {"one", "two"},
-                "three": {"one", "two", "three"},
-                "four": {"one", "two", "three", "four"},
-                "five": {"one", "two", "three", "four", "five"},
-            },
-        ]
-
-
-def test_map_int32_vector_vector_int16():
+        ),
+        (
+            "map_int32_int16",
+            [
+                {1: 1},
+                {1: 1, 2: 2},
+                {1: 1, 2: 2, 3: 3},
+                {1: 1, 2: 2, 3: 3, 4: 4},
+                {1: 1, 2: 2, 3: 3, 4: 4, 5: 5},
+            ],
+        ),
+        (
+            "map_int32_vector_int16",
+            [
+                {1: [1]},
+                {1: [1], 2: [1, 2]},
+                {1: [1], 2: [1, 2], 3: [1, 2, 3]},
+                {1: [1], 2: [1, 2], 3: [1, 2, 3], 4: [1, 2, 3, 4]},
+                {1: [1], 2: [1, 2], 3: [1, 2, 3], 4: [1, 2, 3, 4], 5: [1, 2, 3, 4, 5]},
+            ],
+        ),
+        (
+            "map_int32_vector_string",
+            [
+                {1: ["one"]},
+                {1: ["one"], 2: ["one", "two"]},
+                {1: ["one"], 2: ["one", "two"], 3: ["one", "two", "three"]},
+                {
+                    1: ["one"],
+                    2: ["one", "two"],
+                    3: ["one", "two", "three"],
+                    4: ["one", "two", "three", "four"],
+                },
+                {
+                    1: ["one"],
+                    2: ["one", "two"],
+                    3: ["one", "two", "three"],
+                    4: ["one", "two", "three", "four"],
+                    5: ["one", "two", "three", "four", "five"],
+                },
+            ],
+        ),
+        (
+            "map_int32_set_int16",
+            [
+                {1: {1}},
+                {1: {1}, 2: {1, 2}},
+                {1: {1}, 2: {1, 2}, 3: {1, 2, 3}},
+                {1: {1}, 2: {1, 2}, 3: {1, 2, 3}, 4: {1, 2, 3, 4}},
+                {1: {1}, 2: {1, 2}, 3: {1, 2, 3}, 4: {1, 2, 3, 4}, 5: {1, 2, 3, 4, 5}},
+            ],
+        ),
+        (
+            "map_int32_set_string",
+            [
+                {1: {"one"}},
+                {1: {"one"}, 2: {"one", "two"}},
+                {1: {"one"}, 2: {"one", "two"}, 3: {"one", "two", "three"}},
+                {
+                    1: {"one"},
+                    2: {"one", "two"},
+                    3: {"one", "two", "three"},
+                    4: {"one", "two", "three", "four"},
+                },
+                {
+                    1: {"one"},
+                    2: {"one", "two"},
+                    3: {"one", "two", "three"},
+                    4: {"one", "two", "three", "four"},
+                    5: {"one", "two", "three", "four", "five"},
+                },
+            ],
+        ),
+        (
+            "map_string_int16",
+            [
+                {"one": 1},
+                {"one": 1, "two": 2},
+                {"one": 1, "two": 2, "three": 3},
+                {"one": 1, "two": 2, "three": 3, "four": 4},
+                {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5},
+            ],
+        ),
+        (
+            "map_string_vector_int16",
+            [
+                {"one": [1]},
+                {"one": [1], "two": [1, 2]},
+                {"one": [1], "two": [1, 2], "three": [1, 2, 3]},
+                {"one": [1], "two": [1, 2], "three": [1, 2, 3], "four": [1, 2, 3, 4]},
+                {
+                    "one": [1],
+                    "two": [1, 2],
+                    "three": [1, 2, 3],
+                    "four": [1, 2, 3, 4],
+                    "five": [1, 2, 3, 4, 5],
+                },
+            ],
+        ),
+        (
+            "map_string_vector_string",
+            [
+                {"one": ["one"]},
+                {"one": ["one"], "two": ["one", "two"]},
+                {
+                    "one": ["one"],
+                    "two": ["one", "two"],
+                    "three": ["one", "two", "three"],
+                },
+                {
+                    "one": ["one"],
+                    "two": ["one", "two"],
+                    "three": ["one", "two", "three"],
+                    "four": ["one", "two", "three", "four"],
+                },
+                {
+                    "one": ["one"],
+                    "two": ["one", "two"],
+                    "three": ["one", "two", "three"],
+                    "four": ["one", "two", "three", "four"],
+                    "five": ["one", "two", "three", "four", "five"],
+                },
+            ],
+        ),
+        (
+            "map_string_set_int16",
+            [
+                {"one": {1}},
+                {"one": {1}, "two": {1, 2}},
+                {"one": {1}, "two": {1, 2}, "three": {1, 2, 3}},
+                {"one": {1}, "two": {1, 2}, "three": {1, 2, 3}, "four": {1, 2, 3, 4}},
+                {
+                    "one": {1},
+                    "two": {1, 2},
+                    "three": {1, 2, 3},
+                    "four": {1, 2, 3, 4},
+                    "five": {1, 2, 3, 4, 5},
+                },
+            ],
+        ),
+        (
+            "map_string_set_string",
+            [
+                {"one": {"one"}},
+                {"one": {"one"}, "two": {"one", "two"}},
+                {
+                    "one": {"one"},
+                    "two": {"one", "two"},
+                    "three": {"one", "two", "three"},
+                },
+                {
+                    "one": {"one"},
+                    "two": {"one", "two"},
+                    "three": {"one", "two", "three"},
+                    "four": {"one", "two", "three", "four"},
+                },
+                {
+                    "one": {"one"},
+                    "two": {"one", "two"},
+                    "three": {"one", "two", "three"},
+                    "four": {"one", "two", "three", "four"},
+                    "five": {"one", "two", "three", "four", "five"},
+                },
+            ],
+        ),
+        (
+            "map_int32_vector_vector_int16",
+            [
+                {1: [[1]]},
+                {1: [[1]], 2: [[1], [1, 2]]},
+                {1: [[1]], 2: [[1], [1, 2]], 3: [[1], [1, 2], [1, 2, 3]]},
+                {
+                    1: [[1]],
+                    2: [[1], [1, 2]],
+                    3: [[1], [1, 2], [1, 2, 3]],
+                    4: [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4]],
+                },
+                {
+                    1: [[1]],
+                    2: [[1], [1, 2]],
+                    3: [[1], [1, 2], [1, 2, 3]],
+                    4: [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4]],
+                    5: [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]],
+                },
+            ],
+        ),
+        (
+            "map_int32_vector_set_int16",
+            [
+                {1: [{1}]},
+                {1: [{1}], 2: [{1}, {1, 2}]},
+                {1: [{1}], 2: [{1}, {1, 2}], 3: [{1}, {1, 2}, {1, 2, 3}]},
+                {
+                    1: [{1}],
+                    2: [{1}, {1, 2}],
+                    3: [{1}, {1, 2}, {1, 2, 3}],
+                    4: [{1}, {1, 2}, {1, 2, 3}, {1, 2, 3, 4}],
+                },
+                {
+                    1: [{1}],
+                    2: [{1}, {1, 2}],
+                    3: [{1}, {1, 2}, {1, 2, 3}],
+                    4: [{1}, {1, 2}, {1, 2, 3}, {1, 2, 3, 4}],
+                    5: [{1}, {1, 2}, {1, 2, 3}, {1, 2, 3, 4}, {1, 2, 3, 4, 5}],
+                },
+            ],
+        ),
+        (
+            "map_string_string",
+            [
+                {"one": "ONE"},
+                {"one": "ONE", "two": "TWO"},
+                {"one": "ONE", "two": "TWO", "three": "THREE"},
+                {"one": "ONE", "two": "TWO", "three": "THREE", "four": "FOUR"},
+                {
+                    "one": "ONE",
+                    "two": "TWO",
+                    "three": "THREE",
+                    "four": "FOUR",
+                    "five": "FIVE",
+                },
+            ],
+        ),
+        (
+            "map_string_tstring",
+            [
+                {"one": "ONE"},
+                {"one": "ONE", "two": "TWO"},
+                {"one": "ONE", "two": "TWO", "three": "THREE"},
+                {"one": "ONE", "two": "TWO", "three": "THREE", "four": "FOUR"},
+                {
+                    "one": "ONE",
+                    "two": "TWO",
+                    "three": "THREE",
+                    "four": "FOUR",
+                    "five": "FIVE",
+                },
+            ],
+        ),
+    ],
+)
+def test_contents(name, expected):
     with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
         "tree"
     ] as tree:
         assert [
-            x.tolist()
-            for x in tree["map_int32_vector_vector_int16"].array(library="np")
-        ] == [
-            {1: [[1]]},
-            {1: [[1]], 2: [[1], [1, 2]]},
-            {1: [[1]], 2: [[1], [1, 2]], 3: [[1], [1, 2], [1, 2, 3]]},
-            {
-                1: [[1]],
-                2: [[1], [1, 2]],
-                3: [[1], [1, 2], [1, 2, 3]],
-                4: [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4]],
-            },
-            {
-                1: [[1]],
-                2: [[1], [1, 2]],
-                3: [[1], [1, 2], [1, 2, 3]],
-                4: [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4]],
-                5: [[1], [1, 2], [1, 2, 3], [1, 2, 3, 4], [1, 2, 3, 4, 5]],
-            },
-        ]
-
-
-def test_map_int32_vector_set_int16():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [
-            x.tolist() for x in tree["map_int32_vector_set_int16"].array(library="np")
-        ] == [
-            {1: [{1}]},
-            {1: [{1}], 2: [{1}, {1, 2}]},
-            {
-                1: [{1}],
-                2: [{1}, {1, 2}],
-                3: [{1}, {1, 2}, {1, 2, 3}],
-            },
-            {
-                1: [{1}],
-                2: [{1}, {1, 2}],
-                3: [{1}, {1, 2}, {1, 2, 3}],
-                4: [{1}, {1, 2}, {1, 2, 3}, {1, 2, 3, 4}],
-            },
-            {
-                1: [{1}],
-                2: [{1}, {1, 2}],
-                3: [{1}, {1, 2}, {1, 2, 3}],
-                4: [{1}, {1, 2}, {1, 2, 3}, {1, 2, 3, 4}],
-                5: [
-                    {1},
-                    {1, 2},
-                    {1, 2, 3},
-                    {1, 2, 3, 4},
-                    {1, 2, 3, 4, 5},
-                ],
-            },
-        ]
-
-
-def test_map_string_string():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [x.tolist() for x in tree["map_string_string"].array(library="np")] == [
-            {"one": "ONE"},
-            {"one": "ONE", "two": "TWO"},
-            {"one": "ONE", "two": "TWO", "three": "THREE"},
-            {"one": "ONE", "two": "TWO", "three": "THREE", "four": "FOUR"},
-            {
-                "one": "ONE",
-                "two": "TWO",
-                "three": "THREE",
-                "four": "FOUR",
-                "five": "FIVE",
-            },
-        ]
-
-
-def test_map_string_tstring():
-    with uproot.open(skhep_testdata.data_path("uproot-stl_containers.root"))[
-        "tree"
-    ] as tree:
-        assert [x.tolist() for x in tree["map_string_tstring"].array(library="np")] == [
-            {"one": "ONE"},
-            {"one": "ONE", "two": "TWO"},
-            {"one": "ONE", "two": "TWO", "three": "THREE"},
-            {"one": "ONE", "two": "TWO", "three": "THREE", "four": "FOUR"},
-            {
-                "one": "ONE",
-                "two": "TWO",
-                "three": "THREE",
-                "four": "FOUR",
-                "five": "FIVE",
-            },
-        ]
+            x.tolist() if hasattr(x, "tolist") else x
+            for x in tree[name].array(library="np")
+        ] == expected
 
 
 def test_map_int_struct():

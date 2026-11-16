@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import os
 
@@ -21,3 +21,7 @@ def test(tmp_path):
     with uproot.recreate(filename) as f:
         f.mktree("t", {"event_params": "3 * uint32", "pt": "var * float64"})
         f["t"].extend({"event_params": event_params, "pt": pt})
+
+    with uproot.open(filename) as f:
+        assert f["t"]["event_params"].array().tolist() == event_params.tolist()
+        assert f["t"]["pt"].array().tolist() == pt.tolist()

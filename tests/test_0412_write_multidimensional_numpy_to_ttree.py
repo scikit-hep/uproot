@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import array
 import os
@@ -12,6 +12,8 @@ import uproot.writing
 
 ROOT = pytest.importorskip("ROOT")
 
+WRONG_SHAPE = "must fill branches with a consistent shape"
+
 
 def test_2dim(tmp_path):
     newfile = os.path.join(tmp_path, "newfile.root")
@@ -19,9 +21,9 @@ def test_2dim(tmp_path):
     with uproot.recreate(newfile, compression=None) as fout:
         tree = fout.mktree("tree", {"branch": np.dtype((np.float64, (3,)))})
         tree.extend({"branch": np.array([[1.1, 2.2, 3.3], [4.4, 5.5, 6.6]])})
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=WRONG_SHAPE):
             tree.extend({"branch": np.array([7.7, 8.8, 9.9])})
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=WRONG_SHAPE):
             tree.extend({"branch": np.array([[7.7], [8.8], [9.9]])})
 
     f1 = ROOT.TFile(newfile)
@@ -38,54 +40,19 @@ def test_2dim(tmp_path):
     f1.Close()
 
 
-def test_2dim_interface(tmp_path):
+@pytest.mark.parametrize("wrap", [np.array, list], ids=["numpy", "lists"])
+def test_2dim_interface(tmp_path, wrap):
     newfile = os.path.join(tmp_path, "newfile.root")
 
     with uproot.recreate(newfile, compression=None) as fout:
-        fout.mktree("tree", {"branch": np.array([[1.1, 2.2, 3.3], [4.4, 5.5, 6.6]])})
+        fout.mktree("tree", {"branch": wrap([[1.1, 2.2, 3.3], [4.4, 5.5, 6.6]])})
         fout["tree"].extend(
-            {"branch": np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])}
+            {"branch": wrap([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])}
         )
-        with pytest.raises(ValueError):
-            fout["tree"].extend({"branch": np.array([7.7, 8.8, 9.9])})
-        with pytest.raises(ValueError):
-            fout["tree"].extend({"branch": np.array([[7.7], [8.8], [9.9]])})
-
-    f1 = ROOT.TFile(newfile)
-    t1 = f1.Get("tree")
-
-    assert [np.asarray(x.branch).tolist() for x in t1] == [
-        [1.1, 2.2, 3.3],
-        [4.4, 5.5, 6.6],
-        [1.0, 2.0, 3.0],
-        [4.0, 5.0, 6.0],
-        [7.0, 8.0, 9.0],
-    ]
-
-    with uproot.open(newfile) as fin:
-        assert fin["tree/branch"].array().tolist() == [
-            [1.1, 2.2, 3.3],
-            [4.4, 5.5, 6.6],
-            [1.0, 2.0, 3.0],
-            [4.0, 5.0, 6.0],
-            [7.0, 8.0, 9.0],
-        ]
-
-    f1.Close()
-
-
-def test_2dim_interface_2(tmp_path):
-    newfile = os.path.join(tmp_path, "newfile.root")
-
-    with uproot.recreate(newfile, compression=None) as fout:
-        fout.mktree("tree", {"branch": [[1.1, 2.2, 3.3], [4.4, 5.5, 6.6]]})
-        fout["tree"].extend(
-            {"branch": [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]}
-        )
-        with pytest.raises(ValueError):
-            fout["tree"].extend({"branch": [7.7, 8.8, 9.9]})
-        with pytest.raises(ValueError):
-            fout["tree"].extend({"branch": [[7.7], [8.8], [9.9]]})
+        with pytest.raises(ValueError, match=WRONG_SHAPE):
+            fout["tree"].extend({"branch": wrap([7.7, 8.8, 9.9])})
+        with pytest.raises(ValueError, match=WRONG_SHAPE):
+            fout["tree"].extend({"branch": wrap([[7.7], [8.8], [9.9]])})
 
     f1 = ROOT.TFile(newfile)
     t1 = f1.Get("tree")
