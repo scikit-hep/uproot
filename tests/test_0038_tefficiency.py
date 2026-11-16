@@ -1,6 +1,7 @@
 # BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import os
+import warnings
 
 import numpy as np
 import pytest
@@ -481,3 +482,96 @@ def test_uproot_reads_pyroot_written_objectwise(tmp_path):
         (1.0, 1.0),
         (1.0, 1.0),
     ]
+
+
+# Compared bin by bin (including under/overflow) with ROOT, for the paths the
+# fixed reference values above don't cover: per-bin priors, weights, 2D and 3D.
+# Keys are (statistic option, ndim, weighted, per-bin priors, posterior mode,
+# shortest interval).
+ROOT_COMPARISON_CASES = {
+    "1D Bayesian, per-bin priors": ("kBBayesian", 1, False, True, False, False),
+    "2D Bayesian, per-bin priors": ("kBBayesian", 2, False, True, False, False),
+    "3D Bayesian, per-bin priors": ("kBBayesian", 3, False, True, False, False),
+    "2D Bayesian, per-bin priors, mode": ("kBBayesian", 2, False, True, True, False),
+    "1D weighted kFCP": ("kFCP", 1, True, False, False, False),
+    "2D weighted kFCP": ("kFCP", 2, True, False, False, False),
+    "1D weighted kBJeffrey": ("kBJeffrey", 1, True, False, False, False),
+    "2D weighted kBUniform, shortest": ("kBUniform", 2, True, False, False, True),
+    "2D weighted Bayesian, per-bin priors": ("kBBayesian", 2, True, True, False, False),
+    "3D kFCP": ("kFCP", 3, False, False, False, False),
+}
+
+
+@pytest.mark.parametrize("case", list(ROOT_COMPARISON_CASES))
+def test_uproot_matches_pyroot(case, tmp_path):
+    ROOT = pytest.importorskip("ROOT")
+    pytest.importorskip("scipy")
+
+    option, ndim, weighted, bin_priors, posterior_mode, shortest = (
+        ROOT_COMPARISON_CASES[case]
+    )
+    axes = {1: (5, 0, 4), 2: (4, 0, 4, 3, 0, 4), 3: (3, 0, 4, 2, 0, 4, 2, 0, 4)}
+    eff = ROOT.TEfficiency("eff", "", *axes[ndim])
+    eff.SetDirectory(ROOT.nullptr)
+    if weighted:
+        eff.SetUseWeightedEvents()
+
+    rng = np.random.default_rng(7)
+    for _ in range(400):
+        # some entries land in the underflow and overflow bins
+        coords = [float(c) for c in rng.uniform(-0.5, 4.5, ndim)]
+        passed = bool(rng.uniform() < 0.6)
+        if weighted:
+            eff.FillWeighted(passed, float(rng.uniform(0.2, 3.0)), *coords)
+        else:
+            eff.Fill(passed, *coords)
+
+    eff.SetStatisticOption(getattr(ROOT.TEfficiency, option))
+    eff.SetConfidenceLevel(0.9)
+    num_bins = eff.GetTotalHistogram().GetNcells()
+    if bin_priors:
+        eff.SetBetaAlpha(2.0)
+        eff.SetBetaBeta(3.0)
+        for global_bin in range(0, num_bins, 3):
+            eff.SetBetaBinParameters(
+                global_bin, 1.0 + global_bin % 5, 2.0 + global_bin % 7
+            )
+    if posterior_mode:
+        eff.SetPosteriorMode()
+    if shortest:
+        eff.SetShortestInterval()
+
+    with warnings.catch_warnings():
+        # ROOT warns that weighted frequentist intervals use the normal
+        # approximation (as does uproot, silently)
+        warnings.filterwarnings("ignore", message=".*normal approximation")
+        expected = np.array(
+            [
+                [
+                    eff.GetEfficiency(b),
+                    eff.GetEfficiencyErrorLow(b),
+                    eff.GetEfficiencyErrorUp(b),
+                ]
+                for b in range(num_bins)
+            ]
+        )
+
+    filename = os.path.join(tmp_path, "eff.root")
+    rootfile = ROOT.TFile(filename, "recreate")
+    eff.Write()
+    rootfile.Close()
+
+    with uproot.open(filename) as f:
+        eff = f["eff"]
+        low, high = eff.errors(flow=True)
+        # values(flow=True)[ix, iy, iz] is ROOT's global bin ix + nx * (iy + ny * iz)
+        observed = np.stack(
+            [
+                eff.values(flow=True).ravel(order="F"),
+                low.ravel(order="F"),
+                high.ravel(order="F"),
+            ],
+            axis=1,
+        )
+    # weighted frequentist intervals are NaN in empty bins, in both ROOT and uproot
+    np.testing.assert_allclose(observed, expected, rtol=0, atol=1e-7, equal_nan=True)
