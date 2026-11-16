@@ -149,6 +149,7 @@ import uproot.models.TBasket
 import uproot.models.RNTuple
 import uproot.models.TH
 import uproot.models.TGraph
+import uproot.models.TEfficiency
 import uproot.models.TMatrixT
 import uproot.models.TTime
 
