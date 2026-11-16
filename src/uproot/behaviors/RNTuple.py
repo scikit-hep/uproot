@@ -497,7 +497,13 @@ class HasFields(Mapping):
             for field in field_path[:-1]:
                 arrays = arrays[field]
 
-        expression_context = [(f, None) for f in arrays.fields]
+        expression_context = []
+        for f in arrays.fields:
+            layout = arrays[f].layout
+            is_jagged = isinstance(
+                layout, (ak.contents.ListOffsetArray, ak.contents.ListArray)
+            ) and layout.parameter("__array__") not in ("string", "bytestring")
+            expression_context.append((f, {"is_jagged": is_jagged}))
 
         # TODO: The conversion would be ideally be fully handled by Awkward.
         if library.name in ("np", "pd"):
@@ -536,16 +542,6 @@ class HasFields(Mapping):
             arrays = library.group(arrays, expression_context, how)
 
         return arrays
-
-    def __array__(self, *args, **kwargs):
-        if isinstance(self, uproot.behaviors.RNTuple.RNTuple):
-            out = self.arrays(library="np")
-        else:
-            out = self.array(library="np")
-        if args == () and kwargs == {}:
-            return out
-        else:
-            return numpy.array(out, *args, **kwargs)
 
     def iterate(
         self,

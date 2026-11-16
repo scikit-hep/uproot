@@ -1955,6 +1955,13 @@ class RField(uproot.behaviors.RNTuple.HasFields):
         else:
             return f"<RField {self.name!r} ({len(self)} subfields) in RNTuple {self.ntuple.name!r} at 0x{id(self):012x}>"
 
+    def __array__(self, *args, **kwargs):
+        out = self.array(library="np")
+        if args == () and kwargs == {}:
+            return out
+        else:
+            return numpy.array(out, *args, **kwargs)
+
     @property
     def name(self):
         """
