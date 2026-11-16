@@ -35,6 +35,8 @@ def _parse_errs(xvalues, errs):
 
 
 def _centers(edges):
+    # Lists and tuples would be concatenated, not added
+    edges = numpy.asarray(edges, dtype=numpy.float64)
     return (edges[1:] + edges[:-1]) / 2
 
 
@@ -132,11 +134,10 @@ class RooCurve(uproot.behaviors.TGraph.TGraph):
         """
         if self.curve_type != "VALUES":
             raise ValueError(
-                "to_boost should be called on the value curve. The error curve is passed using the"
+                "to_boost should be called on the value curve. The error curve is passed using the "
                 "error_curve parameter."
             )
         boost_histogram = uproot.extras.boost_histogram()
-        # Lists and tuples would be concatenated, not added, by _centers
         bin_edges = numpy.asarray(bin_edges, dtype=numpy.float64)
         axis = boost_histogram.axis.Variable(bin_edges, underflow=False, overflow=False)
         axis.name = self.name

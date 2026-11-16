@@ -1,4 +1,6 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
+
+from __future__ import annotations
 
 import numpy
 import pytest
@@ -36,3 +38,22 @@ def test_to_boost_integer_edges(curves):
     result = roocurve.to_boost([0, 10, 20])
     expected = roocurve.interpolate(numpy.array([5.0, 15.0]))
     assert result.values() == pytest.approx(expected)
+
+
+def test_to_hist_accepts_sequence_edges(curves):
+    pytest.importorskip("hist")
+    roocurve, roocurve_err = curves
+    edges = numpy.arange(0.0, 51.0)
+
+    expected = roocurve.to_hist(edges, error_curve=roocurve_err)
+    result = roocurve.to_hist(edges.tolist(), error_curve=roocurve_err)
+    assert result.axes[0].edges == pytest.approx(edges)
+    assert result.values() == pytest.approx(expected.values())
+    assert result.variances() == pytest.approx(expected.variances())
+
+
+def test_centers_accepts_sequences():
+    from uproot.behaviors.RooCurve import _centers
+
+    assert _centers([0, 1, 3]) == pytest.approx([0.5, 2.0])
+    assert _centers((0.0, 2.0)) == pytest.approx([1.0])
