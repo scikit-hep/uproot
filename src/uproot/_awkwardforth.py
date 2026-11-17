@@ -6,7 +6,6 @@ This module defines utilities for adding components to the forth reader.
 
 from __future__ import annotations
 
-
 import json
 
 import numpy as np
