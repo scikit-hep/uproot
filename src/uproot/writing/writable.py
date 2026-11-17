@@ -22,6 +22,7 @@ import datetime
 import difflib
 import itertools
 import queue
+import struct
 import sys
 import uuid
 from collections.abc import Mapping, MutableMapping
@@ -511,6 +512,70 @@ class WritableFile(uproot.reading.CommonFileMethods):
         )
         out.options = dict(uproot.reading.open.defaults)
         return out
+
+
+def _collect_tree_basket_ranges(tree):
+    ranges = []
+    try:
+        if not tree.has_member("fBranches"):
+            return ranges
+        stack = list(tree.member("fBranches"))
+    except Exception:
+        return ranges
+
+    while stack:
+        branch = stack.pop()
+        try:
+            if branch.has_member("fBranches"):
+                sub_branches = branch.member("fBranches")
+                if sub_branches:
+                    stack.extend(sub_branches)
+
+            if branch.has_member("fFileName"):
+                filename = branch.member("fFileName")
+                if filename and len(filename) > 0:
+                    continue
+
+            if branch.has_member("fBasketSeek") and branch.has_member("fBasketBytes"):
+                seeks = branch.member("fBasketSeek")
+                nbytes_list = branch.member("fBasketBytes")
+                for seek, nbytes in zip(seeks, nbytes_list, strict=False):
+                    s = int(seek)
+                    nb = int(nbytes)
+                    if s > 0 and nb > 0:
+                        ranges.append((s, s + nb))
+        except Exception:
+            continue
+
+    return ranges
+
+
+def _validate_basket_key(sink, seek, nbytes):
+    try:
+        raw_prefix = sink.read(seek, 6, insist=False)
+        if len(raw_prefix) < 6:
+            return False
+        fNbytes, fVersion = struct.unpack(">ih", raw_prefix)
+        if fNbytes != nbytes:
+            return False
+
+        if fVersion > 1000:
+            header_size = uproot.reading._key_format_big.size
+        else:
+            header_size = uproot.reading._key_format_small.size
+
+        raw_key = sink.read(seek, header_size + 8, insist=False)
+        if len(raw_key) < header_size + 1:
+            return False
+
+        classname_len = raw_key[header_size]
+        if len(raw_key) < header_size + 1 + classname_len:
+            return False
+
+        classname = raw_key[header_size + 1 : header_size + 1 + classname_len]
+        return classname == b"TBasket"
+    except Exception:
+        return False
 
 
 class WritableDirectory(MutableMapping):
@@ -1624,13 +1689,41 @@ class WritableDirectory(MutableMapping):
                 file_path=self.file_path,
                 object_path=self.object_path,
             )
+        ranges_to_free = [
+            (
+                key.seek_location,
+                key.seek_location + key.num_bytes + key.compressed_bytes,
+            )
+        ]
+        if key.classname.string in ("TTree", "TNtuple"):
+            try:
+                tree_obj = self._file._read_key(key, self)
+                basket_ranges = _collect_tree_basket_ranges(tree_obj)
+                surviving_keys = [
+                    k
+                    for k in self._cascading.data._keys_by_name.get(key.name.string, [])
+                    if k is not key and k.classname.string in ("TTree", "TNtuple")
+                ]
+                surviving_seeks = set()
+                for sk in surviving_keys:
+                    stree = self._file._read_key(sk, self)
+                    for s_seek, _ in _collect_tree_basket_ranges(stree):
+                        surviving_seeks.add(s_seek)
+
+                for b_start, b_stop in basket_ranges:
+                    if b_start not in surviving_seeks and _validate_basket_key(
+                        self._file.sink, b_start, b_stop - b_start
+                    ):
+                        ranges_to_free.append((b_start, b_stop))
+            except Exception:
+                pass
+
         for handles in (self._file._trees, self._file._ntuples):
             handle = handles.pop(key.seek_location, None)
             if handle is not None:
                 handle._deleted = True
-        start = key.seek_location
-        stop = start + key.num_bytes + key.compressed_bytes
-        self._cascading.freesegments.release(start, stop)
+
+        self._cascading.freesegments.release_many(ranges_to_free)
 
         self._cascading._data.remove_key(key)
         self._cascading.header.modified_on = datetime.datetime.now()
