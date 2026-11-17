@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import struct
 
 import awkward as ak
 import numpy as np
@@ -187,4 +188,151 @@ def test_delete_tree_unreadable_fallback(tmp_path, monkeypatch):
         del f["t"]
 
     with uproot.open(filename) as f:
+        assert "t" not in f
+
+
+def test_free_segments_release_many_edge_cases(tmp_path):
+    filename = os.path.join(tmp_path, "edges.root")
+    with uproot.recreate(filename) as f:
+        f.mktree("t", {"x": "int32"})
+
+    with uproot.update(filename) as f:
+        fs = f._cascading.freesegments
+        orig_slices = fs.data.slices
+
+        # 1. Empty intervals list returns immediately
+        fs.release_many([])
+        assert fs.data.slices == orig_slices
+
+        # 2. Intervals already included in free slices returns immediately
+        fs.release_many(list(orig_slices))
+        assert fs.data.slices == orig_slices
+
+        # 3. Release when FreeSegments is not at the end
+        fs._data.end = fs.data.end + 1000
+        assert not fs.at_end
+
+        # 3a. Releasing interval that merges into existing slice without growing slice records
+        s0, s1 = orig_slices[0]
+        fs.release_many([(s1, s1 + 50)])
+        assert (s0, s1 + 50) in fs.data.slices
+
+        # 3b. Releasing interval that forces FreeSegments to relocate to end
+        fs.release_many([(s1 + 100, s1 + 200)])
+        assert fs.at_end
+
+
+def test_collect_tree_basket_ranges_edge_cases():
+    # 1. Object without fBranches
+    class NoBranches:
+        def has_member(self, name):
+            return False
+
+    assert _collect_tree_basket_ranges(NoBranches()) == []
+
+    # 2. Tree raising exception on fBranches
+    class BrokenTree:
+        def has_member(self, name):
+            return True
+
+        def member(self, name):
+            raise RuntimeError("broken tree")
+
+    assert _collect_tree_basket_ranges(BrokenTree()) == []
+
+    # 3. Branch referencing external file via fFileName
+    class ExternalBranch:
+        def has_member(self, name):
+            return name in ("fFileName", "fBasketSeek", "fBasketBytes")
+
+        def member(self, name):
+            if name == "fFileName":
+                return "external.root"
+            if name == "fBasketSeek":
+                return [100]
+            if name == "fBasketBytes":
+                return [50]
+
+    class TreeWithExternalBranch:
+        def has_member(self, name):
+            return name == "fBranches"
+
+        def member(self, name):
+            return [ExternalBranch()]
+
+    assert _collect_tree_basket_ranges(TreeWithExternalBranch()) == []
+
+    # 4. Branch that raises an exception during traversal
+    class BrokenBranch:
+        def has_member(self, name):
+            raise RuntimeError("broken branch")
+
+    class TreeWithBrokenBranch:
+        def has_member(self, name):
+            return name == "fBranches"
+
+        def member(self, name):
+            return [BrokenBranch()]
+
+    assert _collect_tree_basket_ranges(TreeWithBrokenBranch()) == []
+
+
+def test_validate_basket_key_edge_cases():
+    # 1. 32-bit key header (fVersion <= 1000)
+    class MockSink32:
+        def read(self, seek, nbytes, insist=False):
+            header = uproot.reading._key_format_small.pack(50, 4, 10, 0, 26, 1, seek, 0)
+            data = header + b"\x07TBasket"
+            return data[:nbytes]
+
+    assert _validate_basket_key(MockSink32(), 100, 50) is True
+
+    # 2. Truncated header (read returns fewer than header_size + 1)
+    class MockSinkTruncatedHeader:
+        def read(self, seek, nbytes, insist=False):
+            if nbytes == 6:
+                return struct.pack(">ih", 50, 1004)
+            return b"short"
+
+    assert _validate_basket_key(MockSinkTruncatedHeader(), 100, 50) is False
+
+    # 3. Truncated class name string
+    class MockSinkTruncatedClassname:
+        def read(self, seek, nbytes, insist=False):
+            if nbytes == 6:
+                return struct.pack(">ih", 50, 1004)
+            header = uproot.reading._key_format_big.pack(
+                50, 1004, 10, 0, 34, 1, seek, 0
+            )
+            return header + b"\x10short"
+
+    assert _validate_basket_key(MockSinkTruncatedClassname(), 100, 50) is False
+
+    # 4. Read error raises exception
+    class MockSinkError:
+        def read(self, seek, nbytes, insist=False):
+            raise OSError("io error")
+
+    assert _validate_basket_key(MockSinkError(), 100, 50) is False
+
+
+def test_delete_non_ttree_and_collection_failure(tmp_path, monkeypatch):
+    filename = os.path.join(tmp_path, "mixed.root")
+    with uproot.recreate(filename) as f:
+        # Delete non-TTree object (histogram)
+        f["h"] = (np.array([1.0, 2.0]), np.array([0.0, 1.0, 2.0]))
+        del f["h"]
+        assert "h" not in f
+
+        # Delete tree where _collect_tree_basket_ranges raises inside _del
+        t = f.mktree("t", {"x": "int32"})
+        t.extend({"x": np.arange(10, dtype=np.int32)})
+
+    with uproot.update(filename) as f:
+        monkeypatch.setattr(
+            uproot.writing.writable,
+            "_collect_tree_basket_ranges",
+            lambda tree: (_ for _ in ()).throw(RuntimeError("forced failure")),
+        )
+        del f["t"]
         assert "t" not in f
