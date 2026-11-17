@@ -399,12 +399,17 @@ class Chunk:
             requirement = len(self._raw_data) >= insist - self._start
         else:
             raise TypeError(f"""insist must be a bool or an int, not {insist!r}
-for file path {self._source.file_path}""")
+for file path {self._file_path}""")
 
         if not requirement:
             raise OSError(f"""expected Chunk of length {self._stop - self._start},
 received {len(self._raw_data)} bytes from {type(self._source).__name__}
-for file path {self._source.file_path}""")
+for file path {self._file_path}""")
+
+    @property
+    def _file_path(self):
+        # chunks of objects from PyROOT have no source
+        return None if self._source is None else self._source.file_path
 
     @property
     def raw_data(self) -> numpy.ndarray | bytes:
@@ -458,7 +463,7 @@ outside expected range {self._start}:{self._stop} for this Chunk""",
                 self,
                 cursor.copy(),
                 context,
-                self._source.file_path,
+                self._file_path,
             )
 
     def remainder(
@@ -496,7 +501,7 @@ outside expected range {self._start}:{self._stop} for this Chunk""",
                 self,
                 cursor.copy(),
                 context,
-                self._source.file_path,
+                self._file_path,
             )
 
 

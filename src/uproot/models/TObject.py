@@ -60,9 +60,18 @@ in file {self.file.file_path}"""
     writable = True
 
     def _serialize(self, out, header, name, tobject_flags):
+        # as TObject::Streamer does, without the bits for how it's in memory, and
+        # without kIsReferenced, since its process ID isn't written
+        bits = numpy.uint32(self._members.get("@fBits", 0)) & ~(
+            uproot.const.kIsOnHeap
+            | uproot.const.kNotDeleted
+            | uproot.const.kIsReferenced
+        )
         out.append(
             b"\x00\x01"
-            + _tobject_format2.pack(self.member("@fUniqueID"), tobject_flags)
+            + _tobject_format2.pack(
+                self.member("@fUniqueID"), int(bits | numpy.uint32(tobject_flags))
+            )
         )
 
     @classmethod

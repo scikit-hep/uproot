@@ -54,8 +54,6 @@ def _as_TGraph(
         markerStyle (int): Marker style.
         markerSize (float): Marker size.
 
-    WARNING! This function only works for TGraph, because serialization of TGraphErrors and TGraphAsymmErrors is not implemented yet.
-
     Function that converts arguments into TGraph, TGraphErrors or TGraphAsymmErros based on the given arguments.
     When all errors are unspecified, detected object is TGraph.
     When x_errors, y_errors are specified, detected object is TGraphErrors.
@@ -246,8 +244,6 @@ def as_TGraph(
         markerColor (int): Marker color. (https://root.cern.ch/doc/master/classTAttMarker.html)
         markerStyle (int): Marker style.
         markerSize (float): Marker size.
-
-    WARNING! This function only works for TGraph, because serialization of TGraphErrors and TGraphAsymmErrors is not implemented yet.
 
     Function that converts DataFrame into TGraph, TGraphErrors or TGraphAsymmErros based on the specified DataFrame columns.
     When all error columns are unspecified, detected object is TGraph.

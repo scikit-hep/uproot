@@ -70,6 +70,11 @@ in file {self.file.file_path}"""
         out._instance_version = self._instance_version
         return out
 
+    def _to_writable(self, concrete):
+        # Model._to_writable would make an empty str and fill in its members,
+        # but a TString is a str with no versions, so it's writable as it is
+        return self
+
     def __repr__(self):
         if self.class_version is None:
             version = ""
