@@ -679,6 +679,10 @@ The Pandas form for this type of data is a DataFrame with Awkward Dtype, provide
 
 You can operate on Awkward Array data in Pandas using the ``.ak`` accessor; see the [awkward-pandas documentation](https://awkward-pandas.readthedocs.io/en/latest/quickstart.html).
 
+.. warning::
+
+    Uproot 5.8 will stop using awkward-pandas, which has been superseded by `akimbo <https://github.com/intake/akimbo>`__. Columns of jagged and other non-flat data will be PyArrow-backed (``pandas.ArrowDtype``) by default, and awkward-pandas will no longer be required. Uproot 5.8 will still use awkward-pandas if it is installed, with a deprecation warning, and 5.9 will remove support for it. If you use the ``.ak`` accessor, install akimbo instead, which provides it for PyArrow-backed columns and which Uproot 5.8 will use if it is installed.
+
 Before Uproot 5.0, Uproot exploded this data with a `MultiIndex <https://pandas.pydata.org/pandas-docs/stable/user_guide/advanced.html>`__, such that each Pandas cell contains a number, not a list or other type. You can still do this using Awkward Array and `ak.to_dataframe <https://awkward-array.org/doc/main/reference/generated/ak.to_dataframe.html>`__:
 
 .. code-block:: python

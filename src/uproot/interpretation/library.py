@@ -25,6 +25,7 @@ Lazy arrays (:doc:`uproot.behaviors.TBranch.lazy`) can only use the
 from __future__ import annotations
 
 import json
+import warnings
 
 import awkward
 import numpy
@@ -796,6 +797,23 @@ def _pandas_only_series(pandas, original_arrays, expression_context):
     return arrays, names
 
 
+_awkward_pandas_deprecation_message = (
+    "Uproot 5.8 will stop using awkward-pandas, which has been superseded by "
+    "akimbo, for jagged and other non-flat data in pandas. These columns will "
+    "be PyArrow-backed (pandas.ArrowDtype) by default, and awkward-pandas will "
+    "no longer be required. Uproot 5.8 will still use awkward-pandas if it is "
+    "installed, with a deprecation warning, and 5.9 will remove support for it. "
+    "If you use the '.ak' accessor, install akimbo instead, which provides it "
+    "for PyArrow-backed columns and which Uproot 5.8 will use if it is installed."
+)
+
+
+def _warn_awkward_pandas_deprecation():
+    # stacklevel=1 points at this line, so Python's default filters show the
+    # warning once per session instead of once per column or per iteration
+    warnings.warn(_awkward_pandas_deprecation_message, FutureWarning, stacklevel=1)
+
+
 def _process_array_for_pandas(
     array,
     finalize,
@@ -831,6 +849,7 @@ def _process_array_for_pandas(
                 ) and array.layout.minmax_depth == (1, 1):
                     array = array.to_numpy()
                 else:
+                    _warn_awkward_pandas_deprecation()
                     array = uproot.extras.awkward_pandas().AwkwardExtensionArray(array)
             else:
                 array = _object_to_awkward_array(awkward, form, array)
