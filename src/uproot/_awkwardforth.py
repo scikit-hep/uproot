@@ -6,7 +6,7 @@ This module defines utilities for adding components to the forth reader.
 
 from __future__ import annotations
 
-import copy
+
 import json
 
 import numpy as np
@@ -227,7 +227,7 @@ class Node:
             return self._form_details
 
         elif self._form_details.get("class") in ("ListOffsetArray", "RegularArray"):
-            out = copy.deepcopy(self._form_details)
+            out = dict(self._form_details)
             if (
                 self._form_details.get("parameters", {}).get("__array__")
                 in ("string", "bytestring")
@@ -259,6 +259,7 @@ class Node:
                 "ListOffsetArray",
                 "RegularArray",
             ):
+                out["content"] = dict(out["content"])
                 out = out["content"]
             out["content"] = self._children[0].derive_form()
             return returnme

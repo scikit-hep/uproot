@@ -1,44 +1,53 @@
 # BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
 
-from __future__ import annotations
-
 import copy
 
 from uproot._awkwardforth import Node
 
 
-def test_derive_form_nested_list_mutation():
-    nested_form_details = {
-        "class": "ListOffsetArray",
-        "offsets": "i64",
-        "content": {
+def test_derive_form_fixed_size_array_of_lists():
+    # AsArray with an inner shape (e.g. std::vector<float> fV[3] in a split
+    # TClonesArray) puts ListOffsetArray -> RegularArray in a single node, whose
+    # child is another list node.
+    leaf = Node(
+        "node3",
+        form_details={
+            "class": "NumpyArray",
+            "primitive": "float32",
+            "form_key": "node3",
+        },
+    )
+    vector = Node(
+        "node2",
+        form_details={
             "class": "ListOffsetArray",
             "offsets": "i64",
-            "content": {
-                "class": "NumpyArray",
-                "form_key": "node-leaf",
-                "itemsize": 8,
-                "format": "d",
-                "shape": [],
-                "inner_shape": [],
-                "endian": ">",
-                "parameters": {},
-            },
+            "parameters": {},
+            "form_key": "node2",
         },
-    }
-
-    leaf_node = Node("leaf", form_details=nested_form_details["content"]["content"])
-    inner_node = Node(
-        "inner", form_details=nested_form_details["content"], children=[leaf_node]
+        children=[leaf],
     )
-    outer_node = Node("outer", form_details=nested_form_details, children=[inner_node])
+    array = Node(
+        "node1",
+        form_details={
+            "class": "ListOffsetArray",
+            "offsets": "i64",
+            "content": {"class": "RegularArray", "size": 3},
+            "parameters": {},
+            "form_key": "node1",
+        },
+        children=[vector],
+    )
 
-    original_details = copy.deepcopy(outer_node.form_details)
+    original = copy.deepcopy(array.form_details)
 
-    # Calling derive_form() twice must give the same result...
-    form1 = outer_node.derive_form()
-    form2 = outer_node.derive_form()
+    # derive_form is called once per entry until the form has no NULLs
+    forms = [array.derive_form() for _ in range(3)]
 
-    assert form1 == form2
-    # ...and must not modify the node's own form_details
-    assert outer_node.form_details == original_details
+    assert array.form_details == original
+    assert forms[0] == forms[1] == forms[2]
+
+    regular = forms[0]["content"]
+    assert regular["class"] == "RegularArray"
+    assert regular["content"]["form_key"] == "node2"
+    assert regular["content"]["content"] == leaf.form_details
