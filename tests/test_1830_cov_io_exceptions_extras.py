@@ -93,7 +93,8 @@ def test_message_narrows_huge_list_of_keys_by_prefix():
         (
             uproot.extras.awkward_pandas,
             ["awkward_pandas"],
-            "install the 'awkward-pandas' package",
+            # the message breaks the line before the package name
+            r"requires the\s+'awkward-pandas' package",
         ),
         (uproot.extras.cupy, ["cupy"], "Cupy is required for GDS reading"),
         (uproot.extras.kvikio, ["kvikio"], "Kvikio is required for GDS reading"),
