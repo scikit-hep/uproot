@@ -69,6 +69,7 @@ def test_message_narrows_huge_list_of_keys_by_prefix():
         (uproot.extras.XRootD_client, ["XRootD"], "Install XRootD python bindings"),
         (uproot.extras.isal, ["isal"], "install the 'isal' package"),
         (uproot.extras.deflate, ["deflate"], "install the 'deflate' package"),
+        (uproot.extras.scipy, ["scipy"], "install the 'scipy' package"),
         (
             uproot.extras.boost_histogram,
             ["boost_histogram"],
