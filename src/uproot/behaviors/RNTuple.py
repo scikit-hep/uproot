@@ -378,6 +378,10 @@ class HasFields(Mapping):
             if access_log is not None:
                 raise ValueError(err("access_log"))
 
+        _check_for_no_fields(
+            self, filter_name, filter_typename, filter_field, filter_branch
+        )
+
         entry_start, entry_stop = (
             uproot.behaviors.TBranch._regularize_entries_start_stop(
                 self.num_entries, entry_start, entry_stop
@@ -652,6 +656,10 @@ class HasFields(Mapping):
                 raise ValueError(
                     "Expressions are not supported yet. They are currently equivalent to filter_name."
                 )
+
+        _check_for_no_fields(
+            self, filter_name, filter_typename, filter_field, filter_branch
+        )
 
         entry_start, entry_stop = (
             uproot.behaviors.TBranch._regularize_entries_start_stop(
@@ -1176,6 +1184,10 @@ class HasFields(Mapping):
                     "Expressions are not supported yet. They are currently equivalent to filter_name."
                 )
 
+        _check_for_no_fields(
+            self, filter_name, filter_typename, filter_field, filter_branch
+        )
+
         target_num_bytes = uproot._util.memory_size(memory_size)
 
         entry_start, entry_stop = (
@@ -1190,9 +1202,6 @@ class HasFields(Mapping):
             filter_field=filter_field,
             filter_branch=filter_branch,
         )
-
-        if len(akform.contents) == 0:
-            return
 
         return _num_entries_for(
             self.ntuple, akform, target_num_bytes, entry_start, entry_stop
@@ -1419,6 +1428,37 @@ def _filter_name_deep(filter_name, hasfields, field):
     if name != shallow and filter_name(name):
         return True
     return filter_name("." + name)
+
+
+def _check_for_no_fields(
+    hasfields, filter_name, filter_typename, filter_field, filter_branch
+):
+    if (
+        filter_name is no_filter
+        and filter_typename is no_filter
+        and filter_field is no_filter
+        and (filter_branch is unset or filter_branch is no_filter)
+    ):
+        return
+
+    if (
+        len(
+            hasfields.keys(
+                filter_name=filter_name,
+                filter_typename=filter_typename,
+                filter_field=filter_field,
+                filter_branch=filter_branch,
+            )
+        )
+        == 0
+    ):
+        raise ValueError(
+            "no fields matched the given filters: "
+            f"filter_name={filter_name!r}, "
+            f"filter_typename={filter_typename!r}, "
+            f"filter_field={filter_field!r}, "
+            f"filter_branch={filter_branch!r}"
+        )
 
 
 def _with_subfield_keys(hasfields, keys):
