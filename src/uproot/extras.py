@@ -312,10 +312,15 @@ def awkward_pandas():
     try:
         import awkward_pandas
     except ModuleNotFoundError as err:
-        raise ModuleNotFoundError("""install the 'awkward-pandas' package with:
+        raise ModuleNotFoundError(
+            """putting jagged or other non-flat data in pandas requires the
+'awkward-pandas' package in this version of Uproot. Install it with:
     pip install awkward-pandas
 or
-    conda install -c conda-forge awkward-pandas""") from err
+    conda install -c conda-forge awkward-pandas
+Uproot 5.8 will not need awkward-pandas: these columns will be PyArrow-backed
+(pandas.ArrowDtype) instead. If you only need Awkward Arrays, use library="ak"."""
+        ) from err
     else:
         return awkward_pandas
 

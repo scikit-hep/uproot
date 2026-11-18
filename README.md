@@ -81,7 +81,7 @@ The following libraries are also useful in conjunction with Uproot, but are not 
 **For exporting TTrees to [Pandas](https://pandas.pydata.org/):**
 
    * `pandas`: if `library="pd"`.
-   * `awkward-pandas`: if `library="pd"` and the data have irregular structure ("jagged" arrays), see [awkward-pandas](https://github.com/intake/awkward-pandas).
+   * `awkward-pandas`: if `library="pd"` and the data have irregular structure ("jagged" arrays), see [awkward-pandas](https://github.com/intake/awkward-pandas). Uproot 5.8 will no longer require it, and 5.9 will remove support for it; see [akimbo](https://github.com/intake/akimbo) for a replacement of its `.ak` accessor.
 
 **For exporting histograms:**
 
