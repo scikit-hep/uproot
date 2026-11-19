@@ -82,8 +82,8 @@
    :alt: Conda-Forge
    :target: https://github.com/conda-forge/uproot-feedstock
 
-.. image:: https://img.shields.io/badge/python-3.7%E2%80%923.11-blue
-   :alt: Python 3.7‒3.11
+.. image:: https://img.shields.io/badge/python-3.11%E2%80%923.15-blue
+   :alt: Python 3.11‒3.15
    :target: https://www.python.org
 
 .. image:: https://img.shields.io/badge/license-BSD%203--Clause-blue.svg

@@ -20,18 +20,18 @@ jobs:
       fail-fast: false
       matrix:
         platform: [windows-latest, macos-latest, ubuntu-latest]
-        python-version: ['3.10', '3.14', 3.14 python-freethreading]
+        python-version: ['3.11', '3.14', 3.14 python-freethreading]
         root-version: ['']
-        # On Linux, 3.10 and 3.14 only run in the ROOT jobs below, which run
+        # On Linux, 3.11 and 3.14 only run in the ROOT jobs below, which run
         # the same tests plus the ones that need ROOT
         exclude:
           - platform: ubuntu-latest
-            python-version: '3.10'
+            python-version: '3.11'
           - platform: ubuntu-latest
             python-version: '3.14'
         include:
           - platform: ubuntu-latest
-            python-version: '3.10'
+            python-version: '3.11'
             root-version: '6.32'
           # Also runs the XRootD server tests, which no other job has the
           # server for, and measures coverage

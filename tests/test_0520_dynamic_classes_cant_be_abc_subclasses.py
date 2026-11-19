@@ -4,7 +4,6 @@ import pickle
 import os
 
 import uproot
-import pytest
 
 
 def test_pickle(tests_directory):
