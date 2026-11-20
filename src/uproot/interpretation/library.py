@@ -266,6 +266,8 @@ class NumPy(Library):
             return [concatenated[k] for k in keys]
         elif isinstance(all_arrays[0], dict):
             return concatenated
+        else:
+            raise AssertionError(f"checked above, but it is {type(all_arrays[0])}")
 
 
 def _strided_to_awkward(awkward, path, interpretation, data):
@@ -668,14 +670,9 @@ class Awkward(Library):
 
             out = None
             if len(nonjagged) != 0:
-                if len(nonjagged) == 0:
-                    out = awkward.Array(
-                        awkward.contents.RecordArray([], fields=[], length=0)
-                    )
-                else:
-                    out = awkward.Array(
-                        {name: renamed_arrays[name] for name in nonjagged},
-                    )
+                out = awkward.Array(
+                    {name: renamed_arrays[name] for name in nonjagged},
+                )
             for number, jagged in enumerate(jaggeds):
                 cut = len(jagged[0])
                 for name in jagged:
@@ -695,27 +692,17 @@ class Awkward(Library):
                     cut = 0
                 if cut == 0:
                     common = f"jagged{number}"
-                    if len(jagged) == 0:
-                        subarray = awkward.Array(
-                            awkward.contents.RecordArray([], fields=[], length=0)
-                        )
-                    else:
-                        subarray = awkward.zip(
-                            {name: renamed_arrays[name] for name in jagged}
-                        )
+                    subarray = awkward.zip(
+                        {name: renamed_arrays[name] for name in jagged}
+                    )
                 else:
                     common = jagged[0][:cut].strip("_./")
-                    if len(jagged) == 0:
-                        subarray = awkward.Array(
-                            awkward.contents.RecordArray([], fields=[], length=0)
-                        )
-                    else:
-                        subarray = awkward.zip(
-                            {
-                                name[cut:].strip("_./"): renamed_arrays[name]
-                                for name in jagged
-                            }
-                        )
+                    subarray = awkward.zip(
+                        {
+                            name[cut:].strip("_./"): renamed_arrays[name]
+                            for name in jagged
+                        }
+                    )
                 if out is None:
                     out = awkward.Array({common: subarray})
                 else:
@@ -755,6 +742,8 @@ class Awkward(Library):
             return [concatenated[k] for k in keys]
         elif isinstance(all_arrays[0], dict):
             return concatenated
+        else:
+            raise AssertionError(f"checked above, but it is {type(all_arrays[0])}")
 
 
 def _is_pandas_rangeindex(pandas, index):
@@ -974,6 +963,8 @@ class Pandas(Library):
             return [concatenated[k] for k in keys]
         elif isinstance(all_arrays[0], dict):
             return concatenated
+        else:
+            raise AssertionError(f"checked above, but it is {type(all_arrays[0])}")
 
 
 _libraries = {

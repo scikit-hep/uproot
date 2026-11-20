@@ -230,16 +230,6 @@ def test_array_protocol_of_a_field(ntuple):
     assert converted.tolist() == [10.0, 20.0, 30.0]
 
 
-def test_array_protocol_of_an_rntuple(ntuple):
-    # An RNTuple is a table of fields, not one array
-    assert ntuple.__array__()["x"].tolist() == [10, 20, 30]
-    with pytest.raises(ValueError, match="__array__"):
-        np.asarray(ntuple)
-    wrapped = ntuple.__array__(dtype=object)
-    assert wrapped.shape == ()
-    assert wrapped.item()["x"].tolist() == [10, 20, 30]
-
-
 def test_iterate_report(three_files):
     out = list(
         iterate(

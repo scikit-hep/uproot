@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 Tests of deserialization through uproot.interpretation.objects and the read
@@ -209,6 +209,29 @@ def test_memberwise_vector_of_nothing_with_streamers():
         )
     assert isinstance(out, STLVector)
     assert len(out) == 0
+
+
+def test_memberwise_vector_of_pairs_without_streamers():
+    # a pair class that wasn't generated from a streamer (no DispatchByVersion)
+    cls = type(
+        uproot.model.classname_encode("pair<double,double>"), (uproot.model.Model,), {}
+    )
+    with uproot.open(skhep_testdata.data_path("uproot-issue38c.root")) as file:
+        data = numpy.frombuffer(memberwise(size(1)), dtype=numpy.uint8)
+        chunk = uproot.source.chunk.Chunk.wrap(file.file.source, data)
+        with pytest.raises(NotImplementedError) as excinfo:
+            AsVector(True, cls).read(
+                chunk,
+                uproot.source.cursor.Cursor(0),
+                {"breadcrumbs": ()},
+                file.file,
+                file.file.detached,
+                None,
+            )
+    assert str(excinfo.value) == (
+        "streamerless memberwise serialization of class "
+        f"AsVector(pair<double,double>)\n    in file {file.file_path}"
+    )
 
 
 def uint8_entries(n, start=0):

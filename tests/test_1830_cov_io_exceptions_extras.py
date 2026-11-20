@@ -69,6 +69,7 @@ def test_message_narrows_huge_list_of_keys_by_prefix():
         (uproot.extras.XRootD_client, ["XRootD"], "Install XRootD python bindings"),
         (uproot.extras.isal, ["isal"], "install the 'isal' package"),
         (uproot.extras.deflate, ["deflate"], "install the 'deflate' package"),
+        (uproot.extras.scipy, ["scipy"], "install the 'scipy' package"),
         (
             uproot.extras.boost_histogram,
             ["boost_histogram"],
@@ -93,7 +94,8 @@ def test_message_narrows_huge_list_of_keys_by_prefix():
         (
             uproot.extras.awkward_pandas,
             ["awkward_pandas"],
-            "install the 'awkward-pandas' package",
+            # the message breaks the line before the package name
+            r"requires the\s+'awkward-pandas' package",
         ),
         (uproot.extras.cupy, ["cupy"], "Cupy is required for GDS reading"),
         (uproot.extras.kvikio, ["kvikio"], "Kvikio is required for GDS reading"),

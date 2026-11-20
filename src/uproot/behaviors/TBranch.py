@@ -1576,8 +1576,6 @@ class HasBranches(Mapping):
             previous_baskets = {}
             for sub_entry_start in range(entry_start, entry_stop, entry_step):
                 sub_entry_stop = min(sub_entry_start + entry_step, entry_stop)
-                if sub_entry_stop - sub_entry_start == 0:
-                    continue
 
                 ranges_or_baskets = []
                 checked = set()
@@ -2517,10 +2515,7 @@ class TBranch(HasBranches):
         :doc:`uproot.interpretation.identify.UnknownInterpretation`, the
         typename is ``"unknown"``.
         """
-        if self.interpretation is None:
-            return "unknown"
-        else:
-            return self.interpretation.typename
+        return self.interpretation.typename
 
     @property
     def num_entries(self):

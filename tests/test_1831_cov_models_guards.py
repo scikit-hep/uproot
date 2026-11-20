@@ -61,6 +61,7 @@ memberwise_models = [
     ("TRef", "Model_TRefArray"),
     ("TTree", "Model_ROOT_3a3a_TIOFeatures"),
     ("TTree", "Model_TTree_NumEntries"),
+    ("TEfficiency", "Model_TEfficiency_v2"),
 ]
 
 # These generate AwkwardForth instead of raising, or (TTime) are tested on real data.

@@ -199,6 +199,10 @@ def to_writable(obj):
             elif ndim == 3:
                 data = numpy.zeros((s[0] + 2, s[1] + 2, s[2] + 2), dtype=d)
                 data[1:-1, 1:-1, 1:-1] = tmp
+            else:
+                raise AssertionError(
+                    f"ndim is 1, 2, or 3 by now, but it is {ndim}"
+                ) from None
 
             tmp = (
                 obj.variances()
@@ -218,6 +222,10 @@ def to_writable(obj):
                 elif ndim == 3:
                     fSumw2 = numpy.zeros((s[0] + 2, s[1] + 2, s[2] + 2), dtype=">f8")
                     fSumw2[1:-1, 1:-1, 1:-1] = tmp
+                else:
+                    raise AssertionError(
+                        f"ndim is 1, 2, or 3 by now, but it is {ndim}"
+                    ) from None
 
         else:
             # continuing to use flow=True, because it is supported
@@ -683,6 +691,9 @@ def to_writable(obj):
                 ),
             )
 
+        else:
+            raise AssertionError(f"obj has 2 to 4 arrays by now, but it has {len(obj)}")
+
     else:
         raise TypeError(
             "unrecognized type cannot be written to a ROOT file: " + type(obj).__name__
@@ -717,15 +728,6 @@ def _fLabels_maybe_categorical(axis, boost_histogram):
         return None
 
     labels = [str(label) for label in axis]
-    if isinstance(axis, boost_histogram.axis.IntCategory):
-        # Check labels are valid integers (this may be redundant)
-        for label in labels:
-            try:
-                int(label)
-            except ValueError:
-                raise ValueError(
-                    f"IntCategory labels must be valid integers. Found {label!r} on axis {axis!r}"
-                ) from None
 
     labels = to_THashList([to_TObjString(label) for label in labels])
     # we need to set the TObject.fUniqueID to the index of the bin as done by TAxis::SetBinLabel
@@ -1388,7 +1390,7 @@ def to_TH2x(
     elif isinstance(tarray_data, uproot.models.TArray.Model_TArrayD):
         cls = uproot.models.TH.Model_TH2D_v4
     else:
-        raise TypeError(f"no TH2* subclasses correspond to {tarray_data.classname}")
+        raise AssertionError(f"to_TH1x has already rejected {tarray_data.classname}")
 
     th2x = cls.empty()
     th2x._bases.append(th2)
@@ -1566,7 +1568,7 @@ def to_TH3x(
     elif isinstance(tarray_data, uproot.models.TArray.Model_TArrayD):
         cls = uproot.models.TH.Model_TH3D_v4
     else:
-        raise TypeError(f"no TH3* subclasses correspond to {tarray_data.classname}")
+        raise AssertionError(f"to_TH1x has already rejected {tarray_data.classname}")
 
     th3x = cls.empty()
     th3x._bases.append(th3)
