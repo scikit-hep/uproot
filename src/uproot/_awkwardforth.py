@@ -259,6 +259,7 @@ class Node:
                 "ListOffsetArray",
                 "RegularArray",
             ):
+                out["content"] = dict(out["content"])
                 out = out["content"]
             out["content"] = self._children[0].derive_form()
             return returnme
