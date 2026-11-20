@@ -89,10 +89,6 @@ def _as_TGraph(
             raise ValueError(
                 "uproot.as_TGraph requires all of the following: x_errors_low, x_errors_high, y_errors_low, y_errors_high"
             )
-        if any(sym_errors_bool):
-            raise ValueError(
-                "uproot.as_TGraph can accept symmetrical errors OR asymmetrical errors, but not both"
-            )
         tgraph_type = "TGraphAsymmErrors"
 
     tobject = uproot.models.TObject.Model_TObject.empty()

@@ -25,6 +25,7 @@ Lazy arrays (:doc:`uproot.behaviors.TBranch.lazy`) can only use the
 from __future__ import annotations
 
 import json
+import warnings
 
 import awkward
 import numpy
@@ -265,6 +266,8 @@ class NumPy(Library):
             return [concatenated[k] for k in keys]
         elif isinstance(all_arrays[0], dict):
             return concatenated
+        else:
+            raise AssertionError(f"checked above, but it is {type(all_arrays[0])}")
 
 
 def _strided_to_awkward(awkward, path, interpretation, data):
@@ -667,14 +670,9 @@ class Awkward(Library):
 
             out = None
             if len(nonjagged) != 0:
-                if len(nonjagged) == 0:
-                    out = awkward.Array(
-                        awkward.contents.RecordArray([], fields=[], length=0)
-                    )
-                else:
-                    out = awkward.Array(
-                        {name: renamed_arrays[name] for name in nonjagged},
-                    )
+                out = awkward.Array(
+                    {name: renamed_arrays[name] for name in nonjagged},
+                )
             for number, jagged in enumerate(jaggeds):
                 cut = len(jagged[0])
                 for name in jagged:
@@ -694,27 +692,17 @@ class Awkward(Library):
                     cut = 0
                 if cut == 0:
                     common = f"jagged{number}"
-                    if len(jagged) == 0:
-                        subarray = awkward.Array(
-                            awkward.contents.RecordArray([], fields=[], length=0)
-                        )
-                    else:
-                        subarray = awkward.zip(
-                            {name: renamed_arrays[name] for name in jagged}
-                        )
+                    subarray = awkward.zip(
+                        {name: renamed_arrays[name] for name in jagged}
+                    )
                 else:
                     common = jagged[0][:cut].strip("_./")
-                    if len(jagged) == 0:
-                        subarray = awkward.Array(
-                            awkward.contents.RecordArray([], fields=[], length=0)
-                        )
-                    else:
-                        subarray = awkward.zip(
-                            {
-                                name[cut:].strip("_./"): renamed_arrays[name]
-                                for name in jagged
-                            }
-                        )
+                    subarray = awkward.zip(
+                        {
+                            name[cut:].strip("_./"): renamed_arrays[name]
+                            for name in jagged
+                        }
+                    )
                 if out is None:
                     out = awkward.Array({common: subarray})
                 else:
@@ -754,6 +742,8 @@ class Awkward(Library):
             return [concatenated[k] for k in keys]
         elif isinstance(all_arrays[0], dict):
             return concatenated
+        else:
+            raise AssertionError(f"checked above, but it is {type(all_arrays[0])}")
 
 
 def _is_pandas_rangeindex(pandas, index):
@@ -796,6 +786,23 @@ def _pandas_only_series(pandas, original_arrays, expression_context):
     return arrays, names
 
 
+_awkward_pandas_deprecation_message = (
+    "Uproot 5.8 will stop using awkward-pandas, which has been superseded by "
+    "akimbo, for jagged and other non-flat data in pandas. These columns will "
+    "be PyArrow-backed (pandas.ArrowDtype) by default, and awkward-pandas will "
+    "no longer be required. Uproot 5.8 will still use awkward-pandas if it is "
+    "installed, with a deprecation warning, and 5.9 will remove support for it. "
+    "If you use the '.ak' accessor, install akimbo instead, which provides it "
+    "for PyArrow-backed columns and which Uproot 5.8 will use if it is installed."
+)
+
+
+def _warn_awkward_pandas_deprecation():
+    # stacklevel=1 points at this line, so Python's default filters show the
+    # warning once per session instead of once per column or per iteration
+    warnings.warn(_awkward_pandas_deprecation_message, FutureWarning, stacklevel=1)
+
+
 def _process_array_for_pandas(
     array,
     finalize,
@@ -831,6 +838,7 @@ def _process_array_for_pandas(
                 ) and array.layout.minmax_depth == (1, 1):
                     array = array.to_numpy()
                 else:
+                    _warn_awkward_pandas_deprecation()
                     array = uproot.extras.awkward_pandas().AwkwardExtensionArray(array)
             else:
                 array = _object_to_awkward_array(awkward, form, array)
@@ -955,6 +963,8 @@ class Pandas(Library):
             return [concatenated[k] for k in keys]
         elif isinstance(all_arrays[0], dict):
             return concatenated
+        else:
+            raise AssertionError(f"checked above, but it is {type(all_arrays[0])}")
 
 
 _libraries = {

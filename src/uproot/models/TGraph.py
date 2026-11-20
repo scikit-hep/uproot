@@ -226,20 +226,6 @@ class Model_TGraph_v4(uproot.behaviors.TGraph.TGraph, uproot.model.VersionedMode
         raise uproot.interpretation.objects.CannotBeStrided(
             "class members defined by Model_TStreamerBasicPointer of type double* in member fX of class TGraph"
         )
-        raise uproot.interpretation.objects.CannotBeStrided(
-            "class members defined by Model_TStreamerBasicPointer of type double* in member fY of class TGraph"
-        )
-        raise uproot.interpretation.objects.CannotBeStrided(
-            "class members defined by Model_TStreamerObjectPointer of type TList* in member fFunctions of class TGraph"
-        )
-        raise uproot.interpretation.objects.CannotBeStrided(
-            "class members defined by Model_TStreamerObjectPointer of type TH1F* in member fHistogram of class TGraph"
-        )
-        members.append(("fMinimum", numpy.dtype(">f8")))
-        members.append(("fMaximum", numpy.dtype(">f8")))
-        return uproot.interpretation.objects.AsStridedObjects(
-            cls, members, original=original
-        )
 
     @classmethod
     def awkward_form(cls, file, context):
@@ -460,12 +446,6 @@ class Model_TGraphErrors_v3(
         raise uproot.interpretation.objects.CannotBeStrided(
             "class members defined by Model_TStreamerBasicPointer of type double* in member fEX of class TGraphErrors"
         )
-        raise uproot.interpretation.objects.CannotBeStrided(
-            "class members defined by Model_TStreamerBasicPointer of type double* in member fEY of class TGraphErrors"
-        )
-        return uproot.interpretation.objects.AsStridedObjects(
-            cls, members, original=original
-        )
 
     @classmethod
     def awkward_form(cls, file, context):
@@ -535,14 +515,9 @@ class Model_TGraphErrors_v3(
     writable = True
 
     def _serialize(self, out, header, name, tobject_flags):
-        where = len(out)
         for x in self._bases:
             x._serialize(out, True, name, tobject_flags)
         raise NotImplementedError("FIXME")
-        if header:
-            num_bytes = sum(len(x) for x in out[where:])
-            version = 3
-            out.insert(where, uproot.serialization.numbytes_version(num_bytes, version))
 
 
 class Model_TGraphErrors(uproot.model.DispatchByVersion):
@@ -668,18 +643,6 @@ class Model_TGraphAsymmErrors_v3(
         raise uproot.interpretation.objects.CannotBeStrided(
             "class members defined by Model_TStreamerBasicPointer of type double* in member fEXlow of class TGraphAsymmErrors"
         )
-        raise uproot.interpretation.objects.CannotBeStrided(
-            "class members defined by Model_TStreamerBasicPointer of type double* in member fEXhigh of class TGraphAsymmErrors"
-        )
-        raise uproot.interpretation.objects.CannotBeStrided(
-            "class members defined by Model_TStreamerBasicPointer of type double* in member fEYlow of class TGraphAsymmErrors"
-        )
-        raise uproot.interpretation.objects.CannotBeStrided(
-            "class members defined by Model_TStreamerBasicPointer of type double* in member fEYhigh of class TGraphAsymmErrors"
-        )
-        return uproot.interpretation.objects.AsStridedObjects(
-            cls, members, original=original
-        )
 
     @classmethod
     def awkward_form(cls, file, context):
@@ -759,14 +722,9 @@ class Model_TGraphAsymmErrors_v3(
     writable = True
 
     def _serialize(self, out, header, name, tobject_flags):
-        where = len(out)
         for x in self._bases:
             x._serialize(out, True, name, tobject_flags)
         raise NotImplementedError("FIXME")
-        if header:
-            num_bytes = sum(len(x) for x in out[where:])
-            version = 3
-            out.insert(where, uproot.serialization.numbytes_version(num_bytes, version))
 
 
 class Model_TGraphAsymmErrors(uproot.model.DispatchByVersion):
