@@ -756,9 +756,6 @@ def _fXbins_maybe_regular(axis, edges, boost_histogram):
 
 
 def _fLabels_maybe_categorical(axis, boost_histogram):
-    if boost_histogram is None:
-        return None
-
     if not isinstance(
         axis, (boost_histogram.axis.IntCategory, boost_histogram.axis.StrCategory)
     ):
