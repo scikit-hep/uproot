@@ -597,6 +597,52 @@ class ReadOnlyFile(CommonFileMethods):
         self._streamers = None
         self._streamer_rules = None
 
+        import types
+
+        from rootfilespec.bootstrap import ROOTFile
+        from rootfilespec.buffer import ReadBuffer
+        from rootfilespec.dispatch import DICTIONARY
+        from rootfilespec.dynamic import streamerinfo_to_classes
+
+        initial_read_size = 512
+        path = Path(file_path)
+        with path.open("rb") as filehandle:
+
+            def fetch_data(seek: int, size: int):
+                filehandle.seek(seek)
+                return ReadBuffer(memoryview(filehandle.read(size)), seek, 0)
+
+            buffer = fetch_data(0, initial_read_size)
+            file, _ = ROOTFile.read(buffer)
+
+            # Read root directory object, which should be contained in the initial buffer
+            def fetch_cached(seek: int, size: int):
+                if seek + size <= len(buffer):
+                    return buffer[seek : seek + size]
+                msg = "Didn't find data in initial read buffer"
+                raise ValueError(msg)
+
+            #            rootdir = file.get_TFile(fetch_cached).rootdir
+
+            # List to collect NotImplementedError messages
+            failures: list[str] = []
+
+            def fail_cb(_: bytes, ex: NotImplementedError):
+                print(f"NotImplementedError: {ex}")
+                failures.append(str(ex))
+
+            # Read all StreamerInfo (class definitions) from the file
+            streamerinfo = file.get_StreamerInfo(fetch_data)
+
+            # Render the class definitions into python code
+            classes = streamerinfo_to_classes(streamerinfo)
+
+            # Evaluate the python code to create the classes and add them to the DICTIONARY
+            oldkeys = set(DICTIONARY)
+            module = types.ModuleType(f"rootfilespec.generated_{id(streamerinfo)}")
+            sys.modules[module.__name__] = module
+            exec(classes, module.__dict__)
+
         self.hook_before_create_source()
 
         source_cls, file_path = uproot._util.file_path_to_source_class(
@@ -2560,10 +2606,38 @@ class ReadOnlyKey:
             if _string_classname.match(self._fClassName):
                 return cursor.string(chunk, context)
 
-            cls = self._file.class_named(self._fClassName)
+            from rootfilespec.bootstrap.uproot import (
+                create_adapter_class,
+            )
+            from rootfilespec.buffer import ReadBuffer
+            from rootfilespec.dispatch import DICTIONARY
 
             try:
-                out = cls.read(chunk, cursor, context, self._file, selffile, parent)
+                fClassName = self._fClassName
+
+                if fClassName not in DICTIONARY:
+                    cls = self._file.class_named(self._fClassName)
+                    return cls.read(
+                        chunk, cursor, context, self._file, selffile, parent
+                    )
+
+                cls = DICTIONARY[fClassName]
+
+                # construct a ReadBuffer from the chunk data
+                buf = ReadBuffer(
+                    memoryview(chunk.raw_data), chunk.start, -start_cursor.origin
+                )
+                obj, buf = cls.read(buf)
+
+                uproot_cls = self._file.class_named(fClassName)
+                if len(uproot_cls.known_versions) > 0:
+                    uproot_cls = uproot_cls.class_of_version(
+                        max(uproot_cls.known_versions)
+                    )
+                AdapterClass = create_adapter_class(uproot_cls)
+                out = AdapterClass(obj)
+
+                out._file = self._file
 
             except uproot.deserialization.DeserializationError:
                 breadcrumbs = context.get("breadcrumbs")
