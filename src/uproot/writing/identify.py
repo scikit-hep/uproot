@@ -245,19 +245,22 @@ def to_writable(obj):
         # ROOT has fEntries = sum *without* weights, *with* flow bins
         fEntries = data.sum()
 
+        # the edges and labels of each axis, computed once
+        axis_info = [_axis_edges_and_labels(axis, boost_histogram) for axis in obj.axes]
+
         # convert all axes in one list comprehension
         axes = [
             to_TAxis(
                 fName=default_name,
                 fTitle=getattr(axis, "label", getattr(obj, "name", "")),
                 fNbins=len(axis),
-                fXmin=axis.edges[0],
-                fXmax=axis.edges[-1],
-                fXbins=_fXbins_maybe_regular(axis, boost_histogram),
-                fLabels=_fLabels_maybe_categorical(axis, boost_histogram),
+                fXmin=edges[0],
+                fXmax=edges[-1],
+                fXbins=_fXbins_maybe_regular(axis, edges, boost_histogram),
+                fLabels=labels,
             )
-            for axis, default_name in zip(
-                obj.axes, ["xaxis", "yaxis", "zaxis"], strict=False
+            for axis, (edges, labels), default_name in zip(
+                obj.axes, axis_info, ["xaxis", "yaxis", "zaxis"], strict=False
             )
         ]
 
@@ -370,6 +373,11 @@ def to_writable(obj):
                         fBinSumw2=_fBinSumw2,
                         fXaxis=axes[0],
                     )
+                elif not hasattr(obj, "_bases"):
+                    raise NotImplementedError(
+                        "1D PlottableHistogram with kind='MEAN' (i.e. 1D profile plots) "
+                        "is only supported for boost-histogram and hist objects"
+                    )
                 else:
                     return to_TProfile(
                         fName=None,
@@ -389,7 +397,7 @@ def to_writable(obj):
                     )
             else:
                 fTsumw, fTsumw2, fTsumwx, fTsumwx2 = _root_stats_1d(
-                    data_noflow, obj.axes[0].edges
+                    data_noflow, axis_info[0][0]
                 )
                 return to_TH1x(
                     fName=None,
@@ -418,7 +426,7 @@ def to_writable(obj):
                     fTsumwy,
                     fTsumwy2,
                     fTsumwxy,
-                ) = _root_stats_2d(data_noflow, obj.axes[0].edges, obj.axes[1].edges)
+                ) = _root_stats_2d(data_noflow, axis_info[0][0], axis_info[1][0])
                 return to_TH2x(
                     fName=None,
                     fTitle=title,
@@ -456,9 +464,9 @@ def to_writable(obj):
                     fTsumwyz,
                 ) = _root_stats_3d(
                     data_noflow,
-                    obj.axes[0].edges,
-                    obj.axes[1].edges,
-                    obj.axes[2].edges,
+                    axis_info[0][0],
+                    axis_info[1][0],
+                    axis_info[2][0],
                 )
                 return to_TH3x(
                     fName=None,
@@ -700,9 +708,38 @@ def to_writable(obj):
         )
 
 
-def _fXbins_maybe_regular(axis, boost_histogram):
+def _axis_edges_and_labels(axis, boost_histogram):
+    """
+    Returns the bin edges (as float64) and the TAxis labels (or None) of a
+    PlottableHistogram axis.
+
+    boost-histogram axes provide ``edges``. Other axes are read through the
+    PlottableHistogram protocol, in which ``axis[i]`` is a ``(lower, upper)``
+    pair for a continuous axis and a category for a discrete one
+    (``axis.traits.discrete``), whose labels are kept. An axis that can't be
+    indexed this way must have a flat array of ``edges``.
+    """
+    if boost_histogram is not None:
+        return (
+            numpy.asarray(axis.edges, dtype=numpy.float64),
+            _fLabels_maybe_categorical(axis, boost_histogram),
+        )
+
+    n = len(axis)
+    if getattr(getattr(axis, "traits", None), "discrete", False):
+        labels = [str(axis[i]) for i in range(n)]
+        return numpy.arange(n + 1, dtype=numpy.float64), _to_fLabels(labels)
+
+    if not hasattr(axis, "__getitem__"):
+        return numpy.asarray(axis.edges, dtype=numpy.float64), None
+
+    pairs = numpy.asarray([axis[i] for i in range(n)], dtype=numpy.float64)
+    pairs = pairs.reshape(n, 2)
+    return numpy.append(pairs[:, 0], pairs[-1, 1]), None
+
+
+def _fXbins_maybe_regular(axis, edges, boost_histogram):
     if boost_histogram is None:
-        edges = axis.edges
         fXmin, fXmax = edges[0], edges[-1]
         if numpy.allclose(edges, numpy.linspace(fXmin, fXmax, len(edges))):
             return numpy.array([], dtype=">f8")
@@ -719,9 +756,6 @@ def _fXbins_maybe_regular(axis, boost_histogram):
 
 
 def _fLabels_maybe_categorical(axis, boost_histogram):
-    if boost_histogram is None:
-        return None
-
     if not isinstance(
         axis, (boost_histogram.axis.IntCategory, boost_histogram.axis.StrCategory)
     ):
@@ -729,6 +763,10 @@ def _fLabels_maybe_categorical(axis, boost_histogram):
 
     labels = [str(label) for label in axis]
 
+    return _to_fLabels(labels)
+
+
+def _to_fLabels(labels):
     labels = to_THashList([to_TObjString(label) for label in labels])
     # we need to set the TObject.fUniqueID to the index of the bin as done by TAxis::SetBinLabel
     for i, label in enumerate(labels):
