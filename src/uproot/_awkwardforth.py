@@ -227,6 +227,7 @@ class Node:
 
         elif self._form_details.get("class") in ("ListOffsetArray", "RegularArray"):
             out = dict(self._form_details)
+
             if (
                 self._form_details.get("parameters", {}).get("__array__")
                 in ("string", "bytestring")
