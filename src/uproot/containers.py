@@ -516,7 +516,7 @@ class AsString(AsContainer):
             ) = uproot.deserialization.numbytes_version(chunk, cursor, context)
             if forth_obj is not None:
                 cursor_jump = cursor._index - start_cursor._index
-                if cursor_jump != 0:
+                if cursor_jump != 0:  # pragma: no branch  (cursor always moves)
                     forth_stash.pre_code.append(f"{cursor_jump} stream skip\n")
 
         if self._length_bytes == "1-5":
@@ -819,7 +819,7 @@ in file {selffile.file_path}"""
                     if forth_obj is not None:
                         forth_obj.pop_active_node()
 
-                if self._header and header:
+                if self._header and header:  # pragma: no branch  (same as outer if)
                     uproot.deserialization.numbytes_check(
                         chunk,
                         start_cursor,
@@ -1393,7 +1393,7 @@ class AsMap(AsContainer):
             is_memberwise = False
 
         if is_memberwise:
-            if self._header and header:
+            if self._header and header:  # pragma: no branch  (memberwise has header)
                 cursor.skip(6)
                 if forth_obj is not None:
                     forth_stash.pre_code.append(
@@ -1471,7 +1471,7 @@ class AsMap(AsContainer):
 
             out = STLMap(keys, values)
 
-            if self._header and header:
+            if self._header and header:  # pragma: no branch  (memberwise has header)
                 uproot.deserialization.numbytes_check(
                     chunk,
                     start_cursor,
@@ -1852,7 +1852,7 @@ class STLSet(Container, AbstractSet):
             return False
 
         keys_same = self._keys == other._keys
-        if isinstance(keys_same, bool):
+        if isinstance(keys_same, bool):  # pragma: no cover  (NumPy < 1.25 only)
             return keys_same
         else:
             return numpy.all(keys_same)
@@ -2008,7 +2008,9 @@ class STLMap(Container, Mapping):
 
         keys_same = self._keys == other._keys
         values_same = self._values == other._values
-        if isinstance(keys_same, bool) and isinstance(values_same, bool):
+        if isinstance(keys_same, bool) and isinstance(
+            values_same, bool
+        ):  # pragma: no cover  (NumPy < 1.25 only)
             return keys_same and values_same
         else:
             return numpy.logical_and(keys_same, values_same).all()

@@ -497,7 +497,13 @@ class HasFields(Mapping):
             for field in field_path[:-1]:
                 arrays = arrays[field]
 
-        expression_context = [(f, None) for f in arrays.fields]
+        expression_context = []
+        for f in arrays.fields:
+            layout = arrays[f].layout
+            is_jagged = isinstance(
+                layout, (ak.contents.ListOffsetArray, ak.contents.ListArray)
+            ) and layout.parameter("__array__") not in ("string", "bytestring")
+            expression_context.append((f, {"is_jagged": is_jagged}))
 
         # TODO: The conversion would be ideally be fully handled by Awkward.
         if library.name in ("np", "pd"):
@@ -515,14 +521,10 @@ class HasFields(Mapping):
                 )
                 pandas_dict = {}
                 for f, arr in numpy_data.items():
-                    try:
-                        if getattr(arr, "ndim", 1) > 1:
-                            pandas_dict[f] = list(arr)
-                        else:
-                            pandas_dict[f] = arr
-                    except Exception:
-                        msg = f"Field {f} cannot be converted to NumPy/Pandas"
-                        raise ValueError(msg) from None
+                    if getattr(arr, "ndim", 1) > 1:
+                        pandas_dict[f] = list(arr)
+                    else:
+                        pandas_dict[f] = arr
                 try:
                     pandas_data = pd.DataFrame(pandas_dict, index=pandas_index)
                 except Exception:
@@ -536,16 +538,6 @@ class HasFields(Mapping):
             arrays = library.group(arrays, expression_context, how)
 
         return arrays
-
-    def __array__(self, *args, **kwargs):
-        if isinstance(self, uproot.behaviors.RNTuple.RNTuple):
-            out = self.arrays(library="np")
-        else:
-            out = self.array(library="np")
-        if args == () and kwargs == {}:
-            return out
-        else:
-            return numpy.array(out, *args, **kwargs)
 
     def iterate(
         self,
@@ -1568,8 +1560,7 @@ def _cupy_insert(arr, obj, value):
             src_i += n
         out[dst_i] = value
         dst_i += 1
-    if src_i < arr.size:
-        out[dst_i:] = arr[src_i:]
+    out[dst_i:] = arr[src_i:]
     return out
 
 

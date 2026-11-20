@@ -11,16 +11,15 @@ comment:
 
 coverage:
   status:
+    # Every reachable line and branch must be tested. Mark what can't be reached
+    # with "# pragma: no cover  (reason)" or "# pragma: no branch  (reason)".
     project:
       default:
-        # 'auto' sets the target to our current coverage %
-        # 'threshold' allows a tiny 0.5% drop to prevent "flaky" failures
-        target: auto
-        threshold: 0.5%
+        target: 100%
+        threshold: 0%
     patch:
       default:
-        # Ensures 98% of NEW code added in the PR is covered
-        target: 98%
+        target: 100%
         threshold: 0%
 
 github_checks:

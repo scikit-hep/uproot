@@ -9,6 +9,7 @@
 [![Scikit-HEP](https://scikit-hep.org/assets/images/Scikit--HEP-Project-blue.svg)](https://scikit-hep.org/)
 [![DOI 10.5281/zenodo.4340632](https://zenodo.org/badge/DOI/10.5281/zenodo.4340632.svg)](https://doi.org/10.5281/zenodo.4340632)
 [![Documentation](https://img.shields.io/badge/docs-online-success)](https://uproot.readthedocs.io/)
+[![Coverage](https://codecov.io/gh/scikit-hep/uproot/graph/badge.svg?branch=main)](https://codecov.io/gh/scikit-hep/uproot)
 
 [![NSF-1836650](https://img.shields.io/badge/NSF-1836650-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=1836650)
 [![NSF-2121686](https://img.shields.io/badge/NSF-2121686-blue.svg)](https://nsf.gov/awardsearch/showAward?AWD_ID=2121686)
@@ -81,7 +82,7 @@ The following libraries are also useful in conjunction with Uproot, but are not 
 **For exporting TTrees to [Pandas](https://pandas.pydata.org/):**
 
    * `pandas`: if `library="pd"`.
-   * `awkward-pandas`: if `library="pd"` and the data have irregular structure ("jagged" arrays), see [awkward-pandas](https://github.com/intake/awkward-pandas).
+   * `awkward-pandas`: if `library="pd"` and the data have irregular structure ("jagged" arrays), see [awkward-pandas](https://github.com/intake/awkward-pandas). Uproot 5.8 will no longer require it, and 5.9 will remove support for it; see [akimbo](https://github.com/intake/akimbo) for a replacement of its `.ak` accessor.
 
 **For exporting histograms:**
 

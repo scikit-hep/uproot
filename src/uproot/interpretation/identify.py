@@ -432,7 +432,7 @@ def interpretation_of(branch, context, simplify=True):
 
     try:
         if len(branch.member("fLeaves")) == 0:
-            raise NotNumerical()
+            raise AssertionError("_from_leaves has rejected a TBranch without TLeaves")
 
         elif len(branch.member("fLeaves")) == 1:
             leaf = branch.member("fLeaves")[0]
@@ -510,7 +510,7 @@ def interpretation_of(branch, context, simplify=True):
             if leaf.classname == "TLeafC":
                 return uproot.interpretation.strings.AsStrings()
 
-        elif len(branch.member("fLeaves")) > 1:
+        else:
             raise UnknownInterpretation(
                 "more than one TLeaf ({}) in a non-numerical TBranch".format(
                     len(branch.member("fLeaves"))

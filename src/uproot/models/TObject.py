@@ -29,7 +29,7 @@ class Model_TObject(uproot.model.Model):
         forth_obj = uproot._awkwardforth.get_forth_obj(context)
         start_index = cursor._index
 
-        if self.is_memberwise:
+        if self.is_memberwise:  # pragma: no cover  (always False: no header read)
             raise NotImplementedError(
                 f"""memberwise serialization of {type(self).__name__}
 in file {self.file.file_path}"""

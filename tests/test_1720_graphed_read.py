@@ -270,6 +270,11 @@ def test_the_whole_dataset_loader_concatenates_every_file(tmp_path):
         [missing], known_base_form=form, allow_missing=True, name="none"
     )
     assert len(ak.Array(none.session.materialize(none.x))) == 0
+    # the whole-dataset loader itself, which graphed may or may not call for these
+    assert _source_of(partial)().x.tolist() == [float(i) for i in range(6)]
+    empty = _source_of(none)()
+    assert len(empty) == 0
+    assert empty.fields == ak.Array(g.session.materialize(g)).fields
 
 
 class _CountingExecutor:

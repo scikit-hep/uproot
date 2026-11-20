@@ -1955,6 +1955,13 @@ class RField(uproot.behaviors.RNTuple.HasFields):
         else:
             return f"<RField {self.name!r} ({len(self)} subfields) in RNTuple {self.ntuple.name!r} at 0x{id(self):012x}>"
 
+    def __array__(self, *args, **kwargs):
+        out = self.array(library="np")
+        if args == () and kwargs == {}:
+            return out
+        else:
+            return numpy.array(out, *args, **kwargs)
+
     @property
     def name(self):
         """
@@ -2189,18 +2196,6 @@ class RField(uproot.behaviors.RNTuple.HasFields):
             return numpy_data
 
         return arrays
-
-
-# No cupy version of numpy.insert() provided
-def _cupy_insert0(arr):
-    cupy = uproot.extras.cupy()
-    # Intended for flat cupy arrays
-    array_len = arr.shape[0]
-    array_dtype = arr.dtype
-    out_arr = cupy.empty(array_len + 1, dtype=array_dtype)
-    cupy.copyto(out_arr[1:], arr)
-    out_arr[0] = 0
-    return out_arr
 
 
 CupyArray = Any
