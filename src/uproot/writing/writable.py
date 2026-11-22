@@ -680,6 +680,13 @@ class WritableDirectory(MutableMapping):
     def __contains__(self, where):
         if self._cascading.data.haskey(where):
             return True
+        if isinstance(where, str) and (";" in where or "/" in where):
+            try:
+                self._get_del_search(where, True)
+            except uproot.KeyInFileError:
+                pass
+            else:
+                return True
         return any(where in self._subdir(x) for x in self._cascading.data.dir_keys)
 
     def __iter__(self):
@@ -1022,6 +1029,9 @@ class WritableDirectory(MutableMapping):
         if "/" in where or ":" in where:
             items = where.split("/")
             step = last = self
+            last_item = max(
+                (i for i, item in enumerate(items) if item != ""), default=None
+            )
 
             for i, item in enumerate(items):
                 if item != "":
@@ -1032,6 +1042,8 @@ class WritableDirectory(MutableMapping):
                                 because="TTrees in writable files can't be indexed by TBranch name",
                                 file_path=self.file_path,
                             )
+                        elif i == last_item and not isget:
+                            return step._del(*_parse_name_cycle(item))
                         else:
                             last = step
                             step = step[item]
@@ -1053,15 +1065,7 @@ class WritableDirectory(MutableMapping):
             return step
 
         else:
-            if ";" in where:
-                at = where.rindex(";")
-                item, cycle = where[:at], where[at + 1 :]
-                try:
-                    cycle = int(cycle)
-                except ValueError:
-                    item, cycle = where, None
-            else:
-                item, cycle = where, None
+            item, cycle = _parse_name_cycle(where)
 
             if isget:
                 return self._get(item, cycle)
@@ -2204,6 +2208,24 @@ in file {source.file_path} in directory {source.path}"""
 
             uproot.writing.identify.add_to_directory(v, name, directory, streamers)
         self._file._cascading.streamers.update_streamers(self._file.sink, streamers)
+
+
+def _parse_name_cycle(where):
+    """Split a key name of the form ``"name;cycle"`` into its name and cycle number.
+
+    The cycle number is ``None`` if ``where`` has no ``";"`` or if the text after
+    the last ``";"`` is not an integer, in which case the whole of ``where`` is the
+    name.
+    """
+    if ";" in where:
+        at = where.rindex(";")
+        name, cycle = where[:at], where[at + 1 :]
+        try:
+            return name, int(cycle)
+        except ValueError:
+            return where, None
+    else:
+        return where, None
 
 
 def _is_jagged(data):
