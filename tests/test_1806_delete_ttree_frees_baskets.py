@@ -277,6 +277,10 @@ def test_free_segments_release_many_edge_cases(tmp_path):
         fs.release_many([])
         assert fs.data.slices == orig_slices
 
+        # 1b. Non-empty intervals with zero or negative length return immediately
+        fs.release_many([(100, 100), (200, 150)])
+        assert fs.data.slices == orig_slices
+
         # 2. Intervals already overlapping with free slices raise RuntimeError
         with pytest.raises(RuntimeError, match="overlaps one already marked as free"):
             fs.release_many(list(orig_slices))
@@ -349,6 +353,38 @@ def test_collect_tree_basket_ranges_edge_cases():
 
     assert _collect_tree_basket_ranges(TreeWithBrokenBranch()) == []
 
+    # 5. Branch with nested sub-branches
+    class SubBranch:
+        def has_member(self, name):
+            return name in ("fBasketSeek", "fBasketBytes")
+
+        def member(self, name):
+            if name == "fBasketSeek":
+                return [200]
+            if name == "fBasketBytes":
+                return [60]
+
+    class ParentBranch:
+        def has_member(self, name):
+            return name in ("fBranches", "fBasketSeek", "fBasketBytes")
+
+        def member(self, name):
+            if name == "fBranches":
+                return [SubBranch()]
+            if name == "fBasketSeek":
+                return []
+            if name == "fBasketBytes":
+                return []
+
+    class TreeWithSubBranches:
+        def has_member(self, name):
+            return name == "fBranches"
+
+        def member(self, name):
+            return [ParentBranch()]
+
+    assert _collect_tree_basket_ranges(TreeWithSubBranches()) == [(200, 260)]
+
 
 def test_validate_basket_key_edge_cases():
     # 1. 32-bit key header (fVersion <= 1000)
@@ -409,3 +445,59 @@ def test_delete_non_ttree_and_collection_failure(tmp_path, monkeypatch):
         )
         del f["t"]
         assert "t" not in f
+
+
+def test_is_ttree_classname_streamer_hierarchy():
+    from uproot.writing.writable import _is_ttree_classname
+
+    class MockBase(uproot.streamers.Model_TStreamerBase):
+        def __init__(self, name):
+            self._name = name
+
+        @property
+        def name(self):
+            return self._name
+
+    class MockStreamer:
+        def __init__(self, name, bases):
+            self.name = name
+            self.elements = [MockBase(b) for b in bases]
+
+    assert _is_ttree_classname("TTree") is True
+    assert _is_ttree_classname("Other", None) is False
+
+    # Inheritance chain: CustomTree inherits from IntermediateTree inherits from TTree
+    streamers = [
+        MockStreamer("CustomTree", ["IntermediateTree"]),
+        MockStreamer("IntermediateTree", ["TTree"]),
+    ]
+    assert _is_ttree_classname("CustomTree", streamers) is True
+
+    # Cycle or duplicate base in hierarchy
+    streamers_cycle = [
+        MockStreamer("CycleTree", ["BaseA", "BaseA"]),
+        MockStreamer("BaseA", ["NotTree"]),
+    ]
+    assert _is_ttree_classname("CycleTree", streamers_cycle) is False
+
+
+def test_delete_tree_with_broken_surviving_tree(tmp_path, monkeypatch):
+    filename = os.path.join(tmp_path, "surviving_broken.root")
+    with uproot.recreate(filename) as f:
+        t1 = f.mktree("t1", {"x": "int32"})
+        t1.extend({"x": np.arange(10, dtype=np.int32)})
+        t2 = f.mktree("t2", {"y": "int32"})
+        t2.extend({"y": np.arange(10, dtype=np.int32)})
+
+    with uproot.update(filename) as f:
+        orig_read_key = f._file._read_key
+
+        def mock_read_key(key, directory):
+            if key.name.string == "t2":
+                raise OSError("corrupt surviving tree")
+            return orig_read_key(key, directory)
+
+        monkeypatch.setattr(f._file, "_read_key", mock_read_key)
+        del f["t1"]
+        assert "t1" not in f
+        assert "t2" in f
