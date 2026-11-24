@@ -22,8 +22,8 @@ extra = [
 test = [
   "aiohttp",
   "deflate",
-  "graphed[awkward,parquet]>=0.0.9; python_version >= '3.11'",
-  "graphed-executors>=0.0.3; python_version >= '3.11'",
+  "graphed[awkward,parquet]>=0.0.9",
+  "graphed-executors>=0.0.3",
   "isal",
   "moto[s3,server]",
   "paramiko",
@@ -31,7 +31,7 @@ test = [
   "pytest-rerunfailures",
   "pytest-xdist",
   "s3fs>=2023.1.0",
-  "vector; python_version >= '3.11'",
+  "vector",
   { include-group = "test-core" }
 ]
 test-core = [
@@ -52,7 +52,7 @@ test-gpu-cu13 = [
   { include-group = "test-core" }
 ]
 test-pyodide = [
-  "pytest-pyodide; python_version >='3.11'",
+  "pytest-pyodide",
   { include-group = "test-core" }
 ]
 test-xrootd = [
@@ -75,7 +75,6 @@ classifiers = [
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -103,7 +102,7 @@ dynamic = [
 license = "BSD-3-Clause"
 name = "uproot"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 [project.optional-dependencies]
 gds-cu12 = [

@@ -3,8 +3,8 @@
 import pickle
 import os
 
-import uproot
 import pytest
+import uproot
 
 
 def test_pickle(tests_directory):
