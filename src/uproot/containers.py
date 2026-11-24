@@ -1851,11 +1851,7 @@ class STLSet(Container, AbstractSet):
         if len(self._keys) != len(other._keys):
             return False
 
-        keys_same = self._keys == other._keys
-        if isinstance(keys_same, bool):  # pragma: no cover  (NumPy < 1.25 only)
-            return keys_same
-        else:
-            return numpy.all(keys_same)
+        return numpy.all(self._keys == other._keys)
 
     def __array__(self, *args, **kwargs):
         return numpy.asarray(self._keys, *args, **kwargs)
@@ -2008,12 +2004,7 @@ class STLMap(Container, Mapping):
 
         keys_same = self._keys == other._keys
         values_same = self._values == other._values
-        if isinstance(keys_same, bool) and isinstance(
-            values_same, bool
-        ):  # pragma: no cover  (NumPy < 1.25 only)
-            return keys_same and values_same
-        else:
-            return numpy.logical_and(keys_same, values_same).all()
+        return numpy.logical_and(keys_same, values_same).all()
 
     def tolist(self):
         out = {}

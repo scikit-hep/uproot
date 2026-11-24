@@ -91,7 +91,7 @@ dependencies = [
   "awkward>=2.8.2",
   "cramjam>=2.5.0",
   "xxhash",
-  "numpy",
+  "numpy>=2.0",
   "fsspec!=2026.2.0",
   "packaging"
 ]

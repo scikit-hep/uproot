@@ -19,7 +19,6 @@ from __future__ import annotations
 import datetime
 import math
 import struct
-import warnings
 from collections.abc import Mapping
 
 import awkward
@@ -584,23 +583,11 @@ class Tree:
 
                     elif not hasattr(v, "dtype") and not isinstance(v, Mapping):
                         try:
-                            with warnings.catch_warnings():
-                                warnings.simplefilter(
-                                    "error",
-                                    category=getattr(
-                                        numpy, "exceptions", numpy
-                                    ).VisibleDeprecationWarning,
-                                )
-                                array = numpy.array(v)
+                            array = numpy.array(v)
                             if array.dtype == numpy.dtype("O"):
                                 raise Exception
                             v = array  # noqa: PLW2901 (overwriting v)
-                        except (
-                            getattr(
-                                numpy, "exceptions", numpy
-                            ).VisibleDeprecationWarning,
-                            Exception,
-                        ):
+                        except Exception:
                             v = awkward.from_iter(v)  # noqa: PLW2901 (overwriting v)
 
                     if getattr(v, "dtype", None) == numpy.dtype("O"):

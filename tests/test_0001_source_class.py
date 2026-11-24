@@ -20,10 +20,7 @@ XROOTD_SOURCES = [
 
 
 def tobytes(x):
-    if hasattr(x, "tobytes"):
-        return x.tobytes()
-    else:
-        return x.tostring()
+    return x.tobytes()
 
 
 @pytest.fixture(scope="module")
