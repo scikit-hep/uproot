@@ -21,8 +21,8 @@ extra = [
 test = [
   "aiohttp",
   "deflate",
-  "graphed[awkward,parquet]>=0.0.9; python_version >= '3.11'",
-  "graphed-executors>=0.0.3; python_version >= '3.11'",
+  "graphed[awkward,parquet]>=0.0.9",
+  "graphed-executors>=0.0.3",
   "isal",
   "moto[s3,server]",
   "paramiko",
@@ -30,7 +30,7 @@ test = [
   "pytest-rerunfailures",
   "pytest-xdist",
   "s3fs",
-  "vector; python_version >= '3.11'",
+  "vector",
   { include-group = "test-core" }
 ]
 test-core = [
