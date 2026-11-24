@@ -699,9 +699,7 @@ class FreeSegments(CascadeNode):
     @staticmethod
     def _merge_slices(slices, new_intervals):
         valid_new = [
-            (int(start), int(stop))
-            for start, stop in new_intervals
-            if start < stop
+            (int(start), int(stop)) for start, stop in new_intervals if start < stop
         ]
         if not valid_new:
             return slices

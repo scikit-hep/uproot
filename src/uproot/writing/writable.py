@@ -515,7 +515,6 @@ class WritableFile(uproot.reading.CommonFileMethods):
         return out
 
 
-
 _KNOWN_TTREE_CLASSES = frozenset(
     {"TTree", "TNtuple", "TNtupleD", "TTreeSQL", "THbookTree", "TChain"}
 )
