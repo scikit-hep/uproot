@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module represents external libraries that define "array-like" types so that users can
@@ -25,6 +25,7 @@ Lazy arrays (:doc:`uproot.behaviors.TBranch.lazy`) can only use the
 from __future__ import annotations
 
 import json
+import warnings
 
 import awkward
 import numpy
@@ -265,6 +266,8 @@ class NumPy(Library):
             return [concatenated[k] for k in keys]
         elif isinstance(all_arrays[0], dict):
             return concatenated
+        else:
+            raise AssertionError(f"checked above, but it is {type(all_arrays[0])}")
 
 
 def _strided_to_awkward(awkward, path, interpretation, data):
@@ -466,10 +469,9 @@ def _awkward_json_to_array(awkward, form, array):
 
 
 def _awkward_add_doc(awkward, array, branch, ak_add_doc):
-    if ak_add_doc:
-        return awkward.with_parameter(array, "__doc__", getattr(branch, "title", None))
-    else:
-        return array
+    for key, value in uproot._util.ak_add_doc_parameters(branch, ak_add_doc).items():
+        array = awkward.with_parameter(array, key, value)
+    return array
 
 
 def _object_to_awkward_array(awkward, form, array):
@@ -541,7 +543,7 @@ class Awkward(Library):
             )
             if issubclass(array.offsets.dtype.type, numpy.int32):
                 offsets = awkward.index.Index32(array.offsets)
-                layout = awkward.contents.ListOffsetArray32(offsets, content)
+                layout = awkward.contents.ListOffsetArray(offsets, content)
             else:
                 offsets = awkward.index.Index64(array.offsets)
                 layout = awkward.contents.ListOffsetArray(offsets, content)
@@ -553,7 +555,7 @@ class Awkward(Library):
             )
             if issubclass(array.offsets.dtype.type, numpy.int32):
                 offsets = awkward.index.Index32(array.offsets)
-                layout = awkward.contents.ListOffsetArray32(offsets, content)
+                layout = awkward.contents.ListOffsetArray(offsets, content)
             else:
                 offsets = awkward.index.Index64(array.offsets)
                 layout = awkward.contents.ListOffsetArray(offsets, content)
@@ -566,12 +568,12 @@ class Awkward(Library):
             )
             if issubclass(array.offsets.dtype.type, numpy.int32):
                 offsets = awkward.index.Index32(array.offsets)
-                layout = awkward.contents.ListOffsetArray32(
+                layout = awkward.contents.ListOffsetArray(
                     offsets, content, parameters={"__array__": "string"}
                 )
             elif issubclass(array.offsets.dtype.type, numpy.uint32):
                 offsets = awkward.index.IndexU32(array.offsets)
-                layout = awkward.contents.ListOffsetArrayU32(
+                layout = awkward.contents.ListOffsetArray(
                     offsets, content, parameters={"__array__": "string"}
                 )
             elif issubclass(array.offsets.dtype.type, numpy.int64):
@@ -628,7 +630,7 @@ class Awkward(Library):
             return [arrays[name] for name, _ in expression_context]
         elif how is dict:
             return {_rename(name, c): arrays[name] for name, c in expression_context}
-        elif how is None:
+        elif how is None or (how == "zip" and len(expression_context) == 0):
             if len(expression_context) == 0:
                 return awkward.Array(
                     awkward.contents.RecordArray([], fields=[], length=0)
@@ -668,14 +670,9 @@ class Awkward(Library):
 
             out = None
             if len(nonjagged) != 0:
-                if len(nonjagged) == 0:
-                    out = awkward.Array(
-                        awkward.contents.RecordArray([], fields=[], length=0)
-                    )
-                else:
-                    out = awkward.Array(
-                        {name: renamed_arrays[name] for name in nonjagged},
-                    )
+                out = awkward.Array(
+                    {name: renamed_arrays[name] for name in nonjagged},
+                )
             for number, jagged in enumerate(jaggeds):
                 cut = len(jagged[0])
                 for name in jagged:
@@ -695,27 +692,17 @@ class Awkward(Library):
                     cut = 0
                 if cut == 0:
                     common = f"jagged{number}"
-                    if len(jagged) == 0:
-                        subarray = awkward.Array(
-                            awkward.contents.RecordArray([], fields=[], length=0)
-                        )
-                    else:
-                        subarray = awkward.zip(
-                            {name: renamed_arrays[name] for name in jagged}
-                        )
+                    subarray = awkward.zip(
+                        {name: renamed_arrays[name] for name in jagged}
+                    )
                 else:
                     common = jagged[0][:cut].strip("_./")
-                    if len(jagged) == 0:
-                        subarray = awkward.Array(
-                            awkward.contents.RecordArray([], fields=[], length=0)
-                        )
-                    else:
-                        subarray = awkward.zip(
-                            {
-                                name[cut:].strip("_./"): renamed_arrays[name]
-                                for name in jagged
-                            }
-                        )
+                    subarray = awkward.zip(
+                        {
+                            name[cut:].strip("_./"): renamed_arrays[name]
+                            for name in jagged
+                        }
+                    )
                 if out is None:
                     out = awkward.Array({common: subarray})
                 else:
@@ -755,6 +742,8 @@ class Awkward(Library):
             return [concatenated[k] for k in keys]
         elif isinstance(all_arrays[0], dict):
             return concatenated
+        else:
+            raise AssertionError(f"checked above, but it is {type(all_arrays[0])}")
 
 
 def _is_pandas_rangeindex(pandas, index):
@@ -797,6 +786,23 @@ def _pandas_only_series(pandas, original_arrays, expression_context):
     return arrays, names
 
 
+_awkward_pandas_deprecation_message = (
+    "Uproot 5.8 will stop using awkward-pandas, which has been superseded by "
+    "akimbo, for jagged and other non-flat data in pandas. These columns will "
+    "be PyArrow-backed (pandas.ArrowDtype) by default, and awkward-pandas will "
+    "no longer be required. Uproot 5.8 will still use awkward-pandas if it is "
+    "installed, with a deprecation warning, and 5.9 will remove support for it. "
+    "If you use the '.ak' accessor, install akimbo instead, which provides it "
+    "for PyArrow-backed columns and which Uproot 5.8 will use if it is installed."
+)
+
+
+def _warn_awkward_pandas_deprecation():
+    # stacklevel=1 points at this line, so Python's default filters show the
+    # warning once per session instead of once per column or per iteration
+    warnings.warn(_awkward_pandas_deprecation_message, FutureWarning, stacklevel=1)
+
+
 def _process_array_for_pandas(
     array,
     finalize,
@@ -832,6 +838,7 @@ def _process_array_for_pandas(
                 ) and array.layout.minmax_depth == (1, 1):
                     array = array.to_numpy()
                 else:
+                    _warn_awkward_pandas_deprecation()
                     array = uproot.extras.awkward_pandas().AwkwardExtensionArray(array)
             else:
                 array = _object_to_awkward_array(awkward, form, array)
@@ -849,9 +856,9 @@ class Pandas(Library):
 
     The "group" behavior for this library is:
 
-    * ``how=None`` or a string: passed to ``pandas.merge`` as its ``how``
-      parameter, which would be relevant if jagged arrays with different
-      multiplicity are requested.
+    * ``how=None`` or a string: a single ``pandas.DataFrame``, made by
+      ``pandas.concat`` of the arrays along columns (an outer join on their
+      indexes). The value of a string ``how`` is ignored.
     * ``how=dict``: a dict of str \u2192 array, mapping the names to
       ``pandas.Series``.
     * ``how=tuple``: a tuple of ``pandas.Series``, in the order requested.
@@ -909,9 +916,9 @@ class Pandas(Library):
 
         else:
             raise TypeError(
-                f"for library {self.name}, how must be tuple, list, dict, str (for "
-                "pandas.merge's 'how' parameter, or None (for one or more"
-                "DataFrames without merging)"
+                f"for library {self.name}, how must be tuple, list, dict, or None "
+                "or a str (for a DataFrame of all arrays, concatenated along "
+                "columns; the value of the str is ignored)"
             )
 
     def global_index(self, arrays, global_offset):
@@ -956,6 +963,8 @@ class Pandas(Library):
             return [concatenated[k] for k in keys]
         elif isinstance(all_arrays[0], dict):
             return concatenated
+        else:
+            raise AssertionError(f"checked above, but it is {type(all_arrays[0])}")
 
 
 _libraries = {

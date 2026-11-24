@@ -1,10 +1,12 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines the behaviors of ``TAxis``, an axis of a histogram or profile plot.
 """
 
 from __future__ import annotations
+
+import operator
 
 import numpy
 
@@ -58,20 +60,35 @@ class TAxis:
         The indexing assumes that ``flow=False``.
         """
         fNbins = self.member("fNbins")
-        fXbins = self.member("fXbins", none_if_missing=True)
         fLabels = self.member("fLabels", none_if_missing=True)
 
         if fLabels is not None and len(fLabels) == fNbins:
             return str(fLabels[where])
 
-        elif fXbins is None or len(fXbins) != fNbins + 1:
-            fXmin, fXmax = self.member("fXmin"), self.member("fXmax")
-            low = (fXmax - fXmin) * (where) / float(fNbins) + fXmin
-            high = (fXmax - fXmin) * (where + 1) / float(fNbins) + fXmin
-            return low, high
+        try:
+            index = operator.index(where)
+        except TypeError:
+            # arrays and slices: index into the same intervals that __iter__
+            # yields, keeping the shape of the index
+            out = self.intervals()[where]
+            return out[..., 0], out[..., 1]
 
-        else:
-            return fXbins[where], fXbins[where + 1]
+        # integers: constant time, without building every interval
+        if index < 0:
+            index += fNbins
+        if not 0 <= index < fNbins:
+            raise IndexError(f"bin index {where} out of range for {fNbins} bins")
+
+        fXbins = self.member("fXbins", none_if_missing=True)
+        if fXbins is not None and len(fXbins) == fNbins + 1:
+            return float(fXbins[index]), float(fXbins[index + 1])
+
+        # the same edges as the numpy.linspace in intervals()
+        fXmin, fXmax = self.member("fXmin"), self.member("fXmax")
+        step = (fXmax - fXmin) / fNbins
+        low = index * step + fXmin
+        high = fXmax if index + 1 == fNbins else (index + 1) * step + fXmin
+        return low, high
 
     def __iter__(self):
         """
@@ -91,7 +108,9 @@ class TAxis:
         Returns True if ``x`` is one of the labels or intervals for this axis;
         False otherwise.
         """
-        return any(x == y for y in self)
+        return any(
+            x == y if isinstance(y, str) else numpy.array_equal(x, y) for y in self
+        )
 
     def __eq__(self, other):
         """

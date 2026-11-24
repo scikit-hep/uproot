@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import numpy
 import pytest
@@ -61,40 +61,25 @@ def test_multidim_array():
         np_arrays.keys()
     ), "Different keys detected in dictionary of dask arrays and dictionary of numpy arrays"
 
-    comp = dask_arrays["ab"].compute() == np_arrays["ab"]
-    assert comp.all(), "Incorrect array at key {}".format("ab")
+    assert dask_arrays["ab"].shape == (30, 3)
+    computed = dask.compute(dask_arrays, scheduler="synchronous")[0]
+    for key, expected in np_arrays.items():
+        assert computed[key].shape == expected.shape, key
+        assert [numpy.asarray(row).tolist() for row in computed[key]] == [
+            numpy.asarray(row).tolist() for row in expected
+        ], key
 
 
-def test_chunking_single_num():
-    filename1 = skhep_testdata.data_path("uproot-Zmumu.root") + ":events"
-    assert uproot.dask(filename1, step_size=30, library="np")["px1"].chunks == (
-        (30,) * 76 + (24,),
+@pytest.mark.parametrize("num_files", [1, 2])
+@pytest.mark.parametrize(
+    ("step_size", "chunks_per_file"),
+    [(30, (30,) * 76 + (24,)), ("500B", (3,) * 768)],
+)
+def test_chunking(num_files, step_size, chunks_per_file):
+    files = [
+        skhep_testdata.data_path(name) + ":events"
+        for name in ("uproot-Zmumu.root", "uproot-Zmumu-uncompressed.root")
+    ][:num_files]
+    assert uproot.dask(files, step_size=step_size, library="np")["px1"].chunks == (
+        chunks_per_file * num_files,
     )
-
-
-def test_chunking_single_string():
-    dask = pytest.importorskip("dask")
-    da = pytest.importorskip("dask.array")
-    filename1 = skhep_testdata.data_path("uproot-Zmumu.root") + ":events"
-    print(uproot.dask(filename1, step_size="500B", library="np")["px1"].chunks)
-    assert uproot.dask(filename1, step_size="500B", library="np")["px1"].chunks == (
-        (3,) * 768,
-    )
-
-
-def test_chunking_multiple_num():
-    filename1 = skhep_testdata.data_path("uproot-Zmumu.root") + ":events"
-    filename2 = skhep_testdata.data_path("uproot-Zmumu-uncompressed.root") + ":events"
-    assert uproot.dask([filename1, filename2], step_size=30, library="np")[
-        "px1"
-    ].chunks == (
-        (30,) * 76 + (24,) + (30,) * 76 + (24,),
-    )
-
-
-def test_chunking_multiple_string():
-    filename1 = skhep_testdata.data_path("uproot-Zmumu.root") + ":events"
-    filename2 = skhep_testdata.data_path("uproot-Zmumu-uncompressed.root") + ":events"
-    assert uproot.dask([filename1, filename2], step_size="500B", library="np")[
-        "px1"
-    ].chunks == ((3,) * 1536,)

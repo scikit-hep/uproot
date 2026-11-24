@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """
 This module defines :doc:`uproot.writing._graphed_write.graphed_write`, the ``graphed`` analogue of
 :doc:`uproot.writing._dask_write.dask_write` — and a SPECIALIZATION of the ``graphed.write``
@@ -23,6 +23,7 @@ them.
 from __future__ import annotations
 
 import functools
+import inspect
 import os
 from dataclasses import dataclass
 
@@ -116,7 +117,7 @@ def _write_partition(
     chunk = source.read_range(tree, columns, start, stop)
     (evaluated,) = graphed.evaluate_ir(
         compiled,
-        graphed.resolve_backend(backend),
+        graphed.aggregate.resolve_backend(backend),
         {source_name: chunk},
         externals=dict(externals),
     )
@@ -189,7 +190,7 @@ def root_write(
     )
 
 
-def _select_executor(executor, max_workers):
+def _select_executor(executor, max_workers, tasks):
     if isinstance(executor, str):
         graphed_executors = uproot.extras.graphed_executors()
 
@@ -202,10 +203,29 @@ def _select_executor(executor, max_workers):
                 f"executor must be 'process' or 'thread', an executor instance, or an executor "
                 f"class; got {executor!r}"
             )
-        return classes[executor](max_workers=max_workers)
-    if isinstance(executor, type):
-        return executor(max_workers=max_workers)
-    return executor  # an instance, used as-is
+        executor = classes[executor]
+    elif not isinstance(executor, type):
+        return executor  # an instance, used as-is
+    if max_workers is None:
+        max_workers = max(1, min(os.cpu_count() or 1, tasks))
+    return executor(**{_worker_keyword(executor): max_workers})
+
+
+def _worker_keyword(cls):
+    # graphed-executors renamed max_workers= to workers= after 0.0.7; an __init__ forwarding
+    # **kwargs names neither, so the first __init__ in the MRO that names one decides
+    for base in cls.__mro__[:-1]:
+        if "__init__" in vars(base):
+            # a signature that can't be read (3.14 lazy annotations, C __init__) is skipped;
+            # max_workers= is the fallback
+            try:
+                parameters = inspect.signature(vars(base)["__init__"]).parameters
+            except Exception:
+                continue
+            for name in ("workers", "max_workers"):
+                if name in parameters:
+                    return name
+    return "max_workers"
 
 
 def graphed_write(
@@ -249,12 +269,14 @@ def graphed_write(
             return the ``graphed.core.Plan`` **without writing** — run it later with an executor.
         executor (str, executor instance or class): ``"process"`` (default,
             ``ProcessPoolExecutor``) or ``"thread"`` (``ThreadExecutor``); an executor **instance**
-            is used as-is, a class is called as ``executor(max_workers=max_workers)``.
-        max_workers (int or None): Worker count for an executor built here.
+            is used as-is, a class is called with ``max_workers`` as its worker count.
+        max_workers (int or None): Worker count for an executor built here; ``None`` gives one
+            worker per write task, up to the CPU count.
         backend (callable, str or None): The workers' evaluation backend, as in
             ``graphed.aggregate_plan``: a zero-arg factory/class or an importable ``"module:attr"``
-            reference, resolved in the worker; default the session backend's type. A backend whose
-            behavior holds lambdas (``vector``'s) does not pickle — pass it by reference.
+            reference, resolved in the worker; default the session backend's type, with its
+            behavior where ``graphed`` can rebuild it on workers. A backend whose behavior holds
+            lambdas (``vector``'s) does not pickle — pass it by reference.
 
     Produces one ROOT file per partition, mirroring :doc:`uproot.writing._dask_write.dask_write`,
     as a specialization of the ``graphed.write`` partitioned-write base. A reduction on the
@@ -273,7 +295,7 @@ def graphed_write(
     nid, source = _uproot_source(array, "graphed_write")
 
     compiled = graphed.compile_ir(session, array)
-    graphed.refuse_chunk_partials(compiled, as_outputs=True)
+    graphed.execute.refuse_chunk_partials(compiled, as_outputs=True)
     partitions = source.partitions(steps_per_file)
     if not all(p.is_blind for p in partitions):
         raise TypeError(
@@ -281,13 +303,36 @@ def graphed_write(
             "partition alone); 'files' with explicit 'steps' cannot be written — use "
             "steps_per_file"
         )
+    listed, seen_inodes = {}, {}  # canonical file -> {canonical tree: input as given}
+    for file_path, object_path, _ in source._file_tree:
+        canon = uproot._util.canonical_path(file_path, seen_inodes=seen_inodes)
+        tree = uproot._util.canonical_object_path(object_path)
+        in_file = listed.setdefault(canon, {})
+        # no object path names the file's only TTree: the same as any other input of that file
+        earlier = (
+            in_file.get(tree, in_file.get(""))
+            if tree
+            else next(iter(in_file.values()), None)
+        )
+        if earlier is not None:
+            raise ValueError(
+                f"duplicate input {(file_path, object_path or '')!r} is the same as "
+                f"{earlier!r}: list each file (or file, tree) once"
+            )
+        in_file[tree] = (file_path, object_path or "")
     bases = graphed.write.file_bases(
         [
             (file_path, object_path or "")
-            for file_path, object_path in source._file_tree
+            for file_path, object_path, _ in source._file_tree
         ],
         steps_per_file,
     )
+
+    # worker_backend rebuilds the backend's behavior too; type() alone drops it
+    if hasattr(graphed.aggregate, "worker_backend"):
+        backend = graphed.aggregate.worker_backend(session, backend)
+    elif backend is None:
+        backend = type(session.backend)
 
     fs, root = url_to_fs(destination, **(storage_options or {}))
     fs.mkdirs(root, exist_ok=True)
@@ -299,7 +344,7 @@ def graphed_write(
         codec=_RootCodec.of(locals()),
         columns=list(source.projected_columns((array,))),
         compiled=compiled,
-        backend=backend if backend is not None else type(session.backend),
+        backend=backend,
         externals=tuple(
             graphed.aggregate.external_evaluators(session, compiled).items()
         ),
@@ -310,4 +355,6 @@ def graphed_write(
 
     if not compute:
         return plan
-    return list(_select_executor(executor, max_workers).run(plan).value)
+    return list(
+        _select_executor(executor, max_workers, len(plan.tasks)).run(plan).value
+    )

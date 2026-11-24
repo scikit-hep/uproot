@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import pytest
 import skhep_testdata
@@ -16,7 +16,7 @@ def test_field_class():
         assert my_struct is f["ntuple"]["my_struct"]
 
         sub_struct = my_struct["sub_struct"]
-        assert len(my_struct) == 2
+        assert len(sub_struct) == 2
         assert sub_struct is f["ntuple/my_struct/sub_struct"]
         assert sub_struct is f["ntuple"]["my_struct"]["sub_struct"]
 
@@ -29,6 +29,7 @@ def test_field_class():
 
         v = sub_sub_struct["v"]
         assert len(v) == 0
+        assert v.path == "my_struct.sub_struct.sub_sub_struct.v"
 
 
 def test_array_methods():
@@ -53,43 +54,17 @@ def test_iterate():
     )
     with uproot.open(filename) as f:
         obj = f["Events"]
-        for i, arrays in enumerate(obj.iterate(step_size=100)):
-            assert len(arrays) == 100
-            if i == 0:
-                expected_pt = [10.763696670532227, 15.736522674560547]
-                expected_charge = [-1, -1]
-                assert arrays["Muon_pt"][0].tolist() == expected_pt
-                assert arrays["Muon_charge"][0].tolist() == expected_charge
+        expected_pt = [10.763696670532227, 15.736522674560547]
+        expected_charge = [-1, -1]
 
-        for i, arrays in enumerate(obj.iterate(step_size="10 kB")):
-            if i == 0:
-                assert len(arrays) == 158
-                expected_pt = [10.763696670532227, 15.736522674560547]
-                expected_charge = [-1, -1]
-                assert arrays["Muon_pt"][0].tolist() == expected_pt
-                assert arrays["Muon_charge"][0].tolist() == expected_charge
-            elif i in range(1, 6):
-                assert len(arrays) == 158
-            elif i == 6:
-                assert len(arrays) == 52
-            else:
-                assert False
+        for step_size, lengths in [(100, [100] * 10), ("10 kB", [158] * 6 + [52])]:
+            chunks = list(obj.iterate(step_size=step_size))
+            assert [len(chunk) for chunk in chunks] == lengths
+            assert chunks[0]["Muon_pt"][0].tolist() == expected_pt
+            assert chunks[0]["Muon_charge"][0].tolist() == expected_charge
 
         Muon_pt = obj["Muon_pt"]
-        for i, arrays in enumerate(Muon_pt.iterate(step_size=100)):
-            assert len(arrays) == 100
-            if i == 0:
-                expected_pt = [10.763696670532227, 15.736522674560547]
-                assert arrays["Muon_pt"][0].tolist() == expected_pt
-
-        for i, arrays in enumerate(Muon_pt.iterate(step_size="5 kB")):
-            if i == 0:
-                assert len(arrays) == 286
-                expected_pt = [10.763696670532227, 15.736522674560547]
-                assert arrays["Muon_pt"][0].tolist() == expected_pt
-            elif i in (1, 2):
-                assert len(arrays) == 286
-            elif i == 3:
-                assert len(arrays) == 142
-            else:
-                assert False
+        for step_size, lengths in [(100, [100] * 10), ("5 kB", [286] * 3 + [142])]:
+            chunks = list(Muon_pt.iterate(step_size=step_size))
+            assert [len(chunk) for chunk in chunks] == lengths
+            assert chunks[0]["Muon_pt"][0].tolist() == expected_pt

@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines an interface to compression algorithms used by ROOT, as well
@@ -107,7 +107,7 @@ class _DecompressZLIB:
 
         elif self.library == "deflate":
             deflate = uproot.extras.deflate()
-            return deflate.zlib_decompress(data, bufsize=uncompressed_bytes)
+            return deflate.zlib_decompress(data, uncompressed_bytes)
 
         else:
             raise ValueError(

@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines models for ``TStreamerInfo`` and its elements, as well as
@@ -557,6 +557,14 @@ class Model_TStreamerElement(uproot.model.Model):
             "bool",
         }:
             self._members["fType"] = 18
+
+        if self._instance_version == 3:
+            # only version 3 writes the range, which later versions take from the title
+            (
+                self._members["fXmin"],
+                self._members["fXmax"],
+                self._members["fFactor"],
+            ) = cursor.fields(chunk, _tstreamerelement_format3, context)
 
         if self._instance_version <= 2:
             # FIXME

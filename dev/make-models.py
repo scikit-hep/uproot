@@ -52,6 +52,22 @@ superclasses = [
 ]
 
 
+def without_dead_code(class_code):
+    """
+    Removes what follows the first unconditional raise in strided_interpretation.
+    """
+    lines = []
+    dead = False
+    for line in class_code.split("\n"):
+        if not dead:
+            lines.append(line)
+            dead = line.startswith("        raise CannotBeStrided(")
+        elif not line.startswith("        "):
+            lines.append(line)
+            dead = False
+    return "\n".join(lines)
+
+
 # with uproot.open("example-objects.root") as f:
 #     f.file.streamers
 #     pairs = []
@@ -69,19 +85,14 @@ with uproot.open("example-objects.root") as f:
 
     for classname, class_version in superclasses:
         cls = f.file.class_named(classname, class_version)
-        print(cls.class_code)
+        print(without_dead_code(cls.class_code))
         print(f"""
     writable = True
 
     def _serialize(self, out, header, name):
-        where = len(out)
         for x in self._bases:
             x._serialize(out, True, name)
         raise NotImplementedError("FIXME")
-        if header:
-            num_bytes = sum(len(x) for x in out[where:])
-            version = {class_version}
-            out.insert(where, uproot.serialization.numbytes_version(num_bytes, version))
 
 class {uproot.model.classname_encode(classname)}(uproot.model.DispatchByVersion):
     \"\"\"
@@ -93,7 +104,7 @@ class {uproot.model.classname_encode(classname)}(uproot.model.DispatchByVersion)
 
     for key in keys:
         obj = f[key]
-        print(type(obj).class_code)
+        print(without_dead_code(type(obj).class_code))
         print("""
     class_rawstreamers = (""")
         for streamer_name, streamer_version in f.file.streamer_dependencies(
@@ -112,18 +123,13 @@ class {uproot.model.classname_encode(classname)}(uproot.model.DispatchByVersion)
             {streamer_name!r},
             {streamer_version},
         ),""")
-        print(f"""    )
+        print("""    )
     writable = True
 
     def _serialize(self, out, header, name):
-        where = len(out)
         for x in self._bases:
             x._serialize(out, True, name)
         raise NotImplementedError("FIXME")
-        if header:
-            num_bytes = sum(len(x) for x in out[where:])
-            version = {obj.class_version}
-            out.insert(where, uproot.serialization.numbytes_version(num_bytes, version))
 """)
 
         print(f"""

@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines all of the classes and functions that are needed for writing ROOT
@@ -16,6 +16,7 @@ from uproot.writing._dask_write import dask_write
 from uproot.writing._graphed_write import graphed_write, root_write
 from uproot.writing.identify import (
     to_TArray,
+    to_TEfficiency,
     to_TH1x,
     to_TH2x,
     to_TH3x,
@@ -47,6 +48,7 @@ __all__ = [
     "recreate",
     "root_write",
     "to_TArray",
+    "to_TEfficiency",
     "to_TH1x",
     "to_TH2x",
     "to_TH3x",

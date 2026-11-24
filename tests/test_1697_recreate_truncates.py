@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """Regression tests for issue #1688: ``uproot.recreate`` must truncate.
 
@@ -112,7 +112,7 @@ def test_create_and_update_do_not_truncate(tmp_path):
         f["h"] = "hello"
     contents = path.read_bytes()
 
-    with pytest.raises(FileExistsError):
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
         uproot.create(path)
     # simplecache creates its local copy exclusively, and it is not cached yet
     with pytest.raises(FileExistsError):

@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines procedures for interpreting data in ``TTrees`` as arrays.
@@ -39,7 +39,7 @@ class Interpretation:
         String that uniquely specifies this interpretation, to use as part of
         an array's cache key.
         """
-        raise AssertionError
+        raise NotImplementedError(f"{type(self).__name__} has no cache_key")
 
     @property
     def typename(self):
@@ -49,14 +49,14 @@ class Interpretation:
         This type might not exactly correspond to the type in C++, but it would
         have equivalent meaning.
         """
-        raise AssertionError
+        raise NotImplementedError(f"{type(self).__name__} has no typename")
 
     @property
     def numpy_dtype(self):
         """
         The ``numpy.dtype`` to use to put objects of this type in a NumPy array.
         """
-        raise AssertionError
+        raise NotImplementedError(f"{type(self).__name__} has no numpy_dtype")
 
     @staticmethod
     def _make_context(context, index_format, header, tobject_header, breadcrumbs):
@@ -99,7 +99,7 @@ class Interpretation:
         The ``awkward.forms.Form`` to use to put objects of type type in an
         Awkward Array.
         """
-        raise AssertionError
+        raise NotImplementedError(f"{type(self).__name__} has no awkward_form")
 
     def basket_array(
         self,
@@ -135,7 +135,7 @@ class Interpretation:
         Performs the first step of interpretation, from uncompressed ``TBasket``
         data to a temporary array.
         """
-        raise AssertionError
+        raise NotImplementedError(f"{type(self).__name__} has no basket_array")
 
     def final_array(
         self,
@@ -171,7 +171,7 @@ class Interpretation:
         temporary arrays, one for each ``TBasket``, to a trimmed, finalized,
         grouped array, produced by the ``library``.
         """
-        raise AssertionError
+        raise NotImplementedError(f"{type(self).__name__} has no final_array")
 
     def __eq__(self, other):
         raise AssertionError

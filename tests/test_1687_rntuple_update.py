@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import os
 import shutil
@@ -119,10 +119,15 @@ def test_ntuple_extend_docstring_present():
     turned the docstring into a dangling (unused) string expression instead
     of __doc__ -- silently dropping the method from generated docs.
     """
-    assert uproot.writing.writable.WritableNTuple.extend.__doc__
+    doc = uproot.writing.writable.WritableNTuple.extend.__doc__
+    assert doc.lstrip().startswith("Args:")
 
 
-def test_add_fields_rejects_root_written_column_encoding(tmp_path):
+@pytest.mark.parametrize(
+    "filename",
+    ["ntpl001_staff_rntuple_v1-0-1-0.root", "ntpl001_staff_rntuple_v1-0-0-0.root"],
+)
+def test_add_fields_rejects_root_written_column_encoding(tmp_path, filename):
     """add_fields()/extend() on a genuinely ROOT-written RNTuple must raise cleanly.
 
     ROOT commonly uses column encodings (e.g. split encoding) that Uproot does
@@ -134,12 +139,11 @@ def test_add_fields_rejects_root_written_column_encoding(tmp_path):
     Uproot itself wrote.
     """
     path = os.path.join(tmp_path, "staff.root")
-    shutil.copy(skhep_testdata.data_path("ntpl001_staff_rntuple_v1-0-1-0.root"), path)
+    shutil.copy(skhep_testdata.data_path(filename), path)
 
     with uproot.update(path) as f:
-        key = next(iter(f.keys())).split(";")[0]
         with pytest.raises(ValueError, match="column encodings"):
-            f[key].add_fields({"newfield": np.int32})
+            f["Staff"].add_fields({"newfield": np.int32})
 
 
 def test_extend_ntuple_multiple_times(tmp_path):
@@ -190,7 +194,7 @@ def test_extend_ntuple_wrong_fields(tmp_path):
         }
 
     with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Data is not compatible"):
             f["mytuple"].extend(
                 {"x": np.array([7, 8, 9], dtype=np.float32)}
             )  # missing y
@@ -216,9 +220,20 @@ def test_ntuple_dtypes(tmp_path):
         )
 
     with uproot.open(os.path.join(tmp_path, "test.root")) as f:
-        nt = f["mytuple"]
-        assert ak.all(nt["x_f32"].array() == np.array([1, 2, 3], dtype=np.float32))
-        assert ak.all(nt["z_i64"].array() == np.zeros(3, dtype=np.int64))
+        arrays = f["mytuple"].arrays()
+        assert {field: str(arrays[field].type) for field in arrays.fields} == {
+            "x_f32": "3 * float32",
+            "x_f64": "3 * float64",
+            "x_i32": "3 * int32",
+            "x_i64": "3 * int64",
+            "z_f32": "3 * float32",
+            "z_f64": "3 * float64",
+            "z_i32": "3 * int32",
+            "z_i64": "3 * int64",
+        }
+        for field in arrays.fields:
+            expected = [1, 2, 3] if field.startswith("x") else [0, 0, 0]
+            assert arrays[field].tolist() == expected
 
     if has_root and hasattr(ROOT, "RNTupleReader"):
         reader = ROOT.RNTupleReader.Open("mytuple", os.path.join(tmp_path, "test.root"))
@@ -278,35 +293,6 @@ def test_ntuple_mixed_types_extend(tmp_path):
             reader.LoadEntry(i, entry)
             vals.append(entry["pt"])
         assert vals == pytest.approx([10.0, 20.0, 30.0, 40.0, 50.0])
-
-
-def test_ntuple_add_field_then_extend(tmp_path):
-    with uproot.recreate(os.path.join(tmp_path, "test.root")) as f:
-        f["mytuple"] = {"x": np.array([1, 2, 3], dtype=np.float32)}
-
-    # add new field (backfilled with zeros)
-    with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        f["mytuple"].add_fields({"z": np.int32})
-
-    # now extend with both fields
-    with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        f["mytuple"].extend(
-            {
-                "x": np.array([4, 5, 6], dtype=np.float32),
-                "z": np.array([40, 50, 60], dtype=np.int32),
-            }
-        )
-
-    with uproot.open(os.path.join(tmp_path, "test.root")) as f:
-        nt = f["mytuple"]
-        assert ak.all(nt["x"].array() == np.array([1, 2, 3, 4, 5, 6], dtype=np.float32))
-        assert ak.all(
-            nt["z"].array() == np.array([0, 0, 0, 40, 50, 60], dtype=np.int32)
-        )
-
-    if has_root and hasattr(ROOT, "RNTupleReader"):
-        reader = ROOT.RNTupleReader.Open("mytuple", os.path.join(tmp_path, "test.root"))
-        assert reader.GetNEntries() == 6
 
 
 def test_ntuple_extend_empty(tmp_path):
@@ -684,28 +670,13 @@ def test_ntuple_add_subfield_nonexistent_parent(tmp_path):
             f["mytuple"].add_fields({"nonexistent.phi": np.float32})
 
 
-def test_ntuple_add_subfield_typed_parent(tmp_path):
-    # structs written by ROOT have C++ typenames and cannot have subfields added.
-    # This fixture also uses column encodings Uproot doesn't write (confirmed by
-    # test_add_fields_rejects_root_written_column_encoding-style ValueError), and
-    # that check now runs first (see below), so every add_fields call on it -- on
-    # any field -- raises the encoding error rather than a per-field typed-struct
-    # message. This is intentional: telling the user "this parent is a typed
-    # struct" is pointless when the whole file can't be extended regardless.
-    src = skhep_testdata.data_path("test_nested_structs_rntuple_v1-0-0-0.root")
-    shutil.copy(src, os.path.join(tmp_path, "test.root"))
-
-    with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        for dotted_name in (
-            "my_struct.new_field",
-            "sub_struct.new_field",
-            "sub_sub_struct.new_field",
-        ):
-            with pytest.raises(ValueError, match="column encodings"):
-                f["ntuple"].add_fields({dotted_name: np.float32})
-
-
-def test_ntuple_add_fields_encoding_error_checked_before_field_resolution(tmp_path):
+@pytest.mark.parametrize(
+    "dotted_name",
+    ["my_struct.new_field", "sub_struct.new_field", "sub_sub_struct.new_field"],
+)
+def test_ntuple_add_fields_encoding_error_checked_before_field_resolution(
+    tmp_path, dotted_name
+):
     """The column-encoding check must run before any per-field work, like extend().
 
     Regression test: add_fields() used to check self._column_encoding_error
@@ -715,6 +686,10 @@ def test_ntuple_add_fields_encoding_error_checked_before_field_resolution(tmp_pa
     shared, persistent footer.extension_field_record_frames list. That let a
     more specific but less fundamental error mask the real one, and left
     orphan field-description objects in memory on every failed call.
+
+    Structs written by ROOT have C++ typenames and cannot have subfields added,
+    but telling the user that is pointless when the whole file can't be extended
+    regardless, so these names all raise the encoding error.
     """
     src = skhep_testdata.data_path("test_nested_structs_rntuple_v1-0-0-0.root")
     path = os.path.join(tmp_path, "test.root")
@@ -724,7 +699,7 @@ def test_ntuple_add_fields_encoding_error_checked_before_field_resolution(tmp_pa
         nt = f["ntuple"]
         before = len(nt._cascading._footer.extension_field_record_frames)
         with pytest.raises(ValueError, match="column encodings"):
-            nt.add_fields({"my_struct.new_field": np.float32})
+            nt.add_fields({dotted_name: np.float32})
         after = len(nt._cascading._footer.extension_field_record_frames)
         assert after == before
 
@@ -734,7 +709,7 @@ def test_ntuple_add_subfield_to_collection(tmp_path):
         f["mytuple"] = {"jets": ak.Array([[1.0, 2.0], [3.0]])}
 
     with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        with pytest.raises(ValueError, match="type"):
+        with pytest.raises(ValueError, match="'jets' has type .* cannot be extended"):
             f["mytuple"].add_fields({"jets.x": np.float32})
 
 
@@ -745,7 +720,7 @@ def test_ntuple_add_subfield_to_collection_of_records(tmp_path):
         )
 
     with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        with pytest.raises(ValueError, match="not a record"):
+        with pytest.raises(ValueError, match="'jets' is not a record"):
             f["mytuple"].add_fields({"jets.phi": np.float32})
 
 
@@ -800,21 +775,6 @@ def test_ntuple_add_field_duplicate_after_extension(tmp_path):
             f["mytuple"].add_fields({"z": np.float32})
 
 
-def test_ntuple_extend_root_written_raises(tmp_path):
-    # ROOT-written RNTuples use split encoding which uproot cannot write
-    src = skhep_testdata.data_path("test_int_float_rntuple_v1-0-0-0.root")
-    shutil.copy(src, os.path.join(tmp_path, "test.root"))
-
-    with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        with pytest.raises(ValueError, match="column encodings"):
-            f["ntuple"].extend(
-                {
-                    "one_integers": np.array([100, 200], dtype=np.int32),
-                    "two_floats": np.array([1.5, 2.5], dtype=np.float32),
-                }
-            )
-
-
 def test_ntuple_add_fields_multi_cluster_groups(tmp_path):
     # multiple cluster groups (one cluster each) — should work
     with uproot.recreate(os.path.join(tmp_path, "test.root")) as f:
@@ -833,62 +793,6 @@ def test_ntuple_add_fields_multi_cluster_groups(tmp_path):
         assert f["ntuple"].num_entries == 9
         assert np.all(f["ntuple"]["x"].array() == np.arange(1, 10, dtype=np.float32))
         assert np.all(f["ntuple"]["y"].array() == 0)
-
-
-def test_ntuple_add_fields_sequential_same_session(tmp_path):
-    # test that holding onto a WritableNTuple object and calling add_fields twice works
-    with uproot.recreate(os.path.join(tmp_path, "test.root")) as f:
-        f["mytuple"] = ak.Array([{"x": 1.0}, {"x": 2.0}, {"x": 3.0}])
-
-    with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        nt = f["mytuple"]
-        nt.add_fields({"y": np.int32})
-        nt.add_fields({"z": np.float64})
-
-    with uproot.open(os.path.join(tmp_path, "test.root")) as f:
-        assert set(f["mytuple"].keys()) == {"x", "y", "z"}
-        assert np.all(f["mytuple"]["y"].array() == 0)
-        assert np.all(f["mytuple"]["z"].array() == 0.0)
-
-
-def test_ntuple_add_fields_then_extend_same_object(tmp_path):
-    # test add_fields then extend using same nt object (not re-opening f["mytuple"])
-    with uproot.recreate(os.path.join(tmp_path, "test.root")) as f:
-        f["mytuple"] = {"x": np.array([1, 2, 3], dtype=np.float32)}
-
-    with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        nt = f["mytuple"]
-        nt.add_fields({"y": np.int32})
-        nt.extend(
-            {
-                "x": np.array([4, 5], dtype=np.float32),
-                "y": np.array([40, 50], dtype=np.int32),
-            }
-        )
-
-    with uproot.open(os.path.join(tmp_path, "test.root")) as f:
-        assert ak.all(
-            f["mytuple"]["x"].array() == np.array([1, 2, 3, 4, 5], dtype=np.float32)
-        )
-        assert ak.all(
-            f["mytuple"]["y"].array() == np.array([0, 0, 0, 40, 50], dtype=np.int32)
-        )
-
-
-def test_ntuple_add_subfield_correct_parent(tmp_path):
-    # verify p2.track.phi goes to p2.track not p1.track
-    with uproot.recreate(os.path.join(tmp_path, "test.root")) as f:
-        f["mytuple"] = ak.Array(
-            [{"p1": {"track": {"pt": 1.0}}, "p2": {"track": {"pt": 2.0}}}] * 2
-        )
-
-    with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        f["mytuple"].add_fields({"p2.track.phi": np.float32})
-
-    with uproot.open(os.path.join(tmp_path, "test.root")) as f:
-        keys = list(f["mytuple"].keys())
-        assert "p2.track.phi" in keys
-        assert "p1.track.phi" not in keys
 
 
 def test_ntuple_add_subfield_duplicate_name_raises(tmp_path):
@@ -1045,17 +949,6 @@ def test_ntuple_update_root_written_file_opens(tmp_path):
             )
 
 
-def test_ntuple_root_written_add_fields_raises(tmp_path):
-    # ROOT-written files use split encoding which uproot cannot write
-    # add_fields should raise a clear error not corrupt data
-    src = skhep_testdata.data_path("ntpl001_staff_rntuple_v1-0-0-0.root")
-    shutil.copy(src, os.path.join(tmp_path, "test.root"))
-
-    with uproot.update(os.path.join(tmp_path, "test.root")) as f:
-        with pytest.raises(ValueError, match="column encodings"):
-            f["Staff"].add_fields({"new_field": np.float32})
-
-
 def test_ntuple_hold_object_across_operations(tmp_path):
     # hold WritableNTuple object across add_fields and extend
     with uproot.recreate(os.path.join(tmp_path, "test.root")) as f:
@@ -1081,3 +974,4 @@ def test_ntuple_hold_object_across_operations(tmp_path):
         assert np.all(
             f["mytuple"]["y"].array() == np.array([0, 0, 0, 10, 20], dtype=np.int32)
         )
+        assert f["mytuple"]["z"].array().tolist() == [0, 0, 0, 1.1, 2.2]

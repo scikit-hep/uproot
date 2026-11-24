@@ -16,7 +16,8 @@ extra = [
   "dask[array,distributed]",
   "hist>=1.2",
   "pandas",
-  "awkward-pandas"
+  "awkward-pandas",
+  "scipy"
 ]
 test = [
   "aiohttp",
@@ -29,7 +30,7 @@ test = [
   "pytest-cov",
   "pytest-rerunfailures",
   "pytest-xdist",
-  "s3fs",
+  "s3fs>=2023.1.0",
   "vector",
   { include-group = "test-core" }
 ]
@@ -38,7 +39,7 @@ test-core = [
   "pytest>=6",
   "rangehttpserver",
   "requests",
-  "scikit-hep-testdata"
+  "scikit-hep-testdata>=0.6.9"
 ]
 test-gpu-cu12 = [
   "kvikio-cu12",
@@ -117,8 +118,17 @@ s3 = ["s3fs"]
 xrootd = ["fsspec-xrootd>=0.5.0"]
 
 [project.urls]
-Download = "https://github.com/scikit-hep/uproot5/releases"
-Homepage = "https://github.com/scikit-hep/uproot5"
+Download = "https://github.com/scikit-hep/uproot/releases"
+Homepage = "https://github.com/scikit-hep/uproot"
+
+[tool.coverage.report]
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "raise AssertionError"
+]
+
+[tool.coverage.run]
+branch = true
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/uproot/version.py"
@@ -127,9 +137,10 @@ version-file = "src/uproot/version.py"
 source = "vcs"
 
 [tool.pytest.ini_options]
-addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config"]
+addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config", "-p", "no:anyio"]  # no test uses anyio's plugin, which breaks pytest >= 9.2 with anyio < 4.15
 filterwarnings = [
   "error",
+  "ignore:Uproot 5.8 will stop using awkward-pandas:FutureWarning",
   "default:module 'sre_.*' is deprecated:DeprecationWarning",
   "ignore:unclosed transport <asyncio.sslproto._SSLProtocolTransport",  # https://github.com/aio-libs/aiohttp/issues/1115
   "ignore:Implicitly cleaning up <HTTPError 405:ResourceWarning"  # Selenium leaves geckodriver's /shutdown response unclosed (Pyodide tests)

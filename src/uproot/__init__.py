@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 Uproot: ROOT I/O in pure Python and NumPy.
@@ -105,7 +105,7 @@ from uproot.reading import open
 from uproot.reading import ReadOnlyFile
 from uproot.reading import ReadOnlyDirectory
 
-from uproot.exceptions import KeyInFileError
+from uproot.exceptions import CoalescedReadError, KeyInFileError
 
 from uproot.model import Model
 from uproot.model import classname_decode
@@ -149,6 +149,7 @@ import uproot.models.TBasket
 import uproot.models.RNTuple
 import uproot.models.TH
 import uproot.models.TGraph
+import uproot.models.TEfficiency
 import uproot.models.TMatrixT
 import uproot.models.TTime
 
@@ -193,7 +194,7 @@ from uproot.behavior import behavior_of
 
 from uproot._util import no_filter
 from uproot._dask import dask, ImplementsFormMapping, ImplementsFormMappingInfo
-from uproot._graphed import graphed, graphed_head
+from uproot._graphed import graphed, graphed_head, graphed_partitions
 
 from uproot.pyroot import from_pyroot
 from uproot.pyroot import to_pyroot

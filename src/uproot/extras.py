@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines functions that import external libraries used by Uproot, but not
@@ -66,7 +66,7 @@ def XRootD_client():
             """Clean up any open xrootd file objects at exit
 
             Required to avoid deadlocks from XRootD, for details see:
-            * https://github.com/scikit-hep/uproot/issues/504
+            * https://github.com/scikit-hep/uproot3/issues/504
             * https://github.com/xrootd/xrootd/pull/1260
             """
             import gc
@@ -169,6 +169,26 @@ or
         return boost_histogram
 
 
+def scipy():
+    """
+    Imports and returns ``scipy``.
+    """
+    try:
+        import scipy
+        import scipy.optimize
+        import scipy.special
+    except ModuleNotFoundError as err:
+        raise ModuleNotFoundError("""install the 'scipy' package with:
+
+    pip install scipy
+
+or
+
+    conda install -c conda-forge scipy""") from err
+    else:
+        return scipy
+
+
 def hist():
     """
     Imports and returns ``hist``.
@@ -253,6 +273,8 @@ def graphed(minimum=_GRAPHED_MIN, caller="uproot.graphed"):
         import graphed.awkward
         import graphed.awkward.projection
         import graphed.core
+        import graphed.execute
+        import graphed.projection
         import graphed.provenance
         import graphed.write
     except ModuleNotFoundError as err:
@@ -290,10 +312,15 @@ def awkward_pandas():
     try:
         import awkward_pandas
     except ModuleNotFoundError as err:
-        raise ModuleNotFoundError("""install the 'awkward-pandas' package with:
+        raise ModuleNotFoundError(
+            """putting jagged or other non-flat data in pandas requires the
+'awkward-pandas' package in this version of Uproot. Install it with:
     pip install awkward-pandas
 or
-    conda install -c conda-forge awkward-pandas""") from err
+    conda install -c conda-forge awkward-pandas
+Uproot 5.8 will not need awkward-pandas: these columns will be PyArrow-backed
+(pandas.ArrowDtype) instead. If you only need Awkward Arrays, use library="ak"."""
+        ) from err
     else:
         return awkward_pandas
 

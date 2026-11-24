@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines versioned models for ``TLeaf`` and its subclasses.
@@ -322,12 +322,6 @@ in file {self.file.file_path}"""
         )
         raise uproot.interpretation.objects.CannotBeStrided(
             "class members defined by Model_TStreamerObjectPointer of type THashList* in member fLabels of class TAxis"
-        )
-        raise uproot.interpretation.objects.CannotBeStrided(
-            "class members defined by Model_TStreamerObjectPointer of type TList* in member fModLabs of class TAxis"
-        )
-        return uproot.interpretation.objects.AsStridedObjects(
-            cls, members, original=original
         )
 
     @classmethod
@@ -804,11 +798,6 @@ in file {self.file.file_path}"""
         members.append(("fBufferSize", numpy.dtype(">u4")))
         raise uproot.interpretation.objects.CannotBeStrided(
             "class members defined by Model_TStreamerBasicPointer of type double* in member fBuffer of class TH1"
-        )
-        members.append(("fBinStatErrOpt", numpy.dtype(">i4")))
-        members.append(("fStatOverflows", numpy.dtype(">i4")))
-        return uproot.interpretation.objects.AsStridedObjects(
-            cls, members, original=original
         )
 
     @classmethod

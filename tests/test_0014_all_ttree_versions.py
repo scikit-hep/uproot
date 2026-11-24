@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import json
 import sys
@@ -11,203 +11,45 @@ import skhep_testdata
 import uproot
 
 
-def test_streamerless_read():
+@pytest.mark.parametrize(
+    "version, tree_version, branch_version",
+    [
+        ("5.23.02", 16, 11),
+        ("5.24.00", 16, 11),
+        ("5.25.02", 17, 12),
+        ("5.26.00", 18, 12),
+        ("5.27.02", 18, 12),
+        ("5.28.00", 18, 12),
+        ("5.29.02", 18, 12),
+        ("5.30.00", 19, 12),
+        ("6.08.04", 19, 12),
+        ("6.10.05", 19, 12),
+        ("6.14.00", 20, 13),
+        ("6.16.00", 20, 13),
+        ("6.18.00", 20, 13),
+        ("6.20.04", 20, 13),
+    ],
+)
+def test_streamerless_read(version, tree_version, branch_version):
     with uproot.open(
-        skhep_testdata.data_path("uproot-sample-5.23.02-uncompressed.root")
+        skhep_testdata.data_path(f"uproot-sample-{version}-uncompressed.root")
     ) as f:
-        assert f["sample"].class_version == 16
+        assert f["sample"].class_version == tree_version
         assert isinstance(f["sample"], uproot.TTree)
-        assert f["sample"].name == f["sample"].member("fName")
+        assert f["sample"].name == "sample"
+        assert f["sample"].member("fName") == "sample"
+        assert len(f["sample"].member("fBranches")) == 35
         for x in f["sample"].member("fBranches"):
-            assert x.class_version == 11
+            assert x.class_version == branch_version
             assert isinstance(x, uproot.TBranch)
             assert x.name == x.member("fName")
+        assert len(f["sample"].member("fLeaves")) == 35
         for x in f["sample"].member("fLeaves"):
             assert x.class_version == 1
         assert f.file._streamers is None
 
-    with uproot.open(
-        skhep_testdata.data_path("uproot-sample-5.24.00-uncompressed.root")
-    ) as f:
-        assert f["sample"].class_version == 16
-        assert isinstance(f["sample"], uproot.TTree)
-        assert f["sample"].name == f["sample"].member("fName")
-        for x in f["sample"].member("fBranches"):
-            assert x.class_version == 11
-            assert isinstance(x, uproot.TBranch)
-            assert x.name == x.member("fName")
-        for x in f["sample"].member("fLeaves"):
-            assert x.class_version == 1
-        assert f.file._streamers is None
 
-    with uproot.open(
-        skhep_testdata.data_path("uproot-sample-5.25.02-uncompressed.root")
-    ) as f:
-        assert f["sample"].class_version == 17
-        assert isinstance(f["sample"], uproot.TTree)
-        assert f["sample"].name == f["sample"].member("fName")
-        for x in f["sample"].member("fBranches"):
-            assert x.class_version == 12
-            assert isinstance(x, uproot.TBranch)
-            assert x.name == x.member("fName")
-        for x in f["sample"].member("fLeaves"):
-            assert x.class_version == 1
-        assert f.file._streamers is None
-
-    with uproot.open(
-        skhep_testdata.data_path("uproot-sample-5.26.00-uncompressed.root")
-    ) as f:
-        assert f["sample"].class_version == 18
-        assert isinstance(f["sample"], uproot.TTree)
-        assert f["sample"].name == f["sample"].member("fName")
-        for x in f["sample"].member("fBranches"):
-            assert x.class_version == 12
-            assert isinstance(x, uproot.TBranch)
-            assert x.name == x.member("fName")
-        for x in f["sample"].member("fLeaves"):
-            assert x.class_version == 1
-        assert f.file._streamers is None
-
-    with uproot.open(
-        skhep_testdata.data_path("uproot-sample-5.27.02-uncompressed.root")
-    ) as f:
-        assert f["sample"].class_version == 18
-        assert isinstance(f["sample"], uproot.TTree)
-        assert f["sample"].name == f["sample"].member("fName")
-        for x in f["sample"].member("fBranches"):
-            assert x.class_version == 12
-            assert isinstance(x, uproot.TBranch)
-            assert x.name == x.member("fName")
-        for x in f["sample"].member("fLeaves"):
-            assert x.class_version == 1
-        assert f.file._streamers is None
-
-    with uproot.open(
-        skhep_testdata.data_path("uproot-sample-5.28.00-uncompressed.root")
-    ) as f:
-        assert f["sample"].class_version == 18
-        assert isinstance(f["sample"], uproot.TTree)
-        assert f["sample"].name == f["sample"].member("fName")
-        for x in f["sample"].member("fBranches"):
-            assert x.class_version == 12
-            assert isinstance(x, uproot.TBranch)
-            assert x.name == x.member("fName")
-        for x in f["sample"].member("fLeaves"):
-            assert x.class_version == 1
-        assert f.file._streamers is None
-
-    with uproot.open(
-        skhep_testdata.data_path("uproot-sample-5.29.02-uncompressed.root")
-    ) as f:
-        assert f["sample"].class_version == 18
-        assert isinstance(f["sample"], uproot.TTree)
-        assert f["sample"].name == f["sample"].member("fName")
-        for x in f["sample"].member("fBranches"):
-            assert x.class_version == 12
-            assert isinstance(x, uproot.TBranch)
-            assert x.name == x.member("fName")
-        for x in f["sample"].member("fLeaves"):
-            assert x.class_version == 1
-        assert f.file._streamers is None
-
-    with uproot.open(
-        skhep_testdata.data_path("uproot-sample-5.30.00-uncompressed.root")
-    ) as f:
-        assert f["sample"].class_version == 19
-        assert isinstance(f["sample"], uproot.TTree)
-        assert f["sample"].name == f["sample"].member("fName")
-        for x in f["sample"].member("fBranches"):
-            assert x.class_version == 12
-            assert isinstance(x, uproot.TBranch)
-            assert x.name == x.member("fName")
-        for x in f["sample"].member("fLeaves"):
-            assert x.class_version == 1
-        assert f.file._streamers is None
-
-    with uproot.open(
-        skhep_testdata.data_path("uproot-sample-6.08.04-uncompressed.root")
-    ) as f:
-        assert f["sample"].class_version == 19
-        assert isinstance(f["sample"], uproot.TTree)
-        assert f["sample"].name == f["sample"].member("fName")
-        for x in f["sample"].member("fBranches"):
-            assert x.class_version == 12
-            assert isinstance(x, uproot.TBranch)
-            assert x.name == x.member("fName")
-        for x in f["sample"].member("fLeaves"):
-            assert x.class_version == 1
-        assert f.file._streamers is None
-
-    with uproot.open(
-        skhep_testdata.data_path("uproot-sample-6.10.05-uncompressed.root")
-    ) as f:
-        assert f["sample"].class_version == 19
-        assert isinstance(f["sample"], uproot.TTree)
-        assert f["sample"].name == f["sample"].member("fName")
-        for x in f["sample"].member("fBranches"):
-            assert x.class_version == 12
-            assert isinstance(x, uproot.TBranch)
-            assert x.name == x.member("fName")
-        for x in f["sample"].member("fLeaves"):
-            assert x.class_version == 1
-        assert f.file._streamers is None
-
-    with uproot.open(
-        skhep_testdata.data_path("uproot-sample-6.14.00-uncompressed.root")
-    ) as f:
-        assert f["sample"].class_version == 20
-        assert isinstance(f["sample"], uproot.TTree)
-        assert f["sample"].name == f["sample"].member("fName")
-        for x in f["sample"].member("fBranches"):
-            assert x.class_version == 13
-            assert isinstance(x, uproot.TBranch)
-            assert x.name == x.member("fName")
-        for x in f["sample"].member("fLeaves"):
-            assert x.class_version == 1
-        assert f.file._streamers is None
-
-    with uproot.open(
-        skhep_testdata.data_path("uproot-sample-6.16.00-uncompressed.root")
-    ) as f:
-        assert f["sample"].class_version == 20
-        assert isinstance(f["sample"], uproot.TTree)
-        assert f["sample"].name == f["sample"].member("fName")
-        for x in f["sample"].member("fBranches"):
-            assert x.class_version == 13
-            assert isinstance(x, uproot.TBranch)
-            assert x.name == x.member("fName")
-        for x in f["sample"].member("fLeaves"):
-            assert x.class_version == 1
-        assert f.file._streamers is None
-
-    with uproot.open(
-        skhep_testdata.data_path("uproot-sample-6.18.00-uncompressed.root")
-    ) as f:
-        assert f["sample"].class_version == 20
-        assert isinstance(f["sample"], uproot.TTree)
-        assert f["sample"].name == f["sample"].member("fName")
-        for x in f["sample"].member("fBranches"):
-            assert x.class_version == 13
-            assert isinstance(x, uproot.TBranch)
-            assert x.name == x.member("fName")
-        for x in f["sample"].member("fLeaves"):
-            assert x.class_version == 1
-        assert f.file._streamers is None
-
-    with uproot.open(
-        skhep_testdata.data_path("uproot-sample-6.20.04-uncompressed.root")
-    ) as f:
-        assert f["sample"].class_version == 20
-        assert isinstance(f["sample"], uproot.TTree)
-        assert f["sample"].name == f["sample"].member("fName")
-        for x in f["sample"].member("fBranches"):
-            assert x.class_version == 13
-            assert isinstance(x, uproot.TBranch)
-            assert x.name == x.member("fName")
-        for x in f["sample"].member("fLeaves"):
-            assert x.class_version == 1
-        assert f.file._streamers is None
-
+def test_streamerless_read_vector_vector_double():
     with uproot.open(skhep_testdata.data_path("uproot-vectorVectorDouble.root")) as f:
         assert f["t"].class_version == 19
         assert f.file._streamers is None

@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines a series of rules for identifying Python objects that can be written
@@ -187,7 +187,7 @@ def to_writable(obj):
         except TypeError:
             # flow=True is not supported, fallback to allocate-and-fill
 
-            tmp = obj.values()
+            tmp = data_noflow = obj.values()
             s = tmp.shape
             d = tmp.dtype.newbyteorder(">")
             if ndim == 1:
@@ -199,6 +199,10 @@ def to_writable(obj):
             elif ndim == 3:
                 data = numpy.zeros((s[0] + 2, s[1] + 2, s[2] + 2), dtype=d)
                 data[1:-1, 1:-1, 1:-1] = tmp
+            else:
+                raise AssertionError(
+                    f"ndim is 1, 2, or 3 by now, but it is {ndim}"
+                ) from None
 
             tmp = (
                 obj.variances()
@@ -218,6 +222,10 @@ def to_writable(obj):
                 elif ndim == 3:
                     fSumw2 = numpy.zeros((s[0] + 2, s[1] + 2, s[2] + 2), dtype=">f8")
                     fSumw2[1:-1, 1:-1, 1:-1] = tmp
+                else:
+                    raise AssertionError(
+                        f"ndim is 1, 2, or 3 by now, but it is {ndim}"
+                    ) from None
 
         else:
             # continuing to use flow=True, because it is supported
@@ -237,19 +245,22 @@ def to_writable(obj):
         # ROOT has fEntries = sum *without* weights, *with* flow bins
         fEntries = data.sum()
 
+        # the edges and labels of each axis, computed once
+        axis_info = [_axis_edges_and_labels(axis, boost_histogram) for axis in obj.axes]
+
         # convert all axes in one list comprehension
         axes = [
             to_TAxis(
                 fName=default_name,
                 fTitle=getattr(axis, "label", getattr(obj, "name", "")),
                 fNbins=len(axis),
-                fXmin=axis.edges[0],
-                fXmax=axis.edges[-1],
-                fXbins=_fXbins_maybe_regular(axis, boost_histogram),
-                fLabels=_fLabels_maybe_categorical(axis, boost_histogram),
+                fXmin=edges[0],
+                fXmax=edges[-1],
+                fXbins=_fXbins_maybe_regular(axis, edges, boost_histogram),
+                fLabels=labels,
             )
-            for axis, default_name in zip(
-                obj.axes, ["xaxis", "yaxis", "zaxis"], strict=False
+            for axis, (edges, labels), default_name in zip(
+                obj.axes, axis_info, ["xaxis", "yaxis", "zaxis"], strict=False
             )
         ]
 
@@ -362,6 +373,11 @@ def to_writable(obj):
                         fBinSumw2=_fBinSumw2,
                         fXaxis=axes[0],
                     )
+                elif not hasattr(obj, "_bases"):
+                    raise NotImplementedError(
+                        "1D PlottableHistogram with kind='MEAN' (i.e. 1D profile plots) "
+                        "is only supported for boost-histogram and hist objects"
+                    )
                 else:
                     return to_TProfile(
                         fName=None,
@@ -381,7 +397,7 @@ def to_writable(obj):
                     )
             else:
                 fTsumw, fTsumw2, fTsumwx, fTsumwx2 = _root_stats_1d(
-                    obj.values(flow=False), obj.axes[0].edges
+                    data_noflow, axis_info[0][0]
                 )
                 return to_TH1x(
                     fName=None,
@@ -410,9 +426,7 @@ def to_writable(obj):
                     fTsumwy,
                     fTsumwy2,
                     fTsumwxy,
-                ) = _root_stats_2d(
-                    obj.values(flow=False), obj.axes[0].edges, obj.axes[1].edges
-                )
+                ) = _root_stats_2d(data_noflow, axis_info[0][0], axis_info[1][0])
                 return to_TH2x(
                     fName=None,
                     fTitle=title,
@@ -449,10 +463,10 @@ def to_writable(obj):
                     fTsumwxz,
                     fTsumwyz,
                 ) = _root_stats_3d(
-                    obj.values(flow=False),
-                    obj.axes[0].edges,
-                    obj.axes[1].edges,
-                    obj.axes[2].edges,
+                    data_noflow,
+                    axis_info[0][0],
+                    axis_info[1][0],
+                    axis_info[2][0],
                 )
                 return to_TH3x(
                     fName=None,
@@ -476,11 +490,15 @@ def to_writable(obj):
                     fZaxis=axes[2],
                 )
 
+        else:
+            raise AssertionError(f"ndim is 1, 2, or 3 by now, but it is {len(axes)}")
+
     elif (
         isinstance(obj, (tuple, list))
         and 2 <= len(obj) <= 5  # might have a histogram title as the last item
         and all(isinstance(x, numpy.ndarray) for x in obj[:-1])
         and isinstance(obj[-1], (numpy.ndarray, str))
+        and 1 <= len(obj[0].shape) <= 3
         and len(obj[0].shape) == sum(int(isinstance(x, numpy.ndarray)) for x in obj[1:])
         and all(len(x.shape) == 1 for x in obj[1:] if isinstance(x, numpy.ndarray))
     ):
@@ -681,15 +699,47 @@ def to_writable(obj):
                 ),
             )
 
+        else:
+            raise AssertionError(f"obj has 2 to 4 arrays by now, but it has {len(obj)}")
+
     else:
         raise TypeError(
             "unrecognized type cannot be written to a ROOT file: " + type(obj).__name__
         )
 
 
-def _fXbins_maybe_regular(axis, boost_histogram):
+def _axis_edges_and_labels(axis, boost_histogram):
+    """
+    Returns the bin edges (as float64) and the TAxis labels (or None) of a
+    PlottableHistogram axis.
+
+    boost-histogram axes provide ``edges``. Other axes are read through the
+    PlottableHistogram protocol, in which ``axis[i]`` is a ``(lower, upper)``
+    pair for a continuous axis and a category for a discrete one
+    (``axis.traits.discrete``), whose labels are kept. An axis that can't be
+    indexed this way must have a flat array of ``edges``.
+    """
+    if boost_histogram is not None:
+        return (
+            numpy.asarray(axis.edges, dtype=numpy.float64),
+            _fLabels_maybe_categorical(axis, boost_histogram),
+        )
+
+    n = len(axis)
+    if getattr(getattr(axis, "traits", None), "discrete", False):
+        labels = [str(axis[i]) for i in range(n)]
+        return numpy.arange(n + 1, dtype=numpy.float64), _to_fLabels(labels)
+
+    if not hasattr(axis, "__getitem__"):
+        return numpy.asarray(axis.edges, dtype=numpy.float64), None
+
+    pairs = numpy.asarray([axis[i] for i in range(n)], dtype=numpy.float64)
+    pairs = pairs.reshape(n, 2)
+    return numpy.append(pairs[:, 0], pairs[-1, 1]), None
+
+
+def _fXbins_maybe_regular(axis, edges, boost_histogram):
     if boost_histogram is None:
-        edges = axis.edges
         fXmin, fXmax = edges[0], edges[-1]
         if numpy.allclose(edges, numpy.linspace(fXmin, fXmax, len(edges))):
             return numpy.array([], dtype=">f8")
@@ -706,25 +756,17 @@ def _fXbins_maybe_regular(axis, boost_histogram):
 
 
 def _fLabels_maybe_categorical(axis, boost_histogram):
-    if boost_histogram is None:
-        return None
-
     if not isinstance(
         axis, (boost_histogram.axis.IntCategory, boost_histogram.axis.StrCategory)
     ):
         return None
 
     labels = [str(label) for label in axis]
-    if isinstance(axis, boost_histogram.axis.IntCategory):
-        # Check labels are valid integers (this may be redundant)
-        for label in labels:
-            try:
-                int(label)
-            except ValueError:
-                raise ValueError(
-                    f"IntCategory labels must be valid integers. Found {label!r} on axis {axis!r}"
-                ) from None
 
+    return _to_fLabels(labels)
+
+
+def _to_fLabels(labels):
     labels = to_THashList([to_TObjString(label) for label in labels])
     # we need to set the TObject.fUniqueID to the index of the bin as done by TAxis::SetBinLabel
     for i, label in enumerate(labels):
@@ -888,19 +930,17 @@ def to_TArray(data):
     if data.ndim != 1:
         raise ValueError("data to convert to TArray must be one-dimensional")
 
-    if issubclass(data.dtype.type, numpy.int8):
-        cls = uproot.models.TArray.Model_TArrayC
-    elif issubclass(data.dtype.type, numpy.int16):
-        cls = uproot.models.TArray.Model_TArrayS
-    elif issubclass(data.dtype.type, numpy.int32):
-        cls = uproot.models.TArray.Model_TArrayI
-    elif issubclass(data.dtype.type, numpy.int64):
-        cls = uproot.models.TArray.Model_TArrayL
-    elif issubclass(data.dtype.type, numpy.float32):
-        cls = uproot.models.TArray.Model_TArrayF
-    elif issubclass(data.dtype.type, numpy.float64):
-        cls = uproot.models.TArray.Model_TArrayD
-    else:
+    # dispatch on kind and size, since distinct C types of the same size (such as
+    # long and long long) are distinct numpy scalar types
+    cls = {
+        ("i", 1): uproot.models.TArray.Model_TArrayC,
+        ("i", 2): uproot.models.TArray.Model_TArrayS,
+        ("i", 4): uproot.models.TArray.Model_TArrayI,
+        ("i", 8): uproot.models.TArray.Model_TArrayL,
+        ("f", 4): uproot.models.TArray.Model_TArrayF,
+        ("f", 8): uproot.models.TArray.Model_TArrayD,
+    }.get((data.dtype.kind, data.dtype.itemsize))
+    if cls is None:
         raise ValueError(
             f"data to convert to TArray must have signed integer or floating-point type, not {data.dtype!r}"
         )
@@ -1388,7 +1428,7 @@ def to_TH2x(
     elif isinstance(tarray_data, uproot.models.TArray.Model_TArrayD):
         cls = uproot.models.TH.Model_TH2D_v4
     else:
-        raise TypeError(f"no TH2* subclasses correspond to {tarray_data.classname}")
+        raise AssertionError(f"to_TH1x has already rejected {tarray_data.classname}")
 
     th2x = cls.empty()
     th2x._bases.append(th2)
@@ -1566,7 +1606,7 @@ def to_TH3x(
     elif isinstance(tarray_data, uproot.models.TArray.Model_TArrayD):
         cls = uproot.models.TH.Model_TH3D_v4
     else:
-        raise TypeError(f"no TH3* subclasses correspond to {tarray_data.classname}")
+        raise AssertionError(f"to_TH1x has already rejected {tarray_data.classname}")
 
     th3x = cls.empty()
     th3x._bases.append(th3)
@@ -2119,3 +2159,222 @@ def to_TProfile3D(
     tprofile3d._deeply_writable = th3x._deeply_writable
 
     return tprofile3d
+
+
+def _is_weighted_histogram(hist):
+    fSumw2 = hist.member("fSumw2", none_if_missing=True)
+    if fSumw2 is None or len(fSumw2) == 0:
+        return False
+    return not numpy.array_equal(
+        numpy.asarray(fSumw2), numpy.asarray(hist.values(flow=True)).T.reshape(-1)
+    )
+
+
+def to_TEfficiency(
+    fName,
+    fTitle,
+    fPassedHistogram,
+    fTotalHistogram,
+    fStatisticOption="kFCP",
+    fConfLevel=0.682689492137,
+    fBeta_alpha=1.0,
+    fBeta_beta=1.0,
+    fBeta_bin_params=None,
+    fWeight=1.0,
+    use_weights=None,
+    posterior_mode=False,
+    shortest_interval=False,
+    fLineColor=1,
+    fLineStyle=1,
+    fLineWidth=1,
+    fFillColor=19,
+    fFillStyle=1001,
+    fMarkerColor=1,
+    fMarkerStyle=1,
+    fMarkerSize=1.0,
+):
+    """
+    Args:
+        fName (None or str): Name of the efficiency object (and the prefix of the
+            names of its histograms, ``<fName>_passed`` and ``<fName>_total``).
+        fTitle (str): Title of the efficiency object.
+        fPassedHistogram (:doc:`uproot.behaviors.TH1.Histogram` or other histogram): Histogram
+            of events that passed the selection. Anything that
+            :doc:`uproot.writing.identify.to_writable` converts into a ROOT
+            ``TH1``, ``TH2``, or ``TH3`` (e.g. a ``hist.Hist``, a
+            ``boost_histogram.Histogram``, or a ``numpy.histogram`` tuple) is
+            accepted.
+        fTotalHistogram (:doc:`uproot.behaviors.TH1.Histogram` or other histogram): Histogram
+            of all events, with the same binning as ``fPassedHistogram``.
+        fStatisticOption (str or int): Method used for confidence intervals:
+            ``"kFCP"`` (Clopper-Pearson, ROOT's default), ``"kFNormal"``,
+            ``"kFWilson"``, ``"kFAC"``, ``"kFFC"``, ``"kBJeffrey"``,
+            ``"kBUniform"``, ``"kBBayesian"``, or ``"kMidP"`` (or the
+            corresponding integer value of ``TEfficiency::EStatOption``).
+        fConfLevel (float): Confidence level of the intervals.
+        fBeta_alpha (float): Global alpha parameter of the beta prior. Overridden
+            for ``"kBJeffrey"`` (0.5) and ``"kBUniform"`` (1), as in ROOT.
+        fBeta_beta (float): Global beta parameter of the beta prior. Overridden
+            for ``"kBJeffrey"`` (0.5) and ``"kBUniform"`` (1), as in ROOT.
+        fBeta_bin_params (None, numpy structured array with fields ``"first"`` and ``"second"``, or array-like of shape ``(n, 2)``):
+            Per-bin (alpha, beta) parameters of the beta prior, indexed by ROOT
+            global bin number. If not empty, per-bin priors are enabled.
+        fWeight (float): Global weight of this efficiency (used when combining).
+        use_weights (None or bool): If True, the histograms are treated as
+            weighted (sum of weights and sum of squared weights per bin). If
+            None, this is True if either histogram has squared weights that
+            differ from its bin contents.
+        posterior_mode (bool): If True, use the mode of the posterior as the
+            efficiency estimate (and the shortest interval), as
+            ``TEfficiency::SetPosteriorMode``. Only relevant for Bayesian options.
+        shortest_interval (bool): If True, use the shortest (rather than
+            central) interval. Only relevant for Bayesian options.
+        fLineColor (int): Line color. (https://root.cern.ch/doc/master/classTAttLine.html)
+        fLineStyle (int): Line style.
+        fLineWidth (int): Line width.
+        fFillColor (int): Fill area color. (https://root.cern.ch/doc/master/classTAttFill.html)
+        fFillStyle (int): Fill area style.
+        fMarkerColor (int): Marker color. (https://root.cern.ch/doc/master/classTAttMarker.html)
+        fMarkerStyle (int): Marker style.
+        fMarkerSize (float): Marker size.
+
+    Creates a ``TEfficiency`` object that can be written to ROOT files.
+
+    .. code-block:: python
+
+        import hist, uproot
+
+        total = hist.Hist.new.Reg(10, 0, 100, name="pt").Double().fill(pt_all)
+        passed = hist.Hist.new.Reg(10, 0, 100, name="pt").Double().fill(pt_pass)
+
+        with uproot.recreate("output.root") as file:
+            file["eff"] = uproot.writing.to_TEfficiency(
+                "eff", "efficiency;p_{T};#epsilon", passed, total
+            )
+    """
+    import uproot.behaviors.TEfficiency
+    import uproot.models.TEfficiency
+
+    passed = to_writable(fPassedHistogram)
+    total = to_writable(fTotalHistogram)
+    for which, hist in (("passed", passed), ("total", total)):
+        if not isinstance(hist, uproot.behaviors.TH1.Histogram) or isinstance(
+            hist, uproot.behaviors.TProfile.Profile
+        ):
+            raise TypeError(
+                f"the {which} histogram of a TEfficiency must be a TH1, TH2, or TH3 (not a profile), not {type(fPassedHistogram if which == 'passed' else fTotalHistogram).__name__}"
+            )
+
+    if len(passed.axes) != len(total.axes):
+        raise ValueError(
+            "the passed and total histograms of a TEfficiency must have the same number of dimensions"
+        )
+    for passed_axis, total_axis in zip(passed.axes, total.axes, strict=True):
+        if not numpy.array_equal(passed_axis.edges(), total_axis.edges()):
+            raise ValueError(
+                "the passed and total histograms of a TEfficiency must have the same binning"
+            )
+
+    if isinstance(fStatisticOption, str):
+        try:
+            fStatisticOption = uproot.behaviors.TEfficiency.statistic_options.index(
+                fStatisticOption
+            )
+        except ValueError:
+            raise ValueError(
+                f"unrecognized TEfficiency statistic option {fStatisticOption!r}; expected one of {uproot.behaviors.TEfficiency.statistic_options}"
+            ) from None
+    elif (
+        not 0 <= fStatisticOption < len(uproot.behaviors.TEfficiency.statistic_options)
+    ):
+        raise ValueError(
+            f"unrecognized TEfficiency statistic option {fStatisticOption!r}"
+        )
+    fStatisticOption = int(fStatisticOption)
+
+    # mirror TEfficiency::SetStatisticOption
+    is_bayesian = fStatisticOption in (5, 6, 7)
+    if fStatisticOption == 5:
+        fBeta_alpha = fBeta_beta = 0.5
+    elif fStatisticOption == 6:
+        fBeta_alpha = fBeta_beta = 1.0
+
+    if fBeta_bin_params is None:
+        fBeta_bin_params = numpy.empty(
+            0, dtype=uproot.models.TEfficiency._beta_bin_params_dtype
+        )
+    else:
+        params = numpy.asarray(fBeta_bin_params)
+        if params.dtype.names is None:
+            params = numpy.asarray(params, dtype=numpy.float64).reshape(-1, 2)
+            fBeta_bin_params = numpy.empty(
+                len(params), dtype=uproot.models.TEfficiency._beta_bin_params_dtype
+            )
+            fBeta_bin_params["first"] = params[:, 0]
+            fBeta_bin_params["second"] = params[:, 1]
+        else:
+            fBeta_bin_params = params.astype(
+                uproot.models.TEfficiency._beta_bin_params_dtype
+            )
+
+    if use_weights is None:
+        use_weights = _is_weighted_histogram(passed) or _is_weighted_histogram(total)
+
+    fBits = 0
+    if is_bayesian:
+        fBits |= uproot.behaviors.TEfficiency.kIsBayesian
+    if posterior_mode:
+        fBits |= uproot.behaviors.TEfficiency.kPosteriorMode
+        shortest_interval = True
+    if shortest_interval:
+        fBits |= uproot.behaviors.TEfficiency.kShortestInterval
+    if len(fBeta_bin_params) != 0 and fStatisticOption not in (5, 6):
+        fBits |= uproot.behaviors.TEfficiency.kUseBinPrior
+    if use_weights:
+        fBits |= uproot.behaviors.TEfficiency.kUseWeights
+
+    tobject = uproot.models.TObject.Model_TObject.empty()
+    tobject._members["@fUniqueID"] = 0
+    tobject._members["@fBits"] = fBits
+
+    tnamed = uproot.models.TNamed.Model_TNamed.empty()
+    tnamed._deeply_writable = True
+    tnamed._bases.append(tobject)
+    tnamed._members["fName"] = fName
+    tnamed._members["fTitle"] = fTitle
+
+    tattline = uproot.models.TAtt.Model_TAttLine_v2.empty()
+    tattline._deeply_writable = True
+    tattline._members["fLineColor"] = fLineColor
+    tattline._members["fLineStyle"] = fLineStyle
+    tattline._members["fLineWidth"] = fLineWidth
+
+    tattfill = uproot.models.TAtt.Model_TAttFill_v2.empty()
+    tattfill._deeply_writable = True
+    tattfill._members["fFillColor"] = fFillColor
+    tattfill._members["fFillStyle"] = fFillStyle
+
+    tattmarker = uproot.models.TAtt.Model_TAttMarker_v2.empty()
+    tattmarker._deeply_writable = True
+    tattmarker._members["fMarkerColor"] = fMarkerColor
+    tattmarker._members["fMarkerStyle"] = fMarkerStyle
+    tattmarker._members["fMarkerSize"] = fMarkerSize
+
+    teff = uproot.models.TEfficiency.Model_TEfficiency_v2.empty()
+    teff._bases.append(tnamed)
+    teff._bases.append(tattline)
+    teff._bases.append(tattfill)
+    teff._bases.append(tattmarker)
+    teff._members["fBeta_alpha"] = float(fBeta_alpha)
+    teff._members["fBeta_beta"] = float(fBeta_beta)
+    teff._members["fBeta_bin_params"] = fBeta_bin_params
+    teff._members["fConfLevel"] = float(fConfLevel)
+    teff._members["fFunctions"] = to_TList([])
+    teff._members["fPassedHistogram"] = passed
+    teff._members["fStatisticOption"] = fStatisticOption
+    teff._members["fTotalHistogram"] = total
+    teff._members["fWeight"] = float(fWeight)
+
+    teff._deeply_writable = passed._deeply_writable and total._deeply_writable
+
+    return teff

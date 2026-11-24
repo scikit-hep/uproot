@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines Uproot-specific exceptions, such as
@@ -12,6 +12,15 @@ import uproot
 
 class NameConflictWarning(Warning):
     pass
+
+
+class CoalescedReadError(OSError):
+    """
+    Exception raised when a range of a coalesced request fails and the original
+    error has no built-in ``OSError`` type to keep, such as
+    ``aiohttp.ClientPayloadError``. The original error is the ``__cause__`` of
+    this exception and is included in its message.
+    """
 
 
 class KeyInFileError(KeyError):

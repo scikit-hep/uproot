@@ -471,7 +471,7 @@ Eager workflows can be converted to dask graphs that encode the order and interd
 
 The dask graph for this can be visualized with ``pt.visualize()``. The resultant image is shown below.
 
-.. image:: https://github.com/scikit-hep/uproot5/raw/main/docs-img/diagrams/example-dask-graph.png
+.. image:: https://github.com/scikit-hep/uproot/raw/main/docs-img/diagrams/example-dask-graph.png
     :alt: dask-graph-example
     :width: 300px
     :align: center
@@ -678,6 +678,10 @@ The Pandas form for this type of data is a DataFrame with Awkward Dtype, provide
     [2421 rows x 6 columns]
 
 You can operate on Awkward Array data in Pandas using the ``.ak`` accessor; see the [awkward-pandas documentation](https://awkward-pandas.readthedocs.io/en/latest/quickstart.html).
+
+.. warning::
+
+    Uproot 5.8 will stop using awkward-pandas, which has been superseded by `akimbo <https://github.com/intake/akimbo>`__. Columns of jagged and other non-flat data will be PyArrow-backed (``pandas.ArrowDtype``) by default, and awkward-pandas will no longer be required. Uproot 5.8 will still use awkward-pandas if it is installed, with a deprecation warning, and 5.9 will remove support for it. If you use the ``.ak`` accessor, install akimbo instead, which provides it for PyArrow-backed columns and which Uproot 5.8 will use if it is installed.
 
 Before Uproot 5.0, Uproot exploded this data with a `MultiIndex <https://pandas.pydata.org/pandas-docs/stable/user_guide/advanced.html>`__, such that each Pandas cell contains a number, not a list or other type. You can still do this using Awkward Array and `ak.to_dataframe <https://awkward-array.org/doc/main/reference/generated/ak.to_dataframe.html>`__:
 
@@ -1279,7 +1283,7 @@ The arrays also have to have the same lengths as each other, though only in the 
 
 .. warning::
 
-    **As a word of warning,** be sure that each call to :ref:`uproot.writing.writable.WritableTree.extend` includes at least 100 kB per branch/array. (NumPy and Awkward Arrays have an `nbytes <https://numpy.org/doc/stable/reference/generated/numpy.ndarray.nbytes.html>`__ property; you want at least ``100000`` per array.) If you ask Uproot to write very small TBaskets, such as the examples with length ``5`` above, it will spend more time working on TBasket overhead than actually writing data. The absolute worst case is one-entry-per-:ref:`uproot.writing.writable.WritableTree.extend`. See `#428 (comment) <https://github.com/scikit-hep/uproot5/pull/428#issuecomment-908703486>`__.
+    **As a word of warning,** be sure that each call to :ref:`uproot.writing.writable.WritableTree.extend` includes at least 100 kB per branch/array. (NumPy and Awkward Arrays have an `nbytes <https://numpy.org/doc/stable/reference/generated/numpy.ndarray.nbytes.html>`__ property; you want at least ``100000`` per array.) If you ask Uproot to write very small TBaskets, such as the examples with length ``5`` above, it will spend more time working on TBasket overhead than actually writing data. The absolute worst case is one-entry-per-:ref:`uproot.writing.writable.WritableTree.extend`. See `#428 (comment) <https://github.com/scikit-hep/uproot/pull/428#issuecomment-908703486>`__.
 
 Specifying the compression
 --------------------------
