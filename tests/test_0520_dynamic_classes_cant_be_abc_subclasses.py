@@ -3,6 +3,7 @@
 import pickle
 import os
 
+import pytest
 import uproot
 
 
