@@ -698,20 +698,41 @@ class FreeSegments(CascadeNode):
 
     @staticmethod
     def _merge_slices(slices, new_intervals):
-        all_intervals = [
+        valid_new = [
             (int(start), int(stop))
-            for start, stop in (*slices, *new_intervals)
+            for start, stop in new_intervals
             if start < stop
         ]
-        if not all_intervals:
-            return ()
+        if not valid_new:
+            return slices
 
-        all_intervals.sort(key=lambda x: (x[0], x[1]))
+        valid_new = sorted(set(valid_new), key=lambda x: (x[0], x[1]))
+
+        for i in range(len(valid_new) - 1):
+            if valid_new[i][1] > valid_new[i + 1][0]:
+                raise RuntimeError(
+                    "segment of data to release overlaps another segment to release: "
+                    f"[{valid_new[i][0]}, {valid_new[i][1]}) overlaps [{valid_new[i + 1][0]}, {valid_new[i + 1][1]})"
+                )
+
+        for orig_start, orig_stop in valid_new:
+            for start, stop in slices:
+                if (
+                    start <= orig_start < stop
+                    or start < orig_stop <= stop
+                    or (orig_start <= start and stop <= orig_stop)
+                ):
+                    raise RuntimeError(
+                        "segment of data to release overlaps one already marked as free: "
+                        f"releasing [{orig_start}, {orig_stop}) but [{start}, {stop}) is free"
+                    )
+
+        all_intervals = sorted((*slices, *valid_new), key=lambda x: (x[0], x[1]))
         merged = [all_intervals[0]]
         for start, stop in all_intervals[1:]:
             last_start, last_stop = merged[-1]
-            if start <= last_stop:
-                merged[-1] = (last_start, max(last_stop, stop))
+            if start == last_stop:
+                merged[-1] = (last_start, stop)
             else:
                 merged.append((start, stop))
         return tuple(merged)

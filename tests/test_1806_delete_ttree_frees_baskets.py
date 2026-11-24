@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import copy
 import os
-import shutil
 import struct
 
 import awkward as ak
 import numpy as np
-import skhep_testdata
+import pytest
 
 import uproot
 from uproot.writing._cascade import FreeSegments
@@ -24,11 +24,17 @@ def test_free_segments_merge_slices():
     assert FreeSegments._merge_slices(((10, 20),), [(20, 30)]) == ((10, 30),)
     assert FreeSegments._merge_slices(((20, 30),), [(10, 20)]) == ((10, 30),)
 
-    # Overlapping intervals merge
-    assert FreeSegments._merge_slices(((10, 25),), [(20, 35)]) == ((10, 35),)
+    # Overlapping intervals raise RuntimeError
+    with pytest.raises(RuntimeError, match="overlaps one already marked as free"):
+        FreeSegments._merge_slices(((10, 25),), [(20, 35)])
 
-    # Subsumed intervals merge
-    assert FreeSegments._merge_slices(((10, 50),), [(20, 30)]) == ((10, 50),)
+    # Subsumed intervals raise RuntimeError
+    with pytest.raises(RuntimeError, match="overlaps one already marked as free"):
+        FreeSegments._merge_slices(((10, 50),), [(20, 30)])
+
+    # Overlapping intervals in the input list raise RuntimeError
+    with pytest.raises(RuntimeError, match="overlaps another segment to release"):
+        FreeSegments._merge_slices((), [(10, 25), (20, 35)])
 
     # Disjoint intervals stay separate and sorted
     assert FreeSegments._merge_slices(((10, 20),), [(30, 40)]) == ((10, 20), (30, 40))
@@ -100,27 +106,94 @@ def test_delete_ttree_with_jagged_branches(tmp_path):
 
 
 def test_delete_older_cycle_preserves_shared_baskets(tmp_path):
-    orig_path = skhep_testdata.data_path("uproot-physlite-rntuple_v1-0-0-0.root")
-    test_path = os.path.join(tmp_path, "physlite_copy.root")
-    shutil.copyfile(orig_path, test_path)
+    filename = os.path.join(tmp_path, "multicycle.root")
+    with uproot.recreate(filename) as f:
+        t = f.mktree("t", {"x": "int32"})
+        t.extend({"x": np.arange(10, dtype=np.int32)})
 
-    # Deleting cycle 1 must not delete baskets shared with cycles 2 through 5
-    with uproot.update(test_path) as f:
-        del f["MetaData;1"]
+    with uproot.update(filename) as f:
+        orig_key = f._cascading.data.get_key("t", 1)
+        c2 = copy.copy(orig_key)
+        c2._cycle = 2
+        f._cascading.data.add_key(c2)
+        f._cascading.write(f._file.sink)
 
-    with uproot.open(test_path) as f:
-        assert "MetaData;1" not in f
-        assert "MetaData;2" in f
-        m2 = f["MetaData;2"]
-        assert m2.num_entries == 1
+    # Deleting cycle 1 must not delete baskets shared with cycle 2
+    with uproot.update(filename) as f:
+        del f["t;1"]
 
-    # Delete remaining cycles until the last cycle frees all shared baskets
-    with uproot.update(test_path) as f:
-        for c in (2, 3, 4, 5):
-            del f[f"MetaData;{c}"]
+    with uproot.open(filename) as f:
+        assert "t;1" not in f
+        assert "t;2" in f
+        assert f["t;2"]["x"].array().tolist() == list(range(10))
 
-    with uproot.open(test_path) as f:
-        assert "MetaData" not in f
+    # Deleting the last cycle frees all baskets
+    with uproot.update(filename) as f:
+        del f["t;2"]
+
+    with uproot.open(filename) as f:
+        assert "t" not in f
+
+
+def test_delete_tree_with_alias_preserves_baskets(tmp_path):
+    filename = os.path.join(tmp_path, "alias.root")
+    with uproot.recreate(filename) as f:
+        t = f.mktree("t", {"x": "int32"})
+        t.extend({"x": np.arange(10, dtype=np.int32)})
+
+    with uproot.update(filename) as f:
+        orig_key = f._cascading.data.get_key("t", 1)
+        alias_key = copy.copy(orig_key)
+        alias_key._name = uproot.writing._cascade.String(None, "alias")
+        f._cascading.data.add_key(alias_key)
+        f._cascading.write(f._file.sink)
+
+    # Deleting alias key must not corrupt or free t's baskets
+    with uproot.update(filename) as f:
+        del f["alias"]
+
+    with uproot.open(filename) as f:
+        assert "alias" not in f
+        assert "t" in f
+        assert f["t"]["x"].array().tolist() == list(range(10))
+
+    # Deleting t then frees the shared baskets
+    with uproot.update(filename) as f:
+        del f["t"]
+
+    with uproot.open(filename) as f:
+        assert "t" not in f
+
+
+def test_release_overlapping_segment_raises_error(tmp_path):
+    filename = os.path.join(tmp_path, "overlap.root")
+    with uproot.recreate(filename) as f:
+        f["h"] = (np.arange(10.0), np.arange(11.0))
+        f["k"] = (np.arange(10.0), np.arange(11.0))
+        key = f._cascading.data.get_key("h", None)
+        start = key.seek_location
+        stop = key.seek_location + key.num_bytes + key.compressed_bytes
+        del f["h"]
+        with pytest.raises(RuntimeError, match="overlaps one already marked as free"):
+            f._cascading.freesegments.release(start, stop)
+
+
+def test_delete_ntupled_frees_baskets(tmp_path):
+    filename = os.path.join(tmp_path, "ntd.root")
+    with uproot.recreate(filename) as f:
+        t = f.mktree("nt", {"x": "int32"})
+        t.extend({"x": np.arange(1000, dtype=np.int32)})
+
+    with uproot.update(filename) as f:
+        key = f._cascading.data.get_key("nt", 1)
+        key._classname = uproot.writing._cascade.String(None, "TNtupleD")
+        f._cascading.write(f._file.sink)
+
+    with uproot.update(filename) as f:
+        del f["nt"]
+        slices = f._cascading.freesegments._data.slices
+        # Both key header and basket segment must be freed
+        assert len(slices) >= 2
 
 
 def test_validate_basket_key(tmp_path):
@@ -204,9 +277,9 @@ def test_free_segments_release_many_edge_cases(tmp_path):
         fs.release_many([])
         assert fs.data.slices == orig_slices
 
-        # 2. Intervals already included in free slices returns immediately
-        fs.release_many(list(orig_slices))
-        assert fs.data.slices == orig_slices
+        # 2. Intervals already overlapping with free slices raise RuntimeError
+        with pytest.raises(RuntimeError, match="overlaps one already marked as free"):
+            fs.release_many(list(orig_slices))
 
         # 3. Release when FreeSegments is not at the end
         fs._data.end = fs.data.end + 1000

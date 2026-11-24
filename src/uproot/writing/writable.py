@@ -18,6 +18,7 @@ types. Writing and reading are considered separate projects with different capab
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import difflib
 import itertools
@@ -512,6 +513,52 @@ class WritableFile(uproot.reading.CommonFileMethods):
         )
         out.options = dict(uproot.reading.open.defaults)
         return out
+
+
+
+_KNOWN_TTREE_CLASSES = frozenset(
+    {"TTree", "TNtuple", "TNtupleD", "TTreeSQL", "THbookTree", "TChain"}
+)
+
+
+def _is_ttree_classname(classname, streamers=None):
+    if classname == "TTree" or classname in _KNOWN_TTREE_CLASSES:
+        return True
+    if not streamers:
+        return False
+    streamer_map = {}
+    for s in streamers:
+        if hasattr(s, "name") and hasattr(s, "elements"):
+            bases = [
+                el.name
+                for el in s.elements
+                if isinstance(el, uproot.streamers.Model_TStreamerBase)
+            ]
+            streamer_map[s.name] = bases
+
+    visited = set()
+    stack = [classname]
+    while stack:
+        curr = stack.pop()
+        if curr == "TTree" or curr in _KNOWN_TTREE_CLASSES:
+            return True
+        if curr in visited:
+            continue
+        visited.add(curr)
+        for base in streamer_map.get(curr, []):
+            stack.append(base)
+    return False
+
+
+def _iter_all_keys(file_obj):
+    dirs = [file_obj.root_directory]
+    while dirs:
+        d = dirs.pop()
+        for k in d._cascading.data._keys:
+            yield d, k
+        for dk in d._cascading.data.dir_keys:
+            with contextlib.suppress(Exception):
+                dirs.append(d._subdir(dk))
 
 
 def _collect_tree_basket_ranges(tree):
@@ -1689,26 +1736,44 @@ class WritableDirectory(MutableMapping):
                 file_path=self.file_path,
                 object_path=self.object_path,
             )
-        ranges_to_free = [
-            (
-                key.seek_location,
-                key.seek_location + key.num_bytes + key.compressed_bytes,
+        ranges_to_free = []
+        surviving_key_seeks = {
+            other_key.seek_location
+            for directory, other_key in _iter_all_keys(self._file)
+            if not (
+                directory.path == self._path
+                and other_key.name.string == key.name.string
+                and other_key.cycle == key.cycle
             )
-        ]
-        if key.classname.string in ("TTree", "TNtuple"):
+        }
+        if key.seek_location not in surviving_key_seeks:
+            ranges_to_free.append(
+                (
+                    key.seek_location,
+                    key.seek_location + key.num_bytes + key.compressed_bytes,
+                )
+            )
+        streamers = self._file._cascading.tlist_of_streamers
+        if _is_ttree_classname(key.classname.string, streamers):
             try:
                 tree_obj = self._file._read_key(key, self)
                 basket_ranges = _collect_tree_basket_ranges(tree_obj)
-                surviving_keys = [
-                    k
-                    for k in self._cascading.data._keys_by_name.get(key.name.string, [])
-                    if k is not key and k.classname.string in ("TTree", "TNtuple")
-                ]
                 surviving_seeks = set()
-                for sk in surviving_keys:
-                    stree = self._file._read_key(sk, self)
-                    for s_seek, _ in _collect_tree_basket_ranges(stree):
-                        surviving_seeks.add(s_seek)
+                for d, other_key in _iter_all_keys(self._file):
+                    is_same_key = (
+                        d.path == self._path
+                        and other_key.name.string == key.name.string
+                        and other_key.cycle == key.cycle
+                    )
+                    if not is_same_key and _is_ttree_classname(
+                        other_key.classname.string, streamers
+                    ):
+                        try:
+                            stree = self._file._read_key(other_key, d)
+                            for s_seek, _ in _collect_tree_basket_ranges(stree):
+                                surviving_seeks.add(s_seek)
+                        except Exception:
+                            pass
 
                 for b_start, b_stop in basket_ranges:
                     if b_start not in surviving_seeks and _validate_basket_key(
