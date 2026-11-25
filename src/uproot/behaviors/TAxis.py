@@ -63,21 +63,21 @@ class TAxis:
         if fLabels is None:
             return None
 
+        # like ROOT's TAxis::GetBinLabel, the first label with a bin's number is
+        # that bin's, and labels without a valid bin number are ignored
         out = [None] * fNbins
+        any_bin_numbers = False
         for label in fLabels:
             bin_number = label.member("@fUniqueID", none_if_missing=True)
-            if bin_number is None or not 1 <= bin_number <= fNbins:
-                break
-            out[bin_number - 1] = str(label)
-        else:
-            # every label has a bin number, so some bins may be unlabeled
-            if all(x is not None for x in out):
-                return out
-            else:
-                return None
+            if bin_number is not None and 1 <= bin_number <= fNbins:
+                any_bin_numbers = True
+                if out[bin_number - 1] is None:
+                    out[bin_number - 1] = str(label)
 
-        if len(fLabels) == fNbins:
-            # no usable bin numbers; assume the labels were set in bin order
+        if all(x is not None for x in out):
+            return out
+        elif not any_bin_numbers and len(fLabels) == fNbins:
+            # no bin numbers at all; assume the labels were set in bin order
             return [str(x) for x in fLabels]
         else:
             return None

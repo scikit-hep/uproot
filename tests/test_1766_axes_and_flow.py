@@ -127,6 +127,26 @@ def test_labels_same_bin(tmp_path, make):
 
 
 @pytest.mark.parametrize("make", [_th1, _tprofile])
+def test_labels_first_for_bin(tmp_path, make):
+    # as in ROOT's TAxis::GetBinLabel, the first label with a bin's number wins
+    h = _write_and_read(tmp_path, make(2, [(1, "a"), (2, "b"), (1, "c")], [0] * 4))
+    assert h.member("fXaxis").labels() == ["a", "b"]
+
+
+@pytest.mark.parametrize("make", [_th1, _tprofile])
+def test_labels_some_without_bin_numbers(tmp_path, make):
+    # the label without a bin number is ignored, as in ROOT, rather than all of
+    # them being taken in the order they were set
+    h = _write_and_read(
+        tmp_path, make(3, [(3, "c"), (1, "a"), (0, "x")], [0, 10, 20, 30, 0])
+    )
+    assert h.member("fXaxis").labels() is None
+    with pytest.warns(UserWarning, match="labels for only 2 of its 3 bins"):
+        out = h.to_hist()
+    assert out.values().tolist() == [10, 20, 30]
+
+
+@pytest.mark.parametrize("make", [_th1, _tprofile])
 def test_labels_without_bin_numbers(tmp_path, make):
     # one label for each bin: assume they were set in bin order
     h = _write_and_read(
