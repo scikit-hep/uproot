@@ -284,7 +284,11 @@ def to_writable(obj):
                             "1D PlottableHistogram with kind='MEAN' (i.e. 1D profile plots) "
                             "is only supported for boost-histogram and hist objects"
                         )
-                    # an object with the members of an Uproot TProfile
+                    # an object with the members of an Uproot TProfile; class
+                    # versions before 6 (ROOT < 5.26) have no fBinSumw2
+                    fBinSumw2 = obj.member("fBinSumw2", none_if_missing=True)
+                    if fBinSumw2 is None:
+                        fBinSumw2 = numpy.array([], dtype=">f8")
                     return to_TProfile(
                         fName=None,
                         fTitle=title,
@@ -298,8 +302,9 @@ def to_writable(obj):
                         fTsumwy2=obj.member("fTsumwy2"),
                         fSumw2=obj.member("fSumw2"),
                         fBinEntries=obj.member("fBinEntries"),
-                        fBinSumw2=obj.member("fBinSumw2"),
+                        fBinSumw2=fBinSumw2,
                         fXaxis=axes[0],
+                        fErrorMode=obj.member("fErrorMode"),
                     )
 
                 # kind == "MEAN" means Mean or WeightedMean storage

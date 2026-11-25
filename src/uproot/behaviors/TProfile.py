@@ -495,7 +495,7 @@ class TProfile(Profile):
             sum_of_noflow_weights = sum_of_bin_weights[1:-1]
         out.metadata = {
             "fEntries": self.member("fEntries"),
-            "fErrorMode": self.member("fErrorMode"),
+            "fErrorMode": self.member("fErrorMode", none_if_missing=True),
         }
         # ROOT's statistics are out of date if they don't go with the bins (e.g.
         # after SetBinContent or an uneven Rebin) or include the flow bins (with

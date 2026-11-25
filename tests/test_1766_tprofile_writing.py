@@ -549,3 +549,35 @@ def test_non_boost_mean_raises(tmp_path):
 
     with pytest.raises(NotImplementedError, match="boost-histogram and hist objects"):
         _write_and_read(tmp_path, MeanHistogram())
+
+
+class _ProfileLike:
+    # an object with the members of an Uproot TProfile, but not a Model
+    def __init__(self, model):
+        self._model = model
+        self._bases = model._bases
+        self.member = model.member
+        self.axes = (hist.axis.Variable(model.axes[0].edges()),)
+        self.kind = "MEAN"
+
+    def values(self, flow=False):
+        return self._model.values(flow=flow)
+
+    def variances(self, flow=False):
+        return self._model.variances(flow=flow)
+
+    def counts(self, flow=False):
+        return self._model.counts(flow=flow)
+
+
+@pytest.mark.parametrize("old_version", [False, True])
+def test_profile_like_members(tmp_path, old_version):
+    model = _write_and_read(tmp_path, _weighted_profile(10.0, fErrorMode=1), "model")
+    if old_version:
+        # class versions before 6 (ROOT < 5.26) have no fBinSumw2
+        del model._members["fBinSumw2"]
+
+    p = _write_and_read(tmp_path, _ProfileLike(model))
+    assert p.member("fErrorMode") == 1
+    assert len(p.member("fBinSumw2")) == (0 if old_version else 3)
+    assert p.values().tolist() == model.values().tolist()
