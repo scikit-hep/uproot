@@ -450,7 +450,9 @@ def warn_outside_uproot(message, category=UserWarning):
     stacklevel = 2
     while frame is not None and (
         frame.f_code.co_filename.startswith(uproot_dir)
-        # models generated from StreamerInfo, see uproot.deserialization
+        # code that Uproot compiles: models generated from StreamerInfo (see
+        # uproot.deserialization), and also expressions passed to arrays(),
+        # which have no source to point to, so their caller is used instead
         or frame.f_code.co_filename == "<dynamic>"
     ):
         frame = frame.f_back
