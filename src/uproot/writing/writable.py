@@ -1769,26 +1769,28 @@ class WritableDirectory(MutableMapping):
                 file_path=self.file_path,
                 object_path=self.object_path,
             )
+        key_range = (
+            key.seek_location,
+            key.seek_location + key.num_bytes + key.compressed_bytes,
+        )
         ranges_to_free = []
-        surviving_key_seeks = {
-            other_key.seek_location
-            for directory, other_key in _iter_all_keys(self._file)
-            if not (
-                directory.path == self._path
-                and other_key.name.string == key.name.string
-                and other_key.cycle == key.cycle
-            )
-        }
-        if key.seek_location not in surviving_key_seeks:
-            ranges_to_free.append(
-                (
-                    key.seek_location,
-                    key.seek_location + key.num_bytes + key.compressed_bytes,
-                )
-            )
         streamers = self._file._cascading.tlist_of_streamers
-        if _is_ttree_classname(key.classname.string, streamers):
+        if not _is_ttree_classname(key.classname.string, streamers):
+            ranges_to_free.append(key_range)
+        else:
             try:
+                # Another key may point at this same TTree record; only free the
+                # record if no other key does. If the scan fails, free nothing.
+                if not any(
+                    other_key.seek_location == key.seek_location
+                    and not (
+                        d.path == self._path
+                        and other_key.name.string == key.name.string
+                        and other_key.cycle == key.cycle
+                    )
+                    for d, other_key in _iter_all_keys(self._file)
+                ):
+                    ranges_to_free.append(key_range)
                 tree_obj = self._file._read_key(key, self)
                 basket_ranges = _collect_tree_basket_ranges(tree_obj)
                 if basket_ranges:
