@@ -737,35 +737,7 @@ class FreeSegments(CascadeNode):
 
     @staticmethod
     def _another_slice(slices, original_start, original_stop):
-        for start, stop in slices:
-            if start <= original_start < stop or start < original_stop <= stop:
-                raise RuntimeError(
-                    "segment of data to release overlaps one already marked as free: "
-                    f"releasing [{original_start}, {original_stop}) but [{start}, {stop}) is free"
-                )
-
-        for i in range(len(slices) - 1):
-            if slices[i][1] == original_start and original_stop == slices[i + 1][0]:
-                # These two slices need to be merged, including the newly released interval.
-                return (*slices[:i], (slices[i][0], slices[i + 1][1]), *slices[i + 2 :])
-
-        for i, (start, stop) in enumerate(slices):
-            if original_start == stop:
-                # This slice needs to grow to the right.
-                return tuple(
-                    slices[j] if i != j else (start, original_stop)
-                    for j in range(len(slices))
-                )
-
-            elif original_stop == start:
-                # This slice needs to grow to the left.
-                return tuple(
-                    slices[j] if i != j else (original_start, stop)
-                    for j in range(len(slices))
-                )
-
-        # The FreeSegments record will have to grow.
-        return tuple(sorted((*slices, (original_start, original_stop))))
+        return FreeSegments._merge_slices(slices, [(original_start, original_stop)])
 
     @staticmethod
     def _slices_bytes(slices):
