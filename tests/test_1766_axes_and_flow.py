@@ -127,6 +127,22 @@ def test_labels_same_bin(tmp_path, make):
 
 
 @pytest.mark.parametrize("make", [_th1, _tprofile])
+def test_labels_without_bin_numbers(tmp_path, make):
+    # one label for each bin: assume they were set in bin order
+    h = _write_and_read(
+        tmp_path, make(3, [(0, "a"), (0, "b"), (0, "c")], [0, 10, 20, 30, 0])
+    )
+    assert h.member("fXaxis").labels() == ["a", "b", "c"]
+
+    # fewer labels than bins: not a labeled axis
+    h = _write_and_read(tmp_path, make(3, [(0, "a"), (0, "b")], [0, 10, 20, 30, 0]))
+    assert h.member("fXaxis").labels() is None
+    with pytest.warns(UserWarning, match="labels for only 2 of its 3 bins"):
+        out = h.to_hist()
+    assert out.values().tolist() == [10, 20, 30]
+
+
+@pytest.mark.parametrize("make", [_th1, _tprofile])
 def test_labeled_underflow(tmp_path, make):
     # no warning when it's empty
     _write_and_read(tmp_path, make(3, ABC, [0, 1, 0, 0, 0])).to_hist()
