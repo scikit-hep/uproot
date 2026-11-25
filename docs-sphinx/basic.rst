@@ -1328,6 +1328,8 @@ In addition, each TBranch of the TTree can have a different compression setting:
     >>> file["tree"].compression
     {'x': None, 'ny': None, 'y': ZLIB(4)}
 
+The valid compression levels depend on the algorithm: :doc:`uproot.compression.ZLIB` and :doc:`uproot.compression.LZMA` take 0-9, :doc:`uproot.compression.LZ4` takes 0-12 and :doc:`uproot.compression.ZSTD` takes 0-22. The level is passed to the algorithm as is, which is not always what ROOT does: ROOT multiplies its ZSTD level by 2, so ROOT's ``505`` (``kUseGeneralPurpose``, ROOT's default for RNTuple) is ``uproot.ZSTD(10)``.
+
 Changes to the compression setting only affect TBaskets written after the change (with :ref:`uproot.writing.writable.WritableTree.extend`; see above).
 
 Writing RNTuples

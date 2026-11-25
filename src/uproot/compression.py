@@ -262,8 +262,8 @@ class _DecompressLZ4:
 class LZ4(Compression, _DecompressLZ4):
     """
     Args:
-        level (int, 0-9): Compression level: 0 is uncompressed, 1 is minimally
-            compressed, and 9 is maximally compressed.
+        level (int, 0-12): Compression level: 0 is uncompressed, 1 is minimally
+            compressed, and 12 is maximally compressed.
 
     Represents the LZ4 compression algorithm.
 
@@ -312,8 +312,11 @@ class _DecompressZSTD:
 class ZSTD(Compression, _DecompressZSTD):
     """
     Args:
-        level (int, 0-9): Compression level: 0 is uncompressed, 1 is minimally
-            compressed, and 9 is maximally compressed.
+        level (int, 0-22): Compression level: 0 is uncompressed, 1 is minimally
+            compressed, and 22 is maximally compressed. The level is passed to
+            Zstandard unchanged. ROOT multiplies its own ZSTD level by 2, so ROOT's
+            ``505`` (``kUseGeneralPurpose``) is Zstandard level 10 and corresponds
+            to ``ZSTD(10)``.
 
     Represents the ZSTD compression algorithm.
 
