@@ -119,4 +119,93 @@ class TProfile3D(uproot.behaviors.TProfile.Profile):
             return values[1:-1, 1:-1, 1:-1], errors[1:-1, 1:-1, 1:-1]
 
     def to_boost(self, metadata=boost_metadata, axis_metadata=boost_axis_metadata):
-        raise NotImplementedError("FIXME @henryiii: this one kinda doesn't exist")
+        boost_histogram = uproot.extras.boost_histogram()
+
+        effective_counts = self.counts(flow=True)
+        mean_values = self.values(flow=True)
+        xaxis_fNbins = self.member("fXaxis").member("fNbins")
+        yaxis_fNbins = self.member("fYaxis").member("fNbins")
+        zaxis_fNbins = self.member("fZaxis").member("fNbins")
+
+        sum_of_bin_weights = numpy.transpose(
+            numpy.asarray(self.member("fBinEntries"), dtype=numpy.float64).reshape(
+                zaxis_fNbins + 2, yaxis_fNbins + 2, xaxis_fNbins + 2
+            )
+        )
+
+        fSumw2_member = self.member("fSumw2", none_if_missing=True)
+        fNcells = self.member("fNcells")
+        if fSumw2_member is not None and len(fSumw2_member) == fNcells:
+            fSumw2 = numpy.transpose(
+                numpy.asarray(fSumw2_member, dtype=numpy.float64).reshape(
+                    zaxis_fNbins + 2, yaxis_fNbins + 2, xaxis_fNbins + 2
+                )
+            )
+            sum_sq_dev = numpy.maximum(
+                fSumw2 - sum_of_bin_weights * mean_values**2, 0.0
+            )
+        else:
+            sum_sq_dev = numpy.zeros(
+                (xaxis_fNbins + 2, yaxis_fNbins + 2, zaxis_fNbins + 2),
+                dtype=numpy.float64,
+            )
+
+        if self.weighted:
+            storage = boost_histogram.storage.WeightedMean()
+        else:
+            storage = boost_histogram.storage.Mean()
+
+        axes = [
+            uproot.behaviors.TH1._boost_axis(self.member("fXaxis"), axis_metadata),
+            uproot.behaviors.TH1._boost_axis(self.member("fYaxis"), axis_metadata),
+            uproot.behaviors.TH1._boost_axis(self.member("fZaxis"), axis_metadata),
+        ]
+        out = boost_histogram.Histogram(*axes, storage=storage)
+        for k, v in metadata.items():
+            setattr(out, k, self.member(v))
+
+        out.metadata = {
+            "fEntries": self.member("fEntries"),
+            "fTsumw": self.member("fTsumw"),
+            "fTsumw2": self.member("fTsumw2"),
+            "fTsumwx": self.member("fTsumwx"),
+            "fTsumwx2": self.member("fTsumwx2"),
+            "fTsumwy": self.member("fTsumwy"),
+            "fTsumwy2": self.member("fTsumwy2"),
+            "fTsumwxy": self.member("fTsumwxy"),
+            "fTsumwz": self.member("fTsumwz"),
+            "fTsumwz2": self.member("fTsumwz2"),
+            "fTsumwxz": self.member("fTsumwxz"),
+            "fTsumwyz": self.member("fTsumwyz"),
+            "fTsumwt": self.member("fTsumwt"),
+            "fTsumwt2": self.member("fTsumwt2"),
+            "fErrorMode": self.member("fErrorMode"),
+        }
+
+        for i, axis in enumerate(axes):
+            if not isinstance(
+                axis,
+                (boost_histogram.axis.IntCategory, boost_histogram.axis.StrCategory),
+            ):
+                continue
+            slicer = (slice(None),) * i + (slice(1, None),)
+            effective_counts = effective_counts[slicer]
+            mean_values = mean_values[slicer]
+            sum_sq_dev = sum_sq_dev[slicer]
+            sum_of_bin_weights = sum_of_bin_weights[slicer]
+
+        view = out.view(flow=True)
+
+        if self.weighted:
+            with numpy.errstate(divide="ignore", invalid="ignore"):
+                sum_of_bin_weights_squared = (sum_of_bin_weights**2) / effective_counts
+            view["sum_of_weights"] = sum_of_bin_weights
+            view["sum_of_weights_squared"] = sum_of_bin_weights_squared
+            view["value"] = mean_values
+            view["_sum_of_weighted_deltas_squared"] = sum_sq_dev
+        else:
+            view["count"] = sum_of_bin_weights
+            view["value"] = mean_values
+            view["_sum_of_deltas_squared"] = sum_sq_dev
+
+        return out
