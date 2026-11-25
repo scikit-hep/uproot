@@ -37,15 +37,50 @@ class AxisTraits:
         """
         True if bins are discrete: if they have string-valued labels.
         """
-        fNbins = self._axis.member("fNbins")
-        fLabels = self._axis.member("fLabels", none_if_missing=True)
-        return fLabels is not None and len(fLabels) == fNbins
+        return self._axis._bin_labels() is not None
 
 
 class TAxis:
     """
     Describes a histogram axis.
     """
+
+    def _bin_labels(self):
+        """
+        The string-valued labels ordered by bin, or None if not every bin is
+        labeled.
+
+        ROOT keeps the labels in the order they were set, with each label's bin
+        number in its ``fUniqueID``.
+        """
+        if not hasattr(self, "_cached_bin_labels"):
+            self._cached_bin_labels = self._compute_bin_labels()
+        return self._cached_bin_labels
+
+    def _compute_bin_labels(self):
+        fNbins = self.member("fNbins")
+        fLabels = self.member("fLabels", none_if_missing=True)
+        if fLabels is None:
+            return None
+
+        # like ROOT's TAxis::GetBinLabel, the first label with a bin's number is
+        # that bin's, and labels without a valid bin number are ignored
+        out = [None] * fNbins
+        any_bin_numbers = False
+        for label in fLabels:
+            bin_number = label.member("@fUniqueID", none_if_missing=True)
+            if bin_number is not None and 1 <= bin_number <= fNbins:
+                any_bin_numbers = True
+                if out[bin_number - 1] is None:
+                    out[bin_number - 1] = str(label)
+
+        if all(x is not None for x in out):
+            return out
+        elif not any_bin_numbers and len(fLabels) == fNbins:
+            # no bin numbers at all; assume the labels were set in bin order
+            return [str(x) for x in fLabels]
+        else:
+            return None
 
     def __len__(self):
         """
@@ -60,10 +95,10 @@ class TAxis:
         The indexing assumes that ``flow=False``.
         """
         fNbins = self.member("fNbins")
-        fLabels = self.member("fLabels", none_if_missing=True)
+        labels = self._bin_labels()
 
-        if fLabels is not None and len(fLabels) == fNbins:
-            return str(fLabels[where])
+        if labels is not None:
+            return labels[where]
 
         try:
             index = operator.index(where)
@@ -94,12 +129,10 @@ class TAxis:
         """
         Iterate over the output of ``__getitem__``.
         """
-        fNbins = self.member("fNbins")
-        fLabels = self.member("fLabels", none_if_missing=True)
+        labels = self._bin_labels()
 
-        if fLabels is not None and len(fLabels) == fNbins:
-            for x in fLabels:
-                yield str(x)
+        if labels is not None:
+            yield from labels
         else:
             yield from self.intervals()
 
@@ -124,16 +157,12 @@ class TAxis:
         if self_fNbins != other_fNbins:
             return False
 
-        self_fLabels = self.member("fLabels", none_if_missing=True)
-        other_fLabels = other.member("fLabels", none_if_missing=True)
-        self_labeled = self_fLabels is not None and len(self_fLabels) == self_fNbins
-        other_labeled = other_fLabels is not None and len(other_fLabels) == other_fNbins
+        self_labels = self._bin_labels()
+        other_labels = other._bin_labels()
 
-        if self_labeled and other_labeled:
-            return len(self_fLabels) == len(other_fLabels) and all(
-                x == y for x, y in zip(self_fLabels, other_fLabels, strict=True)
-            )
-        elif not self_labeled and not other_labeled:
+        if self_labels is not None and other_labels is not None:
+            return self_labels == other_labels
+        elif self_labels is None and other_labels is None:
             return numpy.array_equal(self.edges(), other.edges())
         else:
             return False
@@ -193,15 +222,13 @@ class TAxis:
 
         Setting ``flow=True`` increases the length of the output by two.
         """
-        fNbins = self.member("fNbins")
-        fLabels = self.member("fLabels", none_if_missing=True)
+        out = self._bin_labels()
 
-        if fLabels is not None and len(fLabels) == fNbins:
-            out = [str(x) for x in fLabels]
+        if out is not None:
             if flow:
                 return ["underflow", *out, "overflow"]
             else:
-                return out
+                return list(out)  # a copy, so that callers can't modify the cache
         else:
             return None
 

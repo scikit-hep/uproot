@@ -33,17 +33,12 @@ class TProfile2D(uproot.behaviors.TProfile.Profile):
         else:
             raise ValueError("axis must be 0 (-2), 1 (-1) or 'x', 'y' for a TProfile2D")
 
-    @property
-    def weighted(self):
-        fBinSumw2 = self.member("fBinSumw2", none_if_missing=True)
-        return fBinSumw2 is not None and len(fBinSumw2) == self.member("fNcells")
-
     def counts(self, flow=False):
         xaxis_fNbins = self.member("fXaxis").member("fNbins")
         yaxis_fNbins = self.member("fYaxis").member("fNbins")
         out = uproot.behaviors.TProfile._effective_counts_1d(
             numpy.asarray(self.member("fBinEntries")).reshape(-1),
-            numpy.asarray(self.member("fBinSumw2")).reshape(-1),
+            self._fBinSumw2().reshape(-1),
             self.member("fNcells"),
         )
         out = numpy.transpose(out.reshape(yaxis_fNbins + 2, xaxis_fNbins + 2))
@@ -89,7 +84,7 @@ class TProfile2D(uproot.behaviors.TProfile.Profile):
                 root_cont.reshape(-1),
                 fSumw2,
                 self.member("fNcells"),
-                numpy.asarray(self.member("fBinSumw2")).reshape(-1),
+                self._fBinSumw2().reshape(-1),
             )
             xaxis_fNbins = self.member("fXaxis").member("fNbins")
             yaxis_fNbins = self.member("fYaxis").member("fNbins")

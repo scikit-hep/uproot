@@ -21,13 +21,25 @@ def _boost_axis(axis, metadata):
     fNbins = axis.member("fNbins")
     fXbins = axis.member("fXbins", none_if_missing=True)
 
+    labels = axis._bin_labels()
     fLabels = axis.member("fLabels", none_if_missing=True)
-    if fLabels is not None:
+    if labels is None and fLabels is not None and len(fLabels) > 0:
+        # e.g. ROOT extends a labeled axis by doubling its bins when it's filled
+        # with a new label, leaving the added bins unlabeled
+        # bins labeled by bin number (more than one label can have the same one)
+        bin_numbers = {x.member("@fUniqueID", none_if_missing=True) for x in fLabels}
+        num_labeled = len(bin_numbers & set(range(1, fNbins + 1))) or len(fLabels)
+        uproot._util.warn_outside_uproot(
+            f"axis {axis.member('fName')!r} has labels for only {num_labeled} "
+            f"of its {fNbins} bins, so it is converted to a numerical axis and "
+            "its labels are dropped",
+        )
+
+    if labels is not None:
         try:
-            labels = [int(x) for x in fLabels]
+            labels = [int(x) for x in labels]
             category_cls = boost_histogram.axis.IntCategory
         except ValueError:
-            labels = [str(x) for x in fLabels]
             category_cls = boost_histogram.axis.StrCategory
         out = category_cls(labels)
 
@@ -46,6 +58,17 @@ def _boost_axis(axis, metadata):
     for k, v in metadata.items():
         setattr(out, k, axis.member(v))
     return out
+
+
+def _warn_category_underflow(axis, nonempty):
+    # ROOT fills a labeled axis's underflow bin only from numerical fills (unknown
+    # labels go to overflow), but boost-histogram categories have no underflow
+    if nonempty:
+        uproot._util.warn_outside_uproot(
+            f"the underflow bin of labeled axis {axis.member('fName')!r} is not "
+            "empty, but boost-histogram category axes have no underflow bin, so "
+            "its contents are dropped",
+        )
 
 
 class Histogram:
@@ -78,8 +101,11 @@ class Histogram:
             return False
         self_values, self_variances = self._values_variances(True)
         other_values, other_variances = other._values_variances(True)
-        values_equal = numpy.array_equal(self_values, other_values)
-        variances_equal = numpy.array_equal(self_variances, other_variances)
+        # bins can legitimately be NaN (e.g. profile errors with negative weights)
+        values_equal = numpy.array_equal(self_values, other_values, equal_nan=True)
+        variances_equal = numpy.array_equal(
+            self_variances, other_variances, equal_nan=True
+        )
         return values_equal and variances_equal
 
     @property
@@ -234,6 +260,12 @@ class Histogram:
                 (boost_histogram.axis.IntCategory, boost_histogram.axis.StrCategory),
             ):
                 continue
+            underflow = (slice(None),) * i + (0,)
+            _warn_category_underflow(
+                self.axes[i],
+                numpy.any(values[underflow] != 0)
+                or (sumw2 is not None and numpy.any(sumw2[underflow] != 0)),
+            )
             slicer = (slice(None),) * i + (slice(1, None),)
             values = values[slicer]
             if sumw2 is not None:

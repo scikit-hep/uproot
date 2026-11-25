@@ -190,15 +190,16 @@ def test_tprofile_strcategory(tmp_path):
     with uproot.open(filepath) as f:
         h_read = f["h"].to_hist()
 
-        # h_read will have WeightedMean storage (as all TProfiles do)
+        # unweighted profiles are read back with Mean storage
+        assert h_read.storage_type is hist.storage.Mean
         uproot_mean_A = h_read["A"].value
         uproot_mean_B = h_read["B"].value
-        # boost-histogram WeightedMean storage variances() returns s^2 / n (SEM squared)
+        # boost-histogram Mean storage variances() returns s^2 / n (SEM squared)
         uproot_variance_A = h_read.variances()[0]
         uproot_variance_B = h_read.variances()[1]
 
-    assert np.isclose(expected_count_A, h_read["A"].sum_of_weights)
-    assert np.isclose(expected_count_B, h_read["B"].sum_of_weights)
+    assert np.isclose(expected_count_A, h_read["A"].count)
+    assert np.isclose(expected_count_B, h_read["B"].count)
     assert np.isclose(expected_mean_A, uproot_mean_A)
     assert np.isclose(expected_mean_B, uproot_mean_B)
     assert np.isclose(expected_variance_A / expected_count_A, uproot_variance_A)
