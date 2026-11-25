@@ -76,6 +76,9 @@ def _values_1d(fBinEntries, root_cont):
 
 
 def _error_mode_str(error_mode):
+    if isinstance(error_mode, str):
+        # like ROOT's error options, case-insensitive
+        error_mode = error_mode.lower()
     if error_mode is None or error_mode == _kERRORMEAN or error_mode == "":
         return ""
     elif error_mode == _kERRORSPREAD or error_mode == "s":
@@ -89,6 +92,9 @@ def _error_mode_str(error_mode):
 
 
 def _error_mode_int(error_mode):
+    if isinstance(error_mode, str):
+        # like ROOT's error options, case-insensitive
+        error_mode = error_mode.lower()
     if error_mode is None or error_mode == _kERRORMEAN or error_mode == "":
         return _kERRORMEAN
     elif error_mode == _kERRORSPREAD or error_mode == "s":
