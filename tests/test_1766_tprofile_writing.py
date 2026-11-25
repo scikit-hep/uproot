@@ -398,6 +398,61 @@ def test_weighted_empty_bins_pyroot(tmp_path):
     assert r.GetBinEffectiveEntries(2) == pytest.approx(4.0 / 2.5)
 
 
+@pytest.mark.parametrize(
+    ("storage", "weights"), [("WeightedMean", [1.0, -1.0, 1.0]), ("Mean", [0.0, 1.0])]
+)
+def test_undefined_mean_after_zero_sum(tmp_path, storage, weights):
+    # boost-histogram's mean stays NaN after a bin's weights have summed to zero
+    h = hist.Hist(hist.axis.Regular(2, 0, 2), storage=getattr(hist.storage, storage)())
+    h.fill([0.5] * len(weights), sample=[1.0, 3.0, 2.0][: len(weights)], weight=weights)
+    h.fill([1.5], sample=[2.0])
+    assert np.isnan(h.view()["value"][0])
+
+    with pytest.warns(UserWarning, match="undefined") as record:
+        p = _write_and_read(tmp_path, h)
+    assert record[0].filename == __file__
+    # written as empty, not as NaN
+    assert p.values(flow=True).tolist() == [0, 0, 2, 0]
+    assert np.asarray(p.member("fBinEntries")).tolist() == [0, 0, 1, 0]
+    assert np.isfinite(p.member("fSumw2")).all()
+    assert p.member("fTsumwy") == 2
+    assert p.member("fTsumwy2") == 4
+
+
+def _unweighted_profile(entries, rel):
+    # entries fills of y = 2.3 in one bin, with ROOT's sum of y^2 off by rel
+    return to_TProfile(
+        fName="p",
+        fTitle="",
+        data=np.array([0.0, 2.3 * entries, 0.0], np.float64),
+        fEntries=entries,
+        fTsumw=entries,
+        fTsumw2=entries,
+        fTsumwx=0.5 * entries,
+        fTsumwx2=0.25 * entries,
+        fTsumwy=2.3 * entries,
+        fTsumwy2=2.3**2 * entries,
+        fSumw2=np.array([0.0, 2.3**2 * entries * (1 + rel), 0.0], np.float64),
+        fBinEntries=np.array([0.0, entries, 0.0], np.float64),
+        fBinSumw2=np.array([], np.float64),
+        fXaxis=to_TAxis(fName="xaxis", fTitle="", fNbins=1, fXmin=0, fXmax=1),
+    )
+
+
+def test_round_off_grows_with_entries(tmp_path):
+    # with 10**7 fills, ROOT's sum of y^2 can be off by more than 1e-10
+    p = _write_and_read(tmp_path, _unweighted_profile(1e7, -5e-10))
+    h = p.to_hist()
+    assert h.view()["_sum_of_deltas_squared"][0] == 0
+    assert h.variances()[0] == 0
+
+    # but not with 10 fills
+    p = _write_and_read(tmp_path, _unweighted_profile(10.0, -5e-10), "few")
+    with pytest.warns(UserWarning, match="from bins set with SetBinContent"):
+        h = p.to_hist()
+    assert h.view()["_sum_of_deltas_squared"][0] < 0
+
+
 def test_zero_sum_of_weights(tmp_path):
     # boost-histogram's mean is undefined in a bin whose weights sum to zero
     h = hist.Hist(hist.axis.Regular(2, 0, 2), storage=hist.storage.WeightedMean())

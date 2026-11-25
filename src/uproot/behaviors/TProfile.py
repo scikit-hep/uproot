@@ -450,9 +450,14 @@ class TProfile(Profile):
             fSumw2 = numpy.array([], dtype=numpy.float64)
         if len(fSumw2) == fNcells:
             # This can be legitimately negative with negative weights (ROOT takes
-            # its absolute value when computing errors), so only clamp round-off.
+            # its absolute value when computing errors), so only clamp round-off,
+            # which grows with the number of fills that ROOT summed into fSumw2
+            # (estimated by the effective number of entries).
             sum_sq_dev = fSumw2 - sum_of_bin_weights * mean_values**2
-            sum_sq_dev[(sum_sq_dev < 0) & (-sum_sq_dev <= 1e-10 * abs(fSumw2))] = 0.0
+            tolerance = numpy.maximum(
+                1e-10, 4 * numpy.finfo(numpy.float64).eps * self.counts(flow=True)
+            )
+            sum_sq_dev[(sum_sq_dev < 0) & (-sum_sq_dev <= tolerance * abs(fSumw2))] = 0
         else:
             sum_sq_dev = numpy.zeros(len(raw_values), dtype=numpy.float64)
 
@@ -481,11 +486,16 @@ class TProfile(Profile):
 
         if numpy.any(sum_sq_dev < 0):
             # kept as they are, so that writing back to ROOT gives the same sums
+            cause = (
+                "negative weights, or bins set with SetBinContent or SetBinEntries"
+                if self.weighted
+                else "bins set with SetBinContent or SetBinEntries"
+            )
             uproot._util.warn_outside_uproot(
-                "some bins have a negative sum of squared deviations (possible "
-                "with negative weights), so boost-histogram's variances() are "
-                "negative or NaN in those bins; ROOT's errors (and this "
-                "profile's errors()) use its absolute value",
+                f"some bins have a negative sum of squared deviations (from {cause} "
+                "in ROOT), so boost-histogram's variances() are negative or NaN in "
+                "those bins; ROOT's errors (and this profile's errors()) use its "
+                "absolute value",
             )
 
         # boost-histogram does not track the number of fills (ROOT's fEntries),

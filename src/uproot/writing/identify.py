@@ -343,8 +343,26 @@ def to_writable(obj):
                         "sums of weighted values, which ROOT would keep; they are "
                         "written as zero",
                     )
+                # It stays undefined after more fills, even when the sum of
+                # weights is nonzero again, so those bins' contents are lost;
+                # write them as empty.
+                lost = (_sumw != 0) & ~(
+                    numpy.isfinite(_value) & numpy.isfinite(_sum_sq_dev)
+                )
+                if numpy.any(lost):
+                    uproot._util.warn_outside_uproot(
+                        "some bins have an undefined (NaN) mean although their "
+                        "weights don't sum to zero, because boost-histogram's mean "
+                        "stays undefined after a bin's weights have summed to zero; "
+                        "their contents are lost, so they are written as empty",
+                    )
+                    _sumw = numpy.where(lost, 0.0, _sumw)
+                    if _sumw2 is not None:
+                        _sumw2 = numpy.where(lost, 0.0, _sumw2)
                 _value = numpy.where(_sumw != 0, _value, 0.0)
-                _sum_sq_dev = numpy.where(numpy.isfinite(_sum_sq_dev), _sum_sq_dev, 0.0)
+                _sum_sq_dev = numpy.where(
+                    numpy.isfinite(_sum_sq_dev) & ~lost, _sum_sq_dev, 0.0
+                )
 
                 # ROOT TProfile convention: fSumw2 = sum(w*y^2) = sum_sq_dev + sum(w)*mean^2
                 fSumw2 = _sum_sq_dev + _sumw * _value**2
