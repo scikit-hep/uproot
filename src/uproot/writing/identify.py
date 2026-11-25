@@ -18,7 +18,6 @@ objects from Python builtins and other writable models.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 
 import awkward
@@ -371,17 +370,14 @@ def to_writable(obj):
                 if "metadata" in obj.__dir__() and isinstance(obj.metadata, Mapping):
                     metadata = obj.metadata
 
-                    # to_hist records the sums of weights of the bins that its
-                    # statistics go with; if the bins have changed since (filled,
-                    # added, ...), the statistics are stale. (These are exact:
-                    # math.fsum doesn't depend on the order of summation.)
-                    # Statistics without these sums were set explicitly.
-                    def unchanged(key, sumw):
-                        return key not in metadata or metadata[key] == math.fsum(sumw)
-
-                    if "fEntries" in metadata and unchanged("fEntries_sumw", _sumw):
-                        fEntries = metadata["fEntries"]
-                    if unchanged("fTsumw_sumw", _fBinEntries[1:-1]):
+                    # to_hist records a fingerprint of the bins that its statistics
+                    # go with; if the bins have changed since (filled, added,
+                    # reordered, ...), the statistics are stale. Statistics without
+                    # a fingerprint were set explicitly.
+                    if "bins_fingerprint" not in metadata or metadata[
+                        "bins_fingerprint"
+                    ] == uproot.behaviors.TProfile._bins_fingerprint(obj):
+                        fEntries = metadata.get("fEntries", fEntries)
                         # ROOT's, which can differ from the bins' sum by round-off
                         fTsumw = metadata.get("fTsumw", fTsumw)
                         fTsumw2 = metadata.get("fTsumw2", fTsumw2)

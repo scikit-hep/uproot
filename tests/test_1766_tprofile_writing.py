@@ -464,13 +464,34 @@ def _modified(change):
         (_modified(lambda h: h + h), 7, 6.5),
         (_modified(lambda h: h.fill([0.5], sample=[3.0], weight=[1.0])), 4.5, 3.75),
         (_modified(lambda h: h.fill([0.5], sample=[3.0], weight=[1e-9])), 3.5, 3.25),
+        # the total weight is the same, but not the bins' (3 and 0.5)
+        (
+            _modified(lambda h: h.fill([0.5, 1.5], sample=[3.0, 3.0], weight=[1, -1])),
+            3.5,
+            2.25,
+        ),
     ],
-    ids=["unchanged", "copy", "added", "filled", "filled-small-weight"],
+    ids=["unchanged", "copy", "added", "filled", "filled-small-weight", "cancelling"],
 )
 def test_stale_statistics(tmp_path, make, fEntries, fTsumwx):
     p = _write_and_read(tmp_path, make(tmp_path), "roundtrip")
     assert p.member("fEntries") == pytest.approx(fEntries)
     assert p.member("fTsumwx") == pytest.approx(fTsumwx)
+
+
+def test_stale_statistics_reordered(tmp_path):
+    h = hist.Hist(hist.axis.StrCategory(["a", "b", "c"]), storage=hist.storage.Mean())
+    h.fill(["a", "a", "c"], sample=[1.0, 2.0, 3.0])
+    h = _write_and_read(tmp_path, h).to_hist()
+    assert "fTsumwx" in h.metadata
+
+    # the same bins in a different order: c = 1, b = 0, a = 2
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", "List indexing selection is experimental")
+        reordered = h[["c", "b", "a"]]
+    p = _write_and_read(tmp_path, reordered, "reordered")
+    assert p.member("fTsumwx") == 1 * 0.5 + 2 * 2.5
+    assert p.member("fTsumwx2") == 1 * 0.5**2 + 2 * 2.5**2
 
 
 def test_unweighted_fEntries(tmp_path):

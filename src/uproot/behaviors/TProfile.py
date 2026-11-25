@@ -6,6 +6,7 @@ This module defines the behavior of ``TProfile``.
 
 from __future__ import annotations
 
+import hashlib
 import math
 
 import numpy
@@ -17,6 +18,30 @@ _kERRORMEAN = 0
 _kERRORSPREAD = 1
 _kERRORSPREADI = 2
 _kERRORSPREADG = 3
+
+
+def _bins_fingerprint(hist):
+    """
+    A hash of what ROOT's global statistics (fEntries, fTsumw, fTsumw2,
+    fTsumwx, fTsumwx2) depend on in a boost-histogram profile: each bin's sum of
+    weights (and of squared weights) and where the bin is. ``to_boost`` records
+    it with those statistics, and the writer compares it to check that the
+    statistics still go with the bins.
+    """
+    view = hist.view(flow=True)
+    fields = (
+        ("sum_of_weights", "sum_of_weights_squared")
+        if "sum_of_weights" in view.dtype.names
+        else ("count",)
+    )
+    digest = hashlib.sha256()
+    for field in fields:
+        digest.update(numpy.ascontiguousarray(view[field], numpy.float64).tobytes())
+    for axis in hist.axes:
+        digest.update(numpy.ascontiguousarray(axis.edges, numpy.float64).tobytes())
+        if axis.traits.discrete:
+            digest.update(repr([axis.value(i) for i in range(len(axis))]).encode())
+    return digest.hexdigest()
 
 
 # closely follows the ROOT function, using the same names (with 'root_' prepended)
@@ -459,10 +484,9 @@ class TProfile(Profile):
         # values (it only knows bin centers) and of squared weights (which ROOT
         # can have without fBinSumw2, after merging with a weighted profile), so
         # keep them in the metadata for writing back to ROOT. These are only
-        # valid for these bin contents, so the metadata also has the sums of
-        # weights of the bins that they go with ("*_sumw"), which the writer
-        # compares exactly to check that the bins haven't changed (math.fsum's
-        # result doesn't depend on the order of summation).
+        # valid for these bins, so the metadata also has a fingerprint of the
+        # bins (see _bins_fingerprint), which the writer compares to check that
+        # they haven't changed.
         fXaxis = self.member("fXaxis")
         if fXaxis.traits.discrete:
             # the underflow was dropped above
@@ -471,7 +495,6 @@ class TProfile(Profile):
             sum_of_noflow_weights = sum_of_bin_weights[1:-1]
         out.metadata = {
             "fEntries": self.member("fEntries"),
-            "fEntries_sumw": math.fsum(sum_of_bin_weights),
             "fErrorMode": self.member("fErrorMode"),
         }
         # ROOT's statistics are out of date if they don't go with the bins (e.g.
@@ -481,7 +504,6 @@ class TProfile(Profile):
         fTsumw = self.member("fTsumw")
         sumw = math.fsum(sum_of_noflow_weights)
         if abs(fTsumw - sumw) <= 1e-9 * math.fsum(numpy.abs(sum_of_noflow_weights)):
-            out.metadata["fTsumw_sumw"] = sumw
             out.metadata["fTsumw"] = fTsumw
             out.metadata["fTsumw2"] = self.member("fTsumw2")
             # The x sums are in the axis's coordinates, which a labeled axis keeps
@@ -509,4 +531,5 @@ class TProfile(Profile):
             view["value"] = mean_values
             view["_sum_of_deltas_squared"] = sum_sq_dev
 
+        out.metadata["bins_fingerprint"] = _bins_fingerprint(out)
         return out
