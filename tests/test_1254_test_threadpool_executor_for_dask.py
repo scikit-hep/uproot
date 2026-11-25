@@ -1,3 +1,5 @@
+import os
+
 import pytest
 import skhep_testdata
 
@@ -7,7 +9,10 @@ pytest.importorskip("dask")
 pytest.importorskip("dask_awkward")
 
 
-def test_decompression_threadpool_executor_for_dask():
+@pytest.mark.parametrize(
+    ("max_workers", "expected_workers"), [(None, os.cpu_count()), (1, 1)]
+)
+def test_decompression_threadpool_executor_for_dask(max_workers, expected_workers):
 
     class TestThreadPoolExecutor(uproot.source.futures.ThreadPoolExecutor):
         def __init__(self, max_workers=None):
@@ -18,28 +23,18 @@ def test_decompression_threadpool_executor_for_dask():
             self.submit_count += 1
             super().submit(task, *args, **kwargs)
 
-    implicitexecutor = TestThreadPoolExecutor(max_workers=None)
+    executor = TestThreadPoolExecutor(max_workers=max_workers)
 
     a = uproot.dask(
         {skhep_testdata.data_path("uproot-sample-6.20.04-uncompressed.root"): "sample"},
-        decompression_executor=implicitexecutor,
+        decompression_executor=executor,
     )
 
-    a["i4"].compute()
+    assert a["i4"].compute(scheduler="synchronous").tolist() == list(range(-15, 15))
 
-    assert implicitexecutor.max_workers > 0
+    assert executor.max_workers == expected_workers
 
-    assert implicitexecutor.submit_count > 0
+    # once per TBasket of the only TBranch read
+    assert executor.submit_count == 5
 
-    explicitexecutor = TestThreadPoolExecutor(max_workers=1)
-
-    b = uproot.dask(
-        {skhep_testdata.data_path("uproot-sample-6.20.04-uncompressed.root"): "sample"},
-        decompression_executor=explicitexecutor,
-    )
-
-    b["i4"].compute()
-
-    assert explicitexecutor.max_workers == 1
-
-    assert explicitexecutor.submit_count > 0
+    executor.shutdown()

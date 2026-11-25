@@ -1,8 +1,6 @@
-import math
 import pytest
 import awkward as ak
 import skhep_testdata
-import os
 
 dask = pytest.importorskip("dask")
 da = pytest.importorskip("dask.array")
@@ -13,77 +11,69 @@ from distributed import Client
 import uproot
 
 
+def _assert_parts(directory, prefix, arr, partitions=2):
+    """The parts are ``arr`` split evenly, in order, with nothing else in ``directory``."""
+    expected_paths = {f"{prefix}-part{i}.root" for i in range(partitions)}
+    assert {path.name for path in directory.iterdir()} == expected_paths
+
+    stop = 0
+    for part in range(partitions):
+        start, stop = stop, stop + len(arr) // partitions + (
+            part < len(arr) % partitions
+        )
+        with uproot.open(directory / f"{prefix}-part{part}.root") as file:
+            written = file["tree"].arrays(arr.fields)
+        assert ak.array_equal(
+            written, arr[start:stop], dtype_exact=False, check_parameters=False
+        )
+
+
 def test_simple(tmp_path):
-    partitions = 2
     arr = ak.Array([{"a": [1, 2, 3]}, {"a": [4, 5]}])
-    dask_arr = dask_awkward.from_awkward(arr, npartitions=partitions)
+    dask_arr = dask_awkward.from_awkward(arr, npartitions=2)
     uproot.dask_write(dask_arr, tmp_path, prefix="data")
-    with uproot.open(os.path.join(tmp_path, "data-part0.root")) as file_1:
-        assert len(file_1["tree"]["a"].arrays()) == math.ceil(len(arr) / partitions)
-        assert ak.all(file_1["tree"]["a"].arrays()["a"][0] == arr[0]["a"])
-    with uproot.open(os.path.join(tmp_path, "data-part1.root")) as file_2:
-        assert len(file_2["tree"]["a"].arrays()) == int(len(arr) / partitions)
-        assert ak.all(file_2["tree"]["a"].arrays()["a"][0] == arr[1]["a"])
+    _assert_parts(tmp_path, "data", arr)
 
 
 def test_HZZ(tmp_path):
     """
-    Write data from HZZ with 3 partitions.
+    Write data from HZZ with 2 partitions.
     """
-    partitions = 2
     with uproot.open(skhep_testdata.data_path("uproot-HZZ.root")) as f:
         arr = f["events"].arrays()
-    dask_arr = dask_awkward.from_awkward(ak.from_iter(arr), partitions)
+    dask_arr = dask_awkward.from_awkward(ak.from_iter(arr), 2)
     uproot.dask_write(dask_arr, tmp_path, prefix="data")
-    with uproot.open(os.path.join(tmp_path, "data-part0.root")) as file_1:
-        assert len(file_1["tree"]["Jet_Px"].arrays()) == math.ceil(
-            len(arr) / partitions
-        )
-        assert ak.all(file_1["tree"]["Jet_Px"].arrays()["Jet_Px"][0] == arr["Jet_Px"])
-    with uproot.open(os.path.join(tmp_path, "data-part1.root")) as file_2:
-        assert len(file_2["tree"]["Jet_Px"].arrays()) == int(len(arr) / partitions)
-        assert ak.all(file_2["tree"]["Jet_Px"].arrays()["Jet_Px"][0] == arr["Jet_Px"])
+    _assert_parts(tmp_path, "data", arr)
 
 
 def test_graph(tmp_path):
     """
     Test compute parameter (want to return highlevelgraph)
     """
-    partitions = 2
     arr = ak.Array([{"a": [1, 2, 3]}, {"a": [4, 5]}])
-    dask_arr = dask_awkward.from_awkward(arr, npartitions=partitions)
+    dask_arr = dask_awkward.from_awkward(arr, npartitions=2)
     graph = uproot.dask_write(
         dask_arr,
         str(tmp_path),
         prefix="compute",
         compute=False,
     )
+    assert list(tmp_path.iterdir()) == []
     graph.compute()
-    with uproot.open(os.path.join(tmp_path, "compute-part0.root")) as file_1:
-        assert len(file_1["tree"]["a"].arrays()) == math.ceil(len(arr) / partitions)
-        assert ak.all(file_1["tree"]["a"].arrays()["a"][0] == arr[0]["a"])
-    with uproot.open(os.path.join(tmp_path, "compute-part1.root")) as file_2:
-        assert len(file_2["tree"]["a"].arrays()) == int(len(arr) / partitions)
-        assert ak.all(file_2["tree"]["a"].arrays()["a"][0] == arr[1]["a"])
+    _assert_parts(tmp_path, "compute", arr)
 
 
 @pytest.mark.distributed
 def test_compute(tmp_path):
-    partitions = 2
     with uproot.open(skhep_testdata.data_path("uproot-HZZ.root")) as f:
-        arr = f["events"].arrays()
-    dask_arr = dask_awkward.from_awkward(ak.from_iter(arr), partitions)
-    with Client(dashboard_address=":0"):
+        arr = f["events"].arrays(["Jet_Px", "MET_px"], entry_stop=101)
+    dask_arr = dask_awkward.from_awkward(ak.from_iter(arr), 2)
+    # no worker process: its startup and shutdown time out on a busy machine
+    with Client(
+        n_workers=1, threads_per_worker=1, processes=False, dashboard_address=":0"
+    ):
         graph = uproot.dask_write(
             dask_arr, str(tmp_path), prefix="distribute", compute=False
         )
         dask.compute(graph)
-    dask_arr = dask_awkward.from_awkward(ak.from_iter(arr), partitions)
-    with uproot.open(os.path.join(tmp_path, "distribute-part0.root")) as file_1:
-        assert len(file_1["tree"]["Jet_Px"].arrays()) == math.ceil(
-            len(arr) / partitions
-        )
-        assert ak.all(file_1["tree"]["Jet_Px"].arrays()["Jet_Px"][0] == arr["Jet_Px"])
-    with uproot.open(os.path.join(tmp_path, "distribute-part1.root")) as file_2:
-        assert len(file_2["tree"]["Jet_Px"].arrays()) == int(len(arr) / partitions)
-        assert ak.all(file_2["tree"]["Jet_Px"].arrays()["Jet_Px"][0] == arr["Jet_Px"])
+    _assert_parts(tmp_path, "distribute", arr)

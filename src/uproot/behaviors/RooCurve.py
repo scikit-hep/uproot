@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines the behaviors of ``RooCurve``.
@@ -35,6 +35,8 @@ def _parse_errs(xvalues, errs):
 
 
 def _centers(edges):
+    # Lists and tuples would be concatenated, not added
+    edges = numpy.asarray(edges, dtype=numpy.float64)
     return (edges[1:] + edges[:-1]) / 2
 
 
@@ -132,10 +134,11 @@ class RooCurve(uproot.behaviors.TGraph.TGraph):
         """
         if self.curve_type != "VALUES":
             raise ValueError(
-                "to_boost should be called on the value curve. The error curve is passed using the"
+                "to_boost should be called on the value curve. The error curve is passed using the "
                 "error_curve parameter."
             )
         boost_histogram = uproot.extras.boost_histogram()
+        bin_edges = numpy.asarray(bin_edges, dtype=numpy.float64)
         axis = boost_histogram.axis.Variable(bin_edges, underflow=False, overflow=False)
         axis.name = self.name
         axis.title = self.title

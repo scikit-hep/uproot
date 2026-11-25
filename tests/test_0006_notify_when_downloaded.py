@@ -1,206 +1,108 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
-import os
 import queue
+import shutil
+
 import pytest
+import skhep_testdata
 
 import uproot
 
+CONTENT = b"******    ...+++++++!!!!!@@@@@"
+RANGES = [(0, 6), (6, 10), (10, 13), (13, 20), (20, 25), (25, 30)]
+REMOTE_RANGES = [(0, 100), (50, 55), (200, 400)]
 
-def test_file(tmpdir):
-    filename = os.path.join(str(tmpdir), "tmp.raw")
-    with open(filename, "wb") as tmp:
-        tmp.write(b"******    ...+++++++!!!!!@@@@@")
 
+def check_notifications(source, ranges, content):
+    """
+    Every chunk is put on the queue exactly once, with the bytes it should have.
+    """
     notifications = queue.Queue()
+    chunks = source.chunks(ranges, notifications=notifications)
+    assert [(chunk.start, chunk.stop) for chunk in chunks] == ranges
+
+    expected = {(chunk.start, chunk.stop): chunk for chunk in chunks}
+    while len(expected) > 0:
+        chunk = notifications.get(timeout=60)
+        assert expected.pop((chunk.start, chunk.stop)) is chunk
+        assert chunk.raw_data.tobytes() == content[chunk.start : chunk.stop]
+    assert notifications.empty()
+
+
+@pytest.fixture
+def raw_file(tmp_path):
+    filename = tmp_path / "tmp.raw"
+    filename.write_bytes(CONTENT)
+    return filename
+
+
+@pytest.fixture(scope="module")
+def issue121_content():
+    with open(skhep_testdata.data_path("uproot-issue121.root"), "rb") as file:
+        return file.read()
+
+
+@pytest.fixture(scope="module")
+def xrootd_file(xrootd_server):
+    url, directory = xrootd_server
+    shutil.copy(skhep_testdata.data_path("uproot-issue121.root"), directory)
+    return f"{url}/uproot-issue121.root"
+
+
+@pytest.mark.parametrize("num_workers", [1, 5])
+def test_file(raw_file, num_workers):
     with uproot.source.file.MultithreadedFileSource(
-        filename, num_workers=1, use_threads=True
+        raw_file, num_workers=num_workers, use_threads=True
     ) as source:
-        chunks = source.chunks(
-            [(0, 6), (6, 10), (10, 13), (13, 20), (20, 25), (25, 30)],
-            notifications=notifications,
-        )
-        expected = {(chunk.start, chunk.stop): chunk for chunk in chunks}
-        while len(expected) > 0:
-            chunk = notifications.get()
-            expected.pop((chunk.start, chunk.stop))
+        check_notifications(source, RANGES, CONTENT)
 
 
-def test_file_workers(tmpdir):
-    filename = os.path.join(str(tmpdir), "tmp.raw")
-    with open(filename, "wb") as tmp:
-        tmp.write(b"******    ...+++++++!!!!!@@@@@")
-
-    notifications = queue.Queue()
-    with uproot.source.file.MultithreadedFileSource(
-        filename, num_workers=5, use_threads=True
-    ) as source:
-        chunks = source.chunks(
-            [(0, 6), (6, 10), (10, 13), (13, 20), (20, 25), (25, 30)],
-            notifications=notifications,
-        )
-        expected = {(chunk.start, chunk.stop): chunk for chunk in chunks}
-        while len(expected) > 0:
-            chunk = notifications.get()
-            expected.pop((chunk.start, chunk.stop))
-
-
-def test_memmap(tmpdir):
-    filename = os.path.join(str(tmpdir), "tmp.raw")
-    with open(filename, "wb") as tmp:
-        tmp.write(b"******    ...+++++++!!!!!@@@@@")
-
-    notifications = queue.Queue()
+def test_memmap(raw_file):
     with uproot.source.file.MemmapSource(
-        filename, num_fallback_workers=1, use_threads=True
+        raw_file, num_fallback_workers=1, use_threads=True
     ) as source:
-        chunks = source.chunks(
-            [(0, 6), (6, 10), (10, 13), (13, 20), (20, 25), (25, 30)],
-            notifications=notifications,
-        )
-        expected = {(chunk.start, chunk.stop): chunk for chunk in chunks}
-        while len(expected) > 0:
-            chunk = notifications.get()
-            expected.pop((chunk.start, chunk.stop))
+        check_notifications(source, RANGES, CONTENT)
 
 
-def test_http_multipart(http_server):
-    url = f"{http_server}/uproot-issue121.root"
-    notifications = queue.Queue()
-    with uproot.source.http.HTTPSource(
-        url, timeout=10, num_fallback_workers=1, use_threads=True
-    ) as source:
-        chunks = source.chunks(
-            [(0, 100), (50, 55), (200, 400)], notifications=notifications
-        )
-        expected = {(chunk.start, chunk.stop): chunk for chunk in chunks}
-        while len(expected) > 0:
-            chunk = notifications.get()
-            expected.pop((chunk.start, chunk.stop))
-
-
-def test_http(http_server):
-    url = f"{http_server}/uproot-issue121.root"
-    notifications = queue.Queue()
+@pytest.mark.parametrize("num_workers", [1, 2])
+def test_http(http_server, issue121_content, num_workers):
     with uproot.source.http.MultithreadedHTTPSource(
-        url, timeout=10, num_workers=1, use_threads=True
+        f"{http_server}/uproot-issue121.root",
+        timeout=300,
+        num_workers=num_workers,
+        use_threads=True,
     ) as source:
-        chunks = source.chunks(
-            [(0, 100), (50, 55), (200, 400)], notifications=notifications
-        )
-        expected = {(chunk.start, chunk.stop): chunk for chunk in chunks}
-        while len(expected) > 0:
-            chunk = notifications.get()
-            expected.pop((chunk.start, chunk.stop))
+        check_notifications(source, REMOTE_RANGES, issue121_content)
 
 
-def test_http_workers(http_server):
-    url = f"{http_server}/uproot-issue121.root"
-    notifications = queue.Queue()
-    with uproot.source.http.MultithreadedHTTPSource(
-        url, timeout=10, num_workers=2, use_threads=True
-    ) as source:
-        chunks = source.chunks(
-            [(0, 100), (50, 55), (200, 400)], notifications=notifications
-        )
-        expected = {(chunk.start, chunk.stop): chunk for chunk in chunks}
-        while len(expected) > 0:
-            chunk = notifications.get()
-            expected.pop((chunk.start, chunk.stop))
-
-
-def test_http_fallback(http_server):
-    url = f"{http_server}/uproot-issue121.root"
-    notifications = queue.Queue()
+@pytest.mark.parametrize("num_fallback_workers", [1, 5])
+def test_http_fallback(http_server, issue121_content, num_fallback_workers):
     with uproot.source.http.HTTPSource(
-        url,
-        timeout=10,
-        num_fallback_workers=1,
+        f"{http_server}/uproot-issue121.root",
+        timeout=300,
+        num_fallback_workers=num_fallback_workers,
         use_threads=True,
     ) as source:
-        chunks = source.chunks(
-            [(0, 100), (50, 55), (200, 400)], notifications=notifications
-        )
-        expected = {(chunk.start, chunk.stop): chunk for chunk in chunks}
-        while len(expected) > 0:
-            chunk = notifications.get()
-            expected.pop((chunk.start, chunk.stop))
+        check_notifications(source, REMOTE_RANGES, issue121_content)
+        assert source.fallback is not None
 
 
-def test_http_fallback_workers(http_server):
-    url = f"{http_server}/uproot-issue121.root"
-    notifications = queue.Queue()
-    with uproot.source.http.HTTPSource(
-        url,
-        timeout=10,
-        num_fallback_workers=5,
-        use_threads=True,
-    ) as source:
-        chunks = source.chunks(
-            [(0, 100), (50, 55), (200, 400)], notifications=notifications
-        )
-        expected = {(chunk.start, chunk.stop): chunk for chunk in chunks}
-        while len(expected) > 0:
-            chunk = notifications.get()
-            expected.pop((chunk.start, chunk.stop))
-
-
-@pytest.mark.network
 @pytest.mark.xrootd
-def test_xrootd():
-    pytest.importorskip("XRootD")
-    notifications = queue.Queue()
+@pytest.mark.parametrize("num_workers", [1, 5])
+def test_xrootd(xrootd_file, issue121_content, num_workers):
     with uproot.source.xrootd.MultithreadedXRootDSource(
-        "root://eospublic.cern.ch//eos/root-eos/cms_opendata_2012_nanoaod/Run2012B_DoubleMuParked.root",
-        num_workers=1,
-        timeout=10,
-        use_threads=True,
+        xrootd_file, num_workers=num_workers, timeout=300, use_threads=True
     ) as source:
-        chunks = source.chunks(
-            [(0, 100), (50, 55), (200, 400)], notifications=notifications
-        )
-        expected = {(chunk.start, chunk.stop): chunk for chunk in chunks}
-        while len(expected) > 0:
-            chunk = notifications.get()
-            expected.pop((chunk.start, chunk.stop))
+        check_notifications(source, REMOTE_RANGES, issue121_content)
 
 
-@pytest.mark.network
 @pytest.mark.xrootd
-def test_xrootd_workers():
-    pytest.importorskip("XRootD")
-    notifications = queue.Queue()
-    with uproot.source.xrootd.MultithreadedXRootDSource(
-        "root://eospublic.cern.ch//eos/root-eos/cms_opendata_2012_nanoaod/Run2012B_DoubleMuParked.root",
-        num_workers=5,
-        timeout=10,
-        use_threads=True,
-    ) as source:
-        chunks = source.chunks(
-            [(0, 100), (50, 55), (200, 400)], notifications=notifications
-        )
-        expected = {(chunk.start, chunk.stop): chunk for chunk in chunks}
-        while len(expected) > 0:
-            chunk = notifications.get()
-            expected.pop((chunk.start, chunk.stop))
-
-
-@pytest.mark.network
-@pytest.mark.xrootd
-def test_xrootd_vectorread():
-    pytest.importorskip("XRootD")
-    notifications = queue.Queue()
+def test_xrootd_vectorread(xrootd_file, issue121_content):
     with uproot.source.xrootd.XRootDSource(
-        "root://eospublic.cern.ch//eos/root-eos/cms_opendata_2012_nanoaod/Run2012B_DoubleMuParked.root",
-        timeout=10,
+        xrootd_file,
+        timeout=300,
         max_num_elements=None,
         num_workers=1,
         use_threads=True,
     ) as source:
-        chunks = source.chunks(
-            [(0, 100), (50, 55), (200, 400)], notifications=notifications
-        )
-        expected = {(chunk.start, chunk.stop): chunk for chunk in chunks}
-        while len(expected) > 0:
-            chunk = notifications.get()
-            expected.pop((chunk.start, chunk.stop))
+        check_notifications(source, REMOTE_RANGES, issue121_content)

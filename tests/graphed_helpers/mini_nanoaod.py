@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """A miniature NanoAOD schema as a ``form_mapping``: the smallest object that is both halves of
 ``uproot._dask``'s ``ImplementsFormMapping`` / ``ImplementsFormMappingInfo`` protocol and actually
 RESTRUCTURES the tree — a counter branch ``nJet`` plus flat ``Jet_*`` branches become one field
@@ -147,12 +147,11 @@ def eager_events(where, mapping=None, n_copies=1):
     ``awkward.from_buffers``, with every branch read — no graph, no projection, no partitions.
     """
     import uproot
-    from uproot._dask import _get_ttree_form
 
     mapping = MiniNanoMapping() if mapping is None else mapping
     tree = uproot.open(where)
     keys = tree.keys(recursive=True, filter_name=FILTER, ignore_duplicates=True)
-    form, info = mapping(_get_ttree_form(ak, tree, keys, False))
+    form, info = mapping(uproot._util.get_ttree_form(tree, keys, False))
     n = tree.num_entries
     container = info.load_buffers(
         tree, frozenset(keys), 0, n, None, None, {"ak_add_doc": False}

@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import ast
 import warnings
@@ -51,9 +51,7 @@ def test_pandas_object_branch_returns_data_not_nan():
     array[2] = "c"
 
     out = library._process_array_for_pandas(array, True, CannotBeAwkwardInterp())
-    assert out is not None
     assert list(out) == ["a", "b", "c"]
-
     pandas = pytest.importorskip("pandas")
     series = pandas.Series(out, index=range(3))
     assert series.tolist() == ["a", "b", "c"]
@@ -73,16 +71,14 @@ def test_asbinary_single_entry_basket():
     out = interp.basket_array(
         data, byte_offsets, None, None, {}, 0, FakeNumpyLibrary(), {}
     )
-    assert out.shape == (1, 4)
-
+    assert out.tolist() == [[0, 1, 2, 3]]
     # uniform multi-entry still works
     data = numpy.arange(6, dtype=numpy.uint8)
     byte_offsets = numpy.array([0, 3, 6], dtype=numpy.int64)
     out = interp.basket_array(
         data, byte_offsets, None, None, {}, 0, FakeNumpyLibrary(), {}
     )
-    assert out.shape == (2, 3)
-
+    assert out.tolist() == [[0, 1, 2], [3, 4, 5]]
     # an arithmetic progression of non-uniform counts must be rejected
     data = numpy.arange(6, dtype=numpy.uint8)
     byte_offsets = numpy.array([0, 1, 3, 6], dtype=numpy.int64)
@@ -157,3 +153,7 @@ def test_strided_objects_shared_interpretation_no_state_leak():
     second = branch.array(library="np")
     assert len(first) == len(second) == 101
     assert interp.to_dtype == to_dtype_before
+    for a, b in zip(first, second, strict=True):
+        assert a.member("fCoordinates").all_members == pytest.approx(
+            b.member("fCoordinates").all_members
+        )

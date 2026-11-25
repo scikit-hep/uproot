@@ -491,5 +491,5 @@ def test_non_boost_mean_raises(tmp_path):
         def counts(self, flow=False):
             return h.counts(flow=flow)
 
-    with pytest.raises(TypeError, match="Mean or WeightedMean storage"):
+    with pytest.raises(NotImplementedError, match="boost-histogram and hist objects"):
         _write_and_read(tmp_path, MeanHistogram())

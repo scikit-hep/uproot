@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines a :doc:`uproot.language.Language` for expressions passed to
@@ -65,7 +65,7 @@ def _walk_ast_yield_symbols(node, keys, aliases, functions, getter):
         else:
             raise TypeError(
                 f"expected a constant string as the only argument of {getter!r}; "
-                f"found {ast.dump(node.args)}"
+                f"found {ast.dump(node)}"
             )
 
     elif (

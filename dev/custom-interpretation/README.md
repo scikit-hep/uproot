@@ -2,7 +2,7 @@
 
 ## 1 Overview
 
-To read BES3 data via `uproot`, I implemented a custom interpretation and successfully converted BES3 custom classes to `awkward.Array` ([`pybes3`](https://pybes3.readthedocs.io/en/latest/user-manual/bes3-data-reading)). During this work, I found that it seems possible for `uproot` to provide a more general interface for user-defined interpretation, and even provide a general custom-class reading mechanism.
+To read BES3 data via `uproot`, I implemented a custom interpretation and successfully converted BES3 custom classes to `awkward.Array` ([`pybes3`](https://pybes3.readthedocs.io/en/latest/user-manual/data-reading/)). During this work, I found that it seems possible for `uproot` to provide a more general interface for user-defined interpretation, and even provide a general custom-class reading mechanism.
 
 In this draft, I illustrated some ideas and designs I have in mind, which may be useful for `uproot` to improve the functionality of custom-class reading.
 

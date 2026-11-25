@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines utilities for adding components to the forth reader.
@@ -160,7 +160,7 @@ class Node:
         self._children = [] if children is None else children
 
     def __str__(self, indent="") -> str:
-        children = (",\n" + indent).join(
+        children = (",\n" + indent + "  ").join(
             x.__str__(indent + "  ") for x in self._children
         )
         if len(self._children) != 0:
@@ -259,6 +259,7 @@ class Node:
                 "ListOffsetArray",
                 "RegularArray",
             ):
+                out["content"] = dict(out["content"])
                 out = out["content"]
             out["content"] = self._children[0].derive_form()
             return returnme

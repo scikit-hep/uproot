@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import numpy
 import pytest
@@ -37,6 +37,9 @@ def test_concatenate_numpy(files):
     arrays = uproot.concatenate({files: "sample"}, ["i8", "f8"], library="np")
     assert len(arrays["i8"]) == 420
     assert len(arrays["f8"]) == 420
+    assert arrays["i8"][:30].tolist() == list(range(-15, 15))
+    assert arrays["i8"].tolist() == arrays["i8"][:30].tolist() * 14
+    assert arrays["f8"][:3].tolist() == [-14.9, -13.9, -12.9]
 
 
 def test_concatenate_awkward(files):

@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines the behaviors of ``TGraphAsymmErrors``.
@@ -34,6 +34,8 @@ class TGraphAsymmErrors:
             ) / 2.0
         elif which == "diff":
             return self._normalize_array(highkey) - self._normalize_array(lowkey)
+        else:
+            raise AssertionError(f"errors has validated which, but it is {which!r}")
 
     def values(self, axis="both"):
         """

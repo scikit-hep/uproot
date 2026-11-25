@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import sys
 
@@ -30,7 +30,7 @@ def test():
 
         assert "one;1/two;1" in directory
 
-        with pytest.raises(KeyError):
+        with pytest.raises(uproot.KeyInFileError, match="not found: 'whatever'"):
             directory["whatever"]
 
         assert directory.get("whatever") is None

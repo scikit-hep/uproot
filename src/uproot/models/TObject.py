@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 """
 This module defines a versionless model for ``TObject``.
@@ -29,7 +29,7 @@ class Model_TObject(uproot.model.Model):
         forth_obj = uproot._awkwardforth.get_forth_obj(context)
         start_index = cursor._index
 
-        if self.is_memberwise:
+        if self.is_memberwise:  # pragma: no cover  (always False: no header read)
             raise NotImplementedError(
                 f"""memberwise serialization of {type(self).__name__}
 in file {self.file.file_path}"""

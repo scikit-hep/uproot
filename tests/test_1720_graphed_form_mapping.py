@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """``uproot.graphed(form_mapping=, known_base_form=, backend=)``: the schema'd source, through the
 same mapping objects ``uproot.dask`` takes.
 
@@ -40,7 +40,7 @@ def _mapped(**kwargs):
 
 
 def _source_of(array):
-    ((_nid, src),) = array.session.sources().items()
+    _nid, src = uproot._graphed._uproot_source(array, "test")
     return src
 
 
@@ -104,6 +104,7 @@ def test_known_base_form_records_without_opening_a_file(monkeypatch):
         {_nano().rsplit(":", 1)[0]: "Events"},
         form_mapping=mini.MiniNanoMapping(),
         known_base_form=base_form,
+        session=graphed.Session(AwkwardBackend(behavior=mini.BEHAVIOR)),
     )
     assert g.session.form(g).describe() == MAPPED_FORM
     assert g.session.source_name(g.node_id) == "Events"

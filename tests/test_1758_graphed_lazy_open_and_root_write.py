@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 """``uproot.graphed`` opens only the first file that has the ``TTree`` (``open_files=True`` opens
 every file), and ``uproot.root_write`` writes ROOT parts beside a ``graphed.aggregate_plan``'s
 reductions from the same read."""
@@ -44,7 +44,7 @@ def _run(plan):
 
 
 def _source_of(array):
-    ((_nid, src),) = array.session.sources().items()
+    _nid, src = uproot._graphed._uproot_source(array, "test")
     return src
 
 
@@ -74,7 +74,7 @@ def _reads(monkeypatch, array):
 
 
 def _keys(array):
-    return _source_of(array)._file_tree
+    return [(f, o) for f, o, _ in _source_of(array)._file_tree]
 
 
 # ---- lazy open -----------------------------------------------------------------------------
@@ -87,13 +87,15 @@ def test_only_the_first_file_with_the_tree_is_opened(tmp_path, monkeypatch):
     assert opened == [nott, a]
     assert [p.uri for p in _source_of(lazy).partitions(1)] == [a, b, c]
     opened.clear()
-    eager = uproot.graphed(files, allow_missing=True, open_files=True)
+    eager = uproot.graphed(files, allow_missing=True, open_files=True, name="eager")
     assert opened == [nott, a, b, c]
     assert [p.uri for p in _source_of(eager).partitions(1)] == [a, b, c]
     opened.clear()
     assert _run(_sum_plan(lazy.x)) == 135.0
     assert sorted(opened) == [a, b, c]  # each file is opened when it is read
-    with pytest.raises(ValueError, match="no TTrees found in\n\n    {'.*nott.root'"):
+    with pytest.raises(
+        ValueError, match="no TTrees or RNTuples found in\n\n    {'.*nott.root'"
+    ):
         uproot.graphed(files[:1], allow_missing=True)
     with pytest.raises(TypeError, match="known_base_form= opens no file"):
         uproot.graphed(
@@ -114,7 +116,9 @@ def test_a_branch_missing_from_a_later_file_fails_its_read(tmp_path):
     assert _run(_sum_plan(lazy.x)) == 48.0
     with pytest.raises(uproot.KeyInFileError, match="y"):
         _run(_sum_plan(lazy.y))
-    eager = uproot.graphed([a + ":events", b + ":events"], open_files=True)
+    eager = uproot.graphed(
+        [a + ":events", b + ":events"], open_files=True, name="eager"
+    )
     assert eager.session.form(eager).describe() == "## * {x: float64}"
 
 
@@ -125,7 +129,7 @@ def test_unopened_files_resolve_a_leaf_branch_and_a_duplicate_like_the_opened_on
     leaf = uproot.graphed([a + ":events/x", b + ":events/x"])
     assert _keys(leaf) == [(a, "/events;1"), (b, "events")]
     assert _run(_sum_plan(leaf.x)) == 90.0
-    assert _keys(uproot.graphed([a, b, a])) == [
+    assert _keys(uproot.graphed([a, b, a], name="dup")) == [
         (a, "/events;1"),
         (b, None),
         (a, "/events;1"),
@@ -260,7 +264,7 @@ def test_two_trees_of_one_file_are_two_inputs(tmp_path, monkeypatch):
     paths = uproot.graphed_write(g, str(tmp_path / "out"), executor="thread")
     assert [len(t) for t in _trees(paths, "tree")] == [10, 10, 10]
     c = _make_tree(os.path.join(tmp_path, "c.root"))
-    missing = uproot.graphed([b, c, c + ":nope"], allow_missing=True)
+    missing = uproot.graphed([b, c, c + ":nope"], allow_missing=True, name="missing")
     assert _keys(missing) == [(b, "/events;1"), (c, "/events;1")]  # c is listed twice
 
 

@@ -1,4 +1,4 @@
-# BSD 3-Clause License; see https://github.com/scikit-hep/uproot5/blob/main/LICENSE
+# BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
 import multiprocessing
 
@@ -21,16 +21,17 @@ def read_one(filename):
         f.decompression_executor = uproot.ThreadPoolExecutor()
         t = f["events"]
         b = t["px1"]
-        b.array(library="np")
+        return b.array(library="np")[:2].tolist()
 
 
 def test_multiprocessing():
     with multiprocessing.Pool(1) as pool:
-        out = pool.map(
+        first, second = pool.map(
             read_one,
             [
                 skhep_testdata.data_path("uproot-Zmumu.root"),
                 skhep_testdata.data_path("uproot-Zmumu-zlib.root"),
             ],
         )
-        list(out)
+    assert first == second
+    assert first == [-41.1952876442, 35.1180497674]
