@@ -374,8 +374,9 @@ class TProfile(Profile):
         :ref:`uproot.behaviors.TProfile.Profile.variances`: it applies Bessel's
         correction, gives NaN for bins with a single entry, divides by the sum
         of weights rather than the effective number of entries (for weighted
-        profiles), and ignores the profile's error option (which is kept in
-        ``metadata["fErrorMode"]``).
+        profiles), doesn't take the absolute value of a negative sum of squared
+        deviations (possible with negative weights), and ignores the profile's
+        error option (which is kept in ``metadata["fErrorMode"]``).
         """
         boost_histogram = uproot.extras.boost_histogram()
 
@@ -443,6 +444,15 @@ class TProfile(Profile):
             sum_sq_dev = sum_sq_dev[1:]
             sum_of_bin_weights = sum_of_bin_weights[1:]
             sum_of_bin_weights_squared = sum_of_bin_weights_squared[1:]
+
+        if numpy.any(sum_sq_dev < 0):
+            # kept as they are, so that writing back to ROOT gives the same sums
+            uproot._util.warn_outside_uproot(
+                "some bins have a negative sum of squared deviations (possible "
+                "with negative weights), so boost-histogram's variances() are "
+                "negative or NaN in those bins; ROOT's errors (and this "
+                "profile's errors()) use its absolute value",
+            )
 
         # boost-histogram does not track the number of fills (ROOT's fEntries),
         # the error option, or global statistics such as the sums of filled x

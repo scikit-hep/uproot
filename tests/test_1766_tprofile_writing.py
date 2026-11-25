@@ -205,7 +205,11 @@ def test_axes_pyroot(tmp_path, name, storage):
 def test_sum_of_squared_deviations(tmp_path, fSumw2, sum_sq_dev):
     p = _write_and_read(tmp_path, _weighted_profile(fSumw2))
     errors = p.errors(flow=True)
-    h = p.to_hist()
+    if sum_sq_dev < 0:
+        with pytest.warns(UserWarning, match="negative sum of squared deviations"):
+            h = p.to_hist()
+    else:
+        h = p.to_hist()
     view = h.view(flow=True)
     assert view["_sum_of_weighted_deltas_squared"][1] == pytest.approx(sum_sq_dev)
 
@@ -227,7 +231,9 @@ def test_negative_weights_pyroot(tmp_path):
     ):
         p.Fill(x, y, w)
 
-    h = _root_write_and_read(ROOT, tmp_path, p).to_hist()
+    # (in bins where boost-histogram's variances() are NaN anyway)
+    with pytest.warns(UserWarning, match="negative sum of squared deviations"):
+        h = _root_write_and_read(ROOT, tmp_path, p).to_hist()
     q = _root_read(ROOT, tmp_path, h, "q")
     for i in range(6):
         assert q.GetBinContent(i) == pytest.approx(p.GetBinContent(i))
@@ -302,9 +308,15 @@ def test_global_statistics_pyroot(tmp_path, case):
         for i in range(10):
             p.GetXaxis().SetBinLabel(i + 1, f"label{i}")
 
-    q = _root_read(
-        ROOT, tmp_path, _root_write_and_read(ROOT, tmp_path, p).to_hist(), "q"
-    )
+    with warnings.catch_warnings():
+        if case in ("SetBinContent", "SetBinEntries"):
+            # changing a bin's sum of values or of weights, but not its sum of
+            # squared values, can make its sum of squared deviations negative
+            warnings.filterwarnings(
+                "ignore", "some bins have a negative sum", UserWarning
+            )
+        h = _root_write_and_read(ROOT, tmp_path, p).to_hist()
+    q = _root_read(ROOT, tmp_path, h, "q")
     assert q.GetEntries() == p.GetEntries()
     if case in ("unchanged", "Merge"):
         assert q.GetMean(1) == pytest.approx(p.GetMean(1))
@@ -415,9 +427,13 @@ def test_zero_sum_of_weights(tmp_path):
         fXaxis=to_TAxis(fName="xaxis", fTitle="", fNbins=2, fXmin=0, fXmax=2),
     )
     p = _write_and_read(tmp_path, p, "from_root")
-    with pytest.warns(UserWarning, match="zero sum of weights") as record:
+    with pytest.warns(UserWarning) as record:
         h = p.to_hist()
-    assert record[0].filename == __file__
+    assert [str(x.message)[:30] for x in record] == [
+        "some bins have a zero sum of w",
+        "some bins have a negative sum ",
+    ]
+    assert all(x.filename == __file__ for x in record)
     assert h.view(flow=True)["_sum_of_weighted_deltas_squared"][1] == -8
 
 
