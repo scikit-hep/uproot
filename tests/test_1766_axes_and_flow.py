@@ -74,13 +74,22 @@ def _write_and_read(tmp_path, obj):
 
 
 @pytest.mark.parametrize("make", [_th1, _tprofile])
-def test_labels_out_of_order(tmp_path, make):
-    h = _write_and_read(
-        tmp_path, make(3, [(3, "c"), (1, "a"), (2, "b")], [0, 10, 0, 30, 0])
-    )
+@pytest.mark.parametrize(
+    "labels",
+    [
+        # set out of order: ROOT keeps each label's bin number in its fUniqueID
+        [(3, "c"), (1, "a"), (2, "b")],
+        # as in ROOT's TAxis::GetBinLabel, the first label for a bin wins
+        [(1, "a"), (2, "b"), (1, "x"), (3, "c")],
+        # with no bin numbers at all, one label for each bin is taken in order
+        [(0, "a"), (0, "b"), (0, "c")],
+    ],
+    ids=["out-of-order", "first-wins", "no-bin-numbers"],
+)
+def test_labels(tmp_path, make, labels):
+    h = _write_and_read(tmp_path, make(3, labels, [0, 10, 0, 30, 0]))
     axis = h.member("fXaxis")
-    assert axis.labels() == ["a", "b", "c"]
-    assert list(axis) == ["a", "b", "c"]
+    assert axis.labels() == list(axis) == ["a", "b", "c"]
     assert axis[2] == "c"
     assert axis.traits.discrete
 
@@ -95,71 +104,32 @@ def test_labels_out_of_order(tmp_path, make):
 
 
 @pytest.mark.parametrize("make", [_th1, _tprofile])
-def test_labels_partial(tmp_path, make):
-    h = _write_and_read(
-        tmp_path, make(6, [(1, "a"), (2, "b")], [0, 10, 0, 0, 0, 50, 0, 0])
-    )
+@pytest.mark.parametrize(
+    "labels",
+    [
+        # e.g. ROOT doubles a labeled axis's bins when it's filled with a new label
+        [(1, "a"), (2, "b")],
+        # every label has a bin number, but some bins don't have a label
+        [(1, "x"), (1, "y"), (3, "z")],
+        # a label without a bin number is ignored, as in ROOT, rather than all of
+        # them being taken in the order they were set
+        [(3, "c"), (1, "a"), (0, "x")],
+        # with no bin numbers at all, fewer labels than bins
+        [(0, "a"), (0, "b")],
+    ],
+    ids=["fewer", "same-bin", "some-without-bin-numbers", "no-bin-numbers"],
+)
+def test_labels_incomplete(tmp_path, make, labels):
+    h = _write_and_read(tmp_path, make(4, labels, [0, 10, 20, 30, 40, 0]))
     axis = h.member("fXaxis")
     assert axis.labels() is None
     assert not axis.traits.discrete
 
-    with pytest.warns(UserWarning, match="labels for only 2 of its 6 bins") as record:
+    with pytest.warns(UserWarning, match="labels for only 2 of its 4 bins") as record:
         out = h.to_hist()
     assert record[0].filename == __file__  # the user's code, not Uproot's
-    assert out.axes[0].edges.tolist() == [0, 1, 2, 3, 4, 5, 6]
-    assert out.values().tolist() == [10, 0, 0, 0, 50, 0]
-
-
-@pytest.mark.parametrize("make", [_th1, _tprofile])
-def test_labels_same_bin(tmp_path, make):
-    # every label has a valid bin number, but bin 2 has none: the labels can't
-    # be assigned in the order they were set
-    h = _write_and_read(
-        tmp_path, make(3, [(1, "x"), (1, "y"), (3, "z")], [0, 10, 20, 30, 0])
-    )
-    axis = h.member("fXaxis")
-    assert axis.labels() is None
-    assert not axis.traits.discrete
-
-    with pytest.warns(UserWarning, match="labels for only 2 of its 3 bins"):
-        out = h.to_hist()
-    assert out.values().tolist() == [10, 20, 30]
-
-
-@pytest.mark.parametrize("make", [_th1, _tprofile])
-def test_labels_first_for_bin(tmp_path, make):
-    # as in ROOT's TAxis::GetBinLabel, the first label with a bin's number wins
-    h = _write_and_read(tmp_path, make(2, [(1, "a"), (2, "b"), (1, "c")], [0] * 4))
-    assert h.member("fXaxis").labels() == ["a", "b"]
-
-
-@pytest.mark.parametrize("make", [_th1, _tprofile])
-def test_labels_some_without_bin_numbers(tmp_path, make):
-    # the label without a bin number is ignored, as in ROOT, rather than all of
-    # them being taken in the order they were set
-    h = _write_and_read(
-        tmp_path, make(3, [(3, "c"), (1, "a"), (0, "x")], [0, 10, 20, 30, 0])
-    )
-    assert h.member("fXaxis").labels() is None
-    with pytest.warns(UserWarning, match="labels for only 2 of its 3 bins"):
-        out = h.to_hist()
-    assert out.values().tolist() == [10, 20, 30]
-
-
-@pytest.mark.parametrize("make", [_th1, _tprofile])
-def test_labels_without_bin_numbers(tmp_path, make):
-    # one label for each bin: assume they were set in bin order
-    h = _write_and_read(
-        tmp_path, make(3, [(0, "a"), (0, "b"), (0, "c")], [0, 10, 20, 30, 0])
-    )
-    assert h.member("fXaxis").labels() == ["a", "b", "c"]
-
-    # fewer labels than bins: not a labeled axis
-    h = _write_and_read(tmp_path, make(3, [(0, "a"), (0, "b")], [0, 10, 20, 30, 0]))
-    assert h.member("fXaxis").labels() is None
-    with pytest.warns(UserWarning, match="labels for only 2 of its 3 bins"):
-        out = h.to_hist()
-    assert out.values().tolist() == [10, 20, 30]
+    assert out.axes[0].edges.tolist() == [0, 1, 2, 3, 4]
+    assert out.values().tolist() == [10, 20, 30, 40]
 
 
 @pytest.mark.parametrize("make", [_th1, _tprofile])

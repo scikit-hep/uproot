@@ -42,13 +42,21 @@ def _key(f, classname):
     return next(k for k, v in f.classnames().items() if v == classname)
 
 
+FILES = [
+    ("uproot-hepdata-example.root", "TProfile"),
+    ("uproot-issue-227a.root", "TProfile2D"),
+    ("uproot-issue-227b.root", "TProfile3D"),
+]
+
+
 @pytest.mark.parametrize(
     ("error_mode", "names", "expected"),
     [
         (0, ["", 0, None], [1 / np.sqrt(2), 0]),
-        (1, ["s", 1], [1, 0]),
-        (2, ["i", 2], [1 / np.sqrt(2), 1 / np.sqrt(12 * 2)]),
-        (3, ["g", 3], [1 / np.sqrt(2), 1 / np.sqrt(2)]),
+        # like ROOT's error options, case-insensitive
+        (1, ["s", "S", 1], [1, 0]),
+        (2, ["i", "I", 2], [1 / np.sqrt(2), 1 / np.sqrt(12 * 2)]),
+        (3, ["g", "G", 3], [1 / np.sqrt(2), 1 / np.sqrt(2)]),
     ],
 )
 def test_error_mode(tmp_path, error_mode, names, expected):
@@ -125,14 +133,7 @@ def test_equality(tmp_path):
     assert p == p
 
 
-@pytest.mark.parametrize(
-    "filename, classname",
-    [
-        ("uproot-hepdata-example.root", "TProfile"),
-        ("uproot-issue-227a.root", "TProfile2D"),
-        ("uproot-issue-227b.root", "TProfile3D"),
-    ],
-)
+@pytest.mark.parametrize(("filename", "classname"), FILES)
 def test_missing_fBinSumw2(filename, classname):
     # TProfile class versions before 6 (ROOT < 5.26) have no fBinSumw2
     filepath = skhep_testdata.data_path(filename)
@@ -160,14 +161,7 @@ def test_missing_fBinSumw2(filename, classname):
             assert p.to_hist().values(flow=True) == pytest.approx(values)
 
 
-@pytest.mark.parametrize(
-    "filename, classname",
-    [
-        ("uproot-hepdata-example.root", "TProfile"),
-        ("uproot-issue-227a.root", "TProfile2D"),
-        ("uproot-issue-227b.root", "TProfile3D"),
-    ],
-)
+@pytest.mark.parametrize(("filename", "classname"), FILES)
 @pytest.mark.parametrize("flow", [False, True])
 def test_to_numpy(filename, classname, flow):
     with uproot.open(skhep_testdata.data_path(filename)) as f:

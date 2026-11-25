@@ -1,5 +1,6 @@
 # BSD 3-Clause License; see https://github.com/scikit-hep/uproot/blob/main/LICENSE
 
+import contextlib
 import os
 import warnings
 
@@ -11,56 +12,30 @@ from uproot.writing.identify import to_TAxis, to_TProfile
 
 hist = pytest.importorskip("hist")
 
-# (axis, has underflow, has overflow, bin index -> fill value)
+# hist axes and what to fill each of their bins with, from the underflow (if
+# any) to the overflow (if any), or None to fill at the bin centers
 AXES = {
-    "Regular": (hist.axis.Regular(4, 0, 4), True, True, lambda i: i + 0.5),
-    "Variable": (hist.axis.Variable([0, 1, 3, 6]), True, True, None),
-    "Integer": (hist.axis.Integer(0, 4), True, True, lambda i: i),
-    "Regular-noflow": (
-        hist.axis.Regular(4, 0, 4, underflow=False, overflow=False),
-        False,
-        False,
-        lambda i: i + 0.5,
-    ),
-    "Regular-nounderflow": (
-        hist.axis.Regular(4, 0, 4, underflow=False),
-        False,
-        True,
-        lambda i: i + 0.5,
-    ),
-    "IntCategory": (
-        hist.axis.IntCategory([10, 20, 30]),
-        False,
-        True,
-        lambda i: [10, 20, 30, 99][i],
-    ),
-    "IntCategory-noflow": (
-        hist.axis.IntCategory([10, 20, 30], overflow=False),
-        False,
-        False,
-        lambda i: [10, 20, 30][i],
-    ),
-    "StrCategory": (
-        hist.axis.StrCategory(["a", "b", "c"]),
-        False,
-        True,
-        lambda i: ["a", "b", "c", "zz"][i],
-    ),
-    "Boolean": (hist.axis.Boolean(), False, False, bool),
+    "Regular": (hist.axis.Regular(4, 0, 4), None),
+    "Variable": (hist.axis.Variable([0, 1, 3, 6]), None),
+    "Integer": (hist.axis.Integer(0, 4), [-1, 0, 1, 2, 3, 4]),
+    "Regular-noflow": (hist.axis.Regular(4, 0, 4, flow=False), None),
+    "Regular-nounderflow": (hist.axis.Regular(4, 0, 4, underflow=False), None),
+    "IntCategory": (hist.axis.IntCategory([10, 20, 30]), [10, 20, 30, 99]),
+    "IntCategory-noflow": (hist.axis.IntCategory([10, 20], overflow=False), [10, 20]),
+    "StrCategory": (hist.axis.StrCategory(["a", "b"]), ["a", "b", "zz"]),
+    "Boolean": (hist.axis.Boolean(), [False, True]),
 }
 
 
-def _fill(name, storage, seed=0):
-    axis, underflow, overflow, to_value = AXES[name]
-    rng = np.random.default_rng(seed)
-    n = len(axis)
-    edges = axis.edges
-    index = rng.integers(-1 if underflow else 0, (n if overflow else n - 1) + 1, 200)
-    y = rng.normal(5, 2, len(index))
-    if storage == "WeightedMean":
-        w = rng.uniform(-0.5, 2, len(index))
-    else:
-        w = np.ones(len(index))
+def _fill(name, storage):
+    axis, values = AXES[name]
+    n, edges = len(axis), axis.edges
+    low = -1 if axis.traits.underflow else 0
+    high = n if axis.traits.overflow else n - 1
+    rng = np.random.default_rng(0)
+    index = rng.integers(low, high + 1, 200)
+    y = rng.normal(5, 2, 200)
+    w = rng.uniform(-0.5, 2, 200) if storage == "WeightedMean" else np.ones(200)
 
     # ROOT x-coordinates: bin centers, with flow bins just outside the edges
     centers = np.concatenate(
@@ -69,11 +44,9 @@ def _fill(name, storage, seed=0):
     x = centers[index + 1]
 
     h = hist.Hist(axis, storage=getattr(hist.storage, storage)())
-    values = x if to_value is None else [to_value(i) for i in index]
-    if storage == "WeightedMean":
-        h.fill(values, sample=y, weight=w)
-    else:
-        h.fill(values, sample=y)
+    h.fill(
+        x if values is None else [values[i - low] for i in index], sample=y, weight=w
+    )
     return h, x, y, w, index
 
 
@@ -103,21 +76,25 @@ def _root_read(ROOT, tmp_path, obj, name):
     return out
 
 
-def _weighted_profile(fSumw2, fErrorMode=0, fTsumw=1.0, fTsumwx=0.5):
+def _profile(
+    sumy2, sumy=3.0, entries=1.0, sumw2=5.0, fTsumw=None, fTsumwx=None, fErrorMode=0
+):
+    # one bin of [0, 1] with sums of weights (entries), of squared weights
+    # (sumw2, or None if unweighted), and of weighted y and y^2 (sumy, sumy2)
     return to_TProfile(
         fName="p",
         fTitle="",
-        data=np.array([0.0, 3.0, 0.0], np.float64),
-        fEntries=3.0,
-        fTsumw=fTsumw,
-        fTsumw2=5.0,
-        fTsumwx=fTsumwx,
-        fTsumwx2=0.25,
-        fTsumwy=3.0,
-        fTsumwy2=fSumw2,
-        fSumw2=np.array([0.0, fSumw2, 0.0], np.float64),
-        fBinEntries=np.array([0.0, 1.0, 0.0], np.float64),
-        fBinSumw2=np.array([0.0, 5.0, 0.0], np.float64),
+        data=np.array([0.0, sumy, 0.0]),
+        fEntries=entries,
+        fTsumw=entries if fTsumw is None else fTsumw,
+        fTsumw2=entries if sumw2 is None else sumw2,
+        fTsumwx=0.5 * entries if fTsumwx is None else fTsumwx,
+        fTsumwx2=0.25 * entries,
+        fTsumwy=sumy,
+        fTsumwy2=sumy2,
+        fSumw2=np.array([0.0, sumy2, 0.0]),
+        fBinEntries=np.array([0.0, entries, 0.0]),
+        fBinSumw2=np.array([] if sumw2 is None else [0.0, sumw2, 0.0]),
         fXaxis=to_TAxis(fName="xaxis", fTitle="", fNbins=1, fXmin=0, fXmax=1),
         fErrorMode=fErrorMode,
     )
@@ -133,7 +110,6 @@ def test_axes(tmp_path, name, storage):
     expected = np.zeros(n + 2)
     np.add.at(expected, index + 1, w)
     assert np.asarray(p.member("fBinEntries")) == pytest.approx(expected)
-
     if storage == "Mean":
         assert len(p.member("fBinSumw2")) == 0
         assert p.member("fEntries") == len(index)
@@ -142,11 +118,14 @@ def test_axes(tmp_path, name, storage):
         assert p.member("fEntries") == pytest.approx(w.sum())
 
     inside = (index >= 0) & (index < n)
-    assert p.member("fTsumw") == pytest.approx(w[inside].sum())
-    assert p.member("fTsumwx") == pytest.approx((w * x)[inside].sum())
-    assert p.member("fTsumwx2") == pytest.approx((w * x**2)[inside].sum())
-    assert p.member("fTsumwy") == pytest.approx((w * y)[inside].sum())
-    assert p.member("fTsumwy2") == pytest.approx((w * y**2)[inside].sum())
+    for member, values in [
+        ("fTsumw", w),
+        ("fTsumwx", w * x),
+        ("fTsumwx2", w * x**2),
+        ("fTsumwy", w * y),
+        ("fTsumwy2", w * y**2),
+    ]:
+        assert p.member(member) == pytest.approx(values[inside].sum())
 
     out = p.to_hist()
     assert out.storage_type is h.storage_type
@@ -163,10 +142,7 @@ def test_axes_pyroot(tmp_path, name, storage):
 
     # filled at bin centers, so the x statistics match too
     expected = ROOT.TProfile(
-        f"expected_1766_write_{name}_{storage}",
-        "",
-        n,
-        np.asarray(h.axes[0].edges, "f8"),
+        f"expected_1766_write_{name}_{storage}", "", n, np.asarray(h.axes[0].edges)
     )
     expected.SetDirectory(ROOT.nullptr)
     if storage == "WeightedMean":
@@ -175,17 +151,19 @@ def test_axes_pyroot(tmp_path, name, storage):
         expected.Fill(xi, yi, wi)
 
     p = _root_read(ROOT, tmp_path, h, "p")
-    for i in range(n + 2):
-        assert p.GetBinContent(i) == pytest.approx(expected.GetBinContent(i))
-        assert p.GetBinError(i) == pytest.approx(expected.GetBinError(i))
-        assert p.GetBinEntries(i) == pytest.approx(expected.GetBinEntries(i))
-        assert p.GetBinEffectiveEntries(i) == pytest.approx(
-            expected.GetBinEffectiveEntries(i)
-        )
-    for axis in (1, 2):
-        assert p.GetMean(axis) == pytest.approx(expected.GetMean(axis))
-        assert p.GetStdDev(axis) == pytest.approx(expected.GetStdDev(axis))
-        assert p.GetMeanError(axis) == pytest.approx(expected.GetMeanError(axis))
+    for method in [
+        "GetBinContent",
+        "GetBinError",
+        "GetBinEntries",
+        "GetBinEffectiveEntries",
+    ]:
+        for i in range(n + 2):
+            assert getattr(p, method)(i) == pytest.approx(getattr(expected, method)(i))
+    for method in ["GetMean", "GetStdDev", "GetMeanError"]:
+        for axis in (1, 2):
+            assert getattr(p, method)(axis) == pytest.approx(
+                getattr(expected, method)(axis)
+            )
     assert p.GetEffectiveEntries() == pytest.approx(expected.GetEffectiveEntries())
     assert p.GetBinSumw2().GetSize() == expected.GetBinSumw2().GetSize()
     if storage == "Mean":
@@ -193,30 +171,57 @@ def test_axes_pyroot(tmp_path, name, storage):
 
 
 @pytest.mark.parametrize(
-    ("fSumw2", "sum_sq_dev"),
+    ("kwargs", "expected", "warning"),
     [
         # two fills with weights 2 and -1 and y = 3 +- sqrt(2.5), 3 +- 2 sqrt(2.5):
         # sum(w) = 1, sum(w^2) = 5, mean = 3, sum(w*y^2) = 4 < sum(w) * mean^2 = 9
-        (4.0, 4.0 - 9.0),
-        # only round-off is clamped
-        (9.0 * (1 - 1e-15), 0.0),
+        ({"sumy2": 4.0}, -5.0, "from negative weights"),
+        # only round-off is clamped,
+        ({"sumy2": 9.0 * (1 - 1e-15)}, 0.0, None),
+        # which grows with the number of fills that ROOT summed: here, of y = 2.3
+        # with ROOT's sum of y^2 off by -5e-10 (relative)
+        (
+            {
+                "sumy2": 2.3**2 * 1e7 * (1 - 5e-10),
+                "sumy": 2.3e7,
+                "entries": 1e7,
+                "sumw2": None,
+            },
+            0.0,
+            None,
+        ),
+        (
+            {
+                "sumy2": 2.3**2 * 10 * (1 - 5e-10),
+                "sumy": 23.0,
+                "entries": 10.0,
+                "sumw2": None,
+            },
+            -(2.3**2) * 10 * 5e-10,
+            "from bins set with SetBinContent",
+        ),
     ],
+    ids=["negative", "round-off", "round-off-many-fills", "few-fills"],
 )
-def test_sum_of_squared_deviations(tmp_path, fSumw2, sum_sq_dev):
-    p = _write_and_read(tmp_path, _weighted_profile(fSumw2))
-    errors = p.errors(flow=True)
-    if sum_sq_dev < 0:
-        with pytest.warns(UserWarning, match="negative sum of squared deviations"):
-            h = p.to_hist()
-    else:
+def test_sum_of_squared_deviations(tmp_path, kwargs, expected, warning):
+    p = _write_and_read(tmp_path, _profile(**kwargs))
+    with (
+        pytest.warns(UserWarning, match=warning)
+        if warning
+        else contextlib.nullcontext()
+    ):
         h = p.to_hist()
     view = h.view(flow=True)
-    assert view["_sum_of_weighted_deltas_squared"][1] == pytest.approx(sum_sq_dev)
+    field = (
+        "_sum_of_weighted_deltas_squared" if p.weighted else "_sum_of_deltas_squared"
+    )
+    assert view[field][1] == pytest.approx(expected)
 
-    if sum_sq_dev != 0:
+    if expected != 0:
+        # kept as it is, so that writing back to ROOT gives the same sums
         roundtrip = _write_and_read(tmp_path, h, "roundtrip")
-        assert np.asarray(roundtrip.member("fSumw2")) == pytest.approx([0, 4, 0])
-        assert roundtrip.errors(flow=True) == pytest.approx(errors)
+        assert roundtrip.member("fSumw2")[1] == pytest.approx(kwargs["sumy2"])
+        assert roundtrip.errors(flow=True) == pytest.approx(p.errors(flow=True))
 
 
 def test_negative_weights_pyroot(tmp_path):
@@ -330,29 +335,24 @@ def test_global_statistics_pyroot(tmp_path, case):
         assert q.GetMean(1) == pytest.approx((w * x).sum() / w.sum())
 
 
-def test_out_of_date_statistics(tmp_path):
-    # ROOT's fTsumw = 0 means that its statistics must be recomputed from the bins
-    p = _write_and_read(tmp_path, _weighted_profile(10.0, fTsumw=0.0, fTsumwx=7.0))
-    roundtrip = _write_and_read(tmp_path, p.to_hist(), "roundtrip")
-    assert roundtrip.member("fTsumw") == 1.0
-    assert roundtrip.member("fTsumwx") == 0.5
-
-
 @pytest.mark.parametrize(
     ("fTsumw", "kept"),
-    # ROOT sums the fills and the bins in different orders, so with many fills
-    # (and weights that cancel) its fTsumw differs from the bins' by round-off
-    [(1.0 + 1e-11, True), (1.0 - 1e-11, True), (1.0 + 1e-6, False)],
+    [
+        # ROOT sums the fills and the bins in different orders, so with many fills
+        # (and weights that cancel) its fTsumw differs from the bins' by round-off
+        (1.0 + 1e-11, True),
+        (1.0 - 1e-11, True),
+        # but no more than that unless its statistics are out of date (fTsumw = 0
+        # tells ROOT to recompute them from the bins)
+        (1.0 + 1e-6, False),
+        (0.0, False),
+    ],
 )
 def test_statistics_round_off(tmp_path, fTsumw, kept):
-    p = _write_and_read(tmp_path, _weighted_profile(10.0, fTsumw=fTsumw, fTsumwx=7.0))
+    p = _write_and_read(tmp_path, _profile(10.0, fTsumw=fTsumw, fTsumwx=7.0))
     roundtrip = _write_and_read(tmp_path, p.to_hist(), "roundtrip")
-    if kept:
-        assert roundtrip.member("fTsumw") == fTsumw
-        assert roundtrip.member("fTsumwx") == 7.0
-    else:
-        assert roundtrip.member("fTsumw") == 1.0
-        assert roundtrip.member("fTsumwx") == 0.5
+    assert roundtrip.member("fTsumw") == (fTsumw if kept else 1.0)
+    assert roundtrip.member("fTsumwx") == (7.0 if kept else 0.5)
 
 
 @pytest.mark.parametrize(
@@ -361,7 +361,6 @@ def test_statistics_round_off(tmp_path, fTsumw, kept):
 def test_weighted_empty_bins(tmp_path, axis):
     h = hist.Hist(axis, storage=hist.storage.WeightedMean())
     h.fill([axis.value(0)] * 2, sample=[1.0, 3.0], weight=[2.0, 1.0])
-
     p = _write_and_read(tmp_path, h)
     out = p.to_hist()
 
@@ -369,29 +368,27 @@ def test_weighted_empty_bins(tmp_path, axis):
     sumw2 = out.view(flow=True)["sum_of_weights_squared"]
     assert not np.isnan(sumw2).any()
     assert sumw2.sum() == 5.0
-    assert out.counts() == pytest.approx(p.counts())
-    assert out.counts() == pytest.approx([9.0 / 5.0, 0.0, 0.0])
+    assert out.counts() == pytest.approx(p.counts()) == [9.0 / 5.0, 0.0, 0.0]
 
 
 def test_weighted_empty_bins_pyroot(tmp_path):
     ROOT = pytest.importorskip("ROOT")
 
-    p = ROOT.TProfile("p_1766_empty", "", 3, 0, 3)
-    p.SetDirectory(ROOT.nullptr)
-    p.Sumw2()
+    profiles = []
+    for name in ["p_1766_empty", "other_1766_empty"]:
+        profiles.append(ROOT.TProfile(name, "", 3, 0, 3))
+        profiles[-1].SetDirectory(ROOT.nullptr)
+        profiles[-1].Sumw2()
+    p, other = profiles
     p.Fill(0.5, 1, 2)
     p.Fill(0.5, 3, 1)
+    other.Fill(1.5, 2, 1.5)
+    other.Fill(1.5, 4, 0.5)
+
     r = _root_read(
         ROOT, tmp_path, _root_write_and_read(ROOT, tmp_path, p).to_hist(), "r"
     )
-
-    other = ROOT.TProfile("other_1766_empty", "", 3, 0, 3)
-    other.SetDirectory(ROOT.nullptr)
-    other.Sumw2()
-    other.Fill(1.5, 2, 1.5)
-    other.Fill(1.5, 4, 0.5)
     r.Add(other)
-
     for i in range(5):
         assert np.isfinite(r.GetBinError(i))
     assert r.GetBinEffectiveEntries(1) == pytest.approx(9.0 / 5.0)
@@ -399,91 +396,34 @@ def test_weighted_empty_bins_pyroot(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("storage", "weights"), [("WeightedMean", [1.0, -1.0, 1.0]), ("Mean", [0.0, 1.0])]
+    ("storage", "weights", "warning"),
+    [
+        # boost-histogram's mean is undefined in a bin whose weights sum to zero
+        ("WeightedMean", [1.0, -1.0], "weights that sum to zero"),
+        # and stays so after more fills
+        ("WeightedMean", [1.0, -1.0, 1.0], "undefined"),
+        ("Mean", [0.0, 1.0], "undefined"),
+    ],
 )
-def test_undefined_mean_after_zero_sum(tmp_path, storage, weights):
-    # boost-histogram's mean stays NaN after a bin's weights have summed to zero
+def test_undefined_mean(tmp_path, storage, weights, warning):
     h = hist.Hist(hist.axis.Regular(2, 0, 2), storage=getattr(hist.storage, storage)())
     h.fill([0.5] * len(weights), sample=[1.0, 3.0, 2.0][: len(weights)], weight=weights)
     h.fill([1.5], sample=[2.0])
-    assert np.isnan(h.view()["value"][0])
+    assert not np.isfinite(h.view()["value"][0])
 
-    with pytest.warns(UserWarning, match="undefined") as record:
+    with pytest.warns(UserWarning, match=warning) as record:
         p = _write_and_read(tmp_path, h)
     assert record[0].filename == __file__
     # written as empty, not as NaN
     assert p.values(flow=True).tolist() == [0, 0, 2, 0]
     assert np.asarray(p.member("fBinEntries")).tolist() == [0, 0, 1, 0]
     assert np.isfinite(p.member("fSumw2")).all()
-    assert p.member("fTsumwy") == 2
-    assert p.member("fTsumwy2") == 4
+    assert (p.member("fTsumwy"), p.member("fTsumwy2")) == (2, 4)
 
 
-def _unweighted_profile(entries, rel):
-    # entries fills of y = 2.3 in one bin, with ROOT's sum of y^2 off by rel
-    return to_TProfile(
-        fName="p",
-        fTitle="",
-        data=np.array([0.0, 2.3 * entries, 0.0], np.float64),
-        fEntries=entries,
-        fTsumw=entries,
-        fTsumw2=entries,
-        fTsumwx=0.5 * entries,
-        fTsumwx2=0.25 * entries,
-        fTsumwy=2.3 * entries,
-        fTsumwy2=2.3**2 * entries,
-        fSumw2=np.array([0.0, 2.3**2 * entries * (1 + rel), 0.0], np.float64),
-        fBinEntries=np.array([0.0, entries, 0.0], np.float64),
-        fBinSumw2=np.array([], np.float64),
-        fXaxis=to_TAxis(fName="xaxis", fTitle="", fNbins=1, fXmin=0, fXmax=1),
-    )
-
-
-def test_round_off_grows_with_entries(tmp_path):
-    # with 10**7 fills, ROOT's sum of y^2 can be off by more than 1e-10
-    p = _write_and_read(tmp_path, _unweighted_profile(1e7, -5e-10))
-    h = p.to_hist()
-    assert h.view()["_sum_of_deltas_squared"][0] == 0
-    assert h.variances()[0] == 0
-
-    # but not with 10 fills
-    p = _write_and_read(tmp_path, _unweighted_profile(10.0, -5e-10), "few")
-    with pytest.warns(UserWarning, match="from bins set with SetBinContent"):
-        h = p.to_hist()
-    assert h.view()["_sum_of_deltas_squared"][0] < 0
-
-
-def test_zero_sum_of_weights(tmp_path):
-    # boost-histogram's mean is undefined in a bin whose weights sum to zero
-    h = hist.Hist(hist.axis.Regular(2, 0, 2), storage=hist.storage.WeightedMean())
-    h.fill([0.5, 0.5, 1.5], sample=[1.0, 3.0, 2.0], weight=[1.0, -1.0, 1.0])
-
-    with pytest.warns(UserWarning, match="weights that sum to zero") as record:
-        p = _write_and_read(tmp_path, h)
-    assert record[0].filename == __file__
-    assert p.values(flow=True).tolist() == [0, 0, 2, 0]
-    assert np.isfinite(p.member("fSumw2")).all()
-    assert p.member("fTsumwy") == 2
-    assert p.member("fTsumwy2") == 4
-
-    # and from ROOT, where such a bin has a sum of weighted values (-2)
-    p = to_TProfile(
-        fName="p",
-        fTitle="",
-        data=np.array([0.0, -2.0, 2.0, 0.0], np.float64),
-        fEntries=3.0,
-        fTsumw=1.0,
-        fTsumw2=3.0,
-        fTsumwx=1.5,
-        fTsumwx2=2.25,
-        fTsumwy=0.0,
-        fTsumwy2=-4.0,
-        fSumw2=np.array([0.0, -8.0, 4.0, 0.0], np.float64),
-        fBinEntries=np.array([0.0, 0.0, 1.0, 0.0], np.float64),
-        fBinSumw2=np.array([0.0, 2.0, 1.0, 0.0], np.float64),
-        fXaxis=to_TAxis(fName="xaxis", fTitle="", fNbins=2, fXmin=0, fXmax=2),
-    )
-    p = _write_and_read(tmp_path, p, "from_root")
+def test_zero_sum_of_weights_from_root(tmp_path):
+    # where such a bin has a sum of weighted values (-2)
+    p = _write_and_read(tmp_path, _profile(-8.0, sumy=-2.0, entries=0.0, sumw2=2.0))
     with pytest.warns(UserWarning) as record:
         h = p.to_hist()
     assert [str(x.message)[:30] for x in record] == [
@@ -503,8 +443,7 @@ def _modified(change):
         h.metadata = {"fEntries": 3, "fTsumwx": 1.0, "fTsumwx2": 0.75}
         p = _write_and_read(tmp_path, h)
         # explicit statistics are used
-        assert p.member("fEntries") == 3
-        assert p.member("fTsumwx") == 1.0
+        assert (p.member("fEntries"), p.member("fTsumwx")) == (3, 1.0)
         return change(p.to_hist())
 
     return make
@@ -558,7 +497,7 @@ def test_unweighted_fEntries(tmp_path):
 
 @pytest.mark.parametrize("error_mode", [0, 1, 2, 3])
 def test_error_mode_roundtrip(tmp_path, error_mode):
-    h = _write_and_read(tmp_path, _weighted_profile(10.0, error_mode)).to_hist()
+    h = _write_and_read(tmp_path, _profile(10.0, fErrorMode=error_mode)).to_hist()
     assert h.metadata["fErrorMode"] == error_mode
     roundtrip = _write_and_read(tmp_path, h, "roundtrip")
     assert roundtrip.member("fErrorMode") == error_mode
@@ -566,17 +505,7 @@ def test_error_mode_roundtrip(tmp_path, error_mode):
 
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [
-        ("", 0),
-        ("s", 1),
-        ("i", 2),
-        ("g", 3),
-        ("S", 1),
-        ("I", 2),
-        ("G", 3),
-        (2, 2),
-        (None, 0),
-    ],
+    [("", 0), ("s", 1), ("i", 2), ("G", 3), (2, 2), (None, 0)],
 )
 def test_error_mode_metadata(tmp_path, value, expected):
     h = hist.Hist(hist.axis.Regular(2, 0, 2), storage=hist.storage.Mean())
@@ -589,15 +518,6 @@ def test_error_mode_metadata(tmp_path, value, expected):
         _write_and_read(tmp_path, h)
 
 
-@pytest.mark.parametrize("error_mode", ["s", "i", "g"])
-def test_error_mode_case(tmp_path, error_mode):
-    # like ROOT's error options, error modes are case-insensitive
-    p = _write_and_read(tmp_path, _weighted_profile(10.0))
-    assert p.errors(error_mode=error_mode.upper()) == pytest.approx(
-        p.errors(error_mode=error_mode)
-    )
-
-
 def test_non_dict_metadata(tmp_path):
     h = hist.Hist(
         hist.axis.Regular(3, 0, 3), storage=hist.storage.Mean(), metadata="info"
@@ -606,28 +526,9 @@ def test_non_dict_metadata(tmp_path):
     assert _write_and_read(tmp_path, h).member("fEntries") == 2
 
 
-def test_non_boost_mean_raises(tmp_path):
-    h = hist.Hist(hist.axis.Regular(3, 0, 3), storage=hist.storage.Mean())
-
-    class MeanHistogram:
-        kind = "MEAN"
-        axes = h.axes
-
-        def values(self, flow=False):
-            return h.values(flow=flow)
-
-        def variances(self, flow=False):
-            return h.variances(flow=flow)
-
-        def counts(self, flow=False):
-            return h.counts(flow=flow)
-
-    with pytest.raises(NotImplementedError, match="boost-histogram and hist objects"):
-        _write_and_read(tmp_path, MeanHistogram())
-
-
 class _ProfileLike:
-    # an object with the members of an Uproot TProfile, but not a Model
+    # a non-boost-histogram MEAN histogram, which can be written only if it has
+    # the members of an Uproot TProfile
     def __init__(self, model):
         self._model = model
         self._bases = model._bases
@@ -645,14 +546,20 @@ class _ProfileLike:
         return self._model.counts(flow=flow)
 
 
-@pytest.mark.parametrize("old_version", [False, True])
-def test_profile_like_members(tmp_path, old_version):
-    model = _write_and_read(tmp_path, _weighted_profile(10.0, fErrorMode=1), "model")
-    if old_version:
+@pytest.mark.parametrize("case", ["members", "old-version", "no-members"])
+def test_profile_like(tmp_path, case):
+    model = _write_and_read(tmp_path, _profile(10.0, fErrorMode=1), "model")
+    obj = _ProfileLike(model)
+    if case == "no-members":
+        del obj._bases
+        with pytest.raises(NotImplementedError, match="boost-histogram and hist"):
+            _write_and_read(tmp_path, obj)
+        return
+    if case == "old-version":
         # class versions before 6 (ROOT < 5.26) have no fBinSumw2
         del model._members["fBinSumw2"]
 
-    p = _write_and_read(tmp_path, _ProfileLike(model))
+    p = _write_and_read(tmp_path, obj)
     assert p.member("fErrorMode") == 1
-    assert len(p.member("fBinSumw2")) == (0 if old_version else 3)
+    assert len(p.member("fBinSumw2")) == (0 if case == "old-version" else 3)
     assert p.values().tolist() == model.values().tolist()
