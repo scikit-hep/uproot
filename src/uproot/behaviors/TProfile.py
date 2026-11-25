@@ -6,6 +6,8 @@ This module defines the behavior of ``TProfile``.
 
 from __future__ import annotations
 
+import math
+
 import numpy
 
 import uproot
@@ -447,29 +449,40 @@ class TProfile(Profile):
         # values (it only knows bin centers) and of squared weights (which ROOT
         # can have without fBinSumw2, after merging with a weighted profile), so
         # keep them in the metadata for writing back to ROOT. These are only
-        # valid for these bin contents, so the writer checks that the bins still
-        # give the same total weight for fEntries, and the same fTsumw for the
-        # global statistics. (ROOT's fTsumw already differs from the bins' if its
-        # statistics are out of date, e.g. after SetBinContent or an uneven Rebin,
-        # or include the flow bins, with SetStatOverflows.)
+        # valid for these bin contents, so the metadata also has the sums of
+        # weights of the bins that they go with ("*_sumw"), which the writer
+        # compares exactly to check that the bins haven't changed (math.fsum's
+        # result doesn't depend on the order of summation).
+        fXaxis = self.member("fXaxis")
+        if fXaxis.traits.discrete:
+            # the underflow was dropped above
+            sum_of_noflow_weights = sum_of_bin_weights[:-1]
+        else:
+            sum_of_noflow_weights = sum_of_bin_weights[1:-1]
         out.metadata = {
             "fEntries": self.member("fEntries"),
-            # without a labeled axis's underflow, which was dropped
-            "fEntries_sumw": float(sum_of_bin_weights.sum()),
-            "fTsumw": self.member("fTsumw"),
-            "fTsumw2": self.member("fTsumw2"),
+            "fEntries_sumw": math.fsum(sum_of_bin_weights),
             "fErrorMode": self.member("fErrorMode"),
         }
-        # The x sums are in the axis's coordinates, which a labeled axis keeps
-        # only if it spans [0, nbins], since boost-histogram's categories are
-        # written back as bins 0, 1, ...
-        fXaxis = self.member("fXaxis")
-        if not fXaxis.traits.discrete or (
-            fXaxis.member("fXmin") == 0
-            and fXaxis.member("fXmax") == fXaxis.member("fNbins")
-        ):
-            out.metadata["fTsumwx"] = self.member("fTsumwx")
-            out.metadata["fTsumwx2"] = self.member("fTsumwx2")
+        # ROOT's statistics are out of date if they don't go with the bins (e.g.
+        # after SetBinContent or an uneven Rebin) or include the flow bins (with
+        # SetStatOverflows); otherwise, its fTsumw differs from the bins' only
+        # by the round-off of summing the fills in a different order.
+        fTsumw = self.member("fTsumw")
+        sumw = math.fsum(sum_of_noflow_weights)
+        if abs(fTsumw - sumw) <= 1e-9 * math.fsum(numpy.abs(sum_of_noflow_weights)):
+            out.metadata["fTsumw_sumw"] = sumw
+            out.metadata["fTsumw"] = fTsumw
+            out.metadata["fTsumw2"] = self.member("fTsumw2")
+            # The x sums are in the axis's coordinates, which a labeled axis keeps
+            # only if it spans [0, nbins], since boost-histogram's categories are
+            # written back as bins 0, 1, ...
+            if not fXaxis.traits.discrete or (
+                fXaxis.member("fXmin") == 0
+                and fXaxis.member("fXmax") == fXaxis.member("fNbins")
+            ):
+                out.metadata["fTsumwx"] = self.member("fTsumwx")
+                out.metadata["fTsumwx2"] = self.member("fTsumwx2")
         view = out.view(flow=True)
 
         if self.weighted:

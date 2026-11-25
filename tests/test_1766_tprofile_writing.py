@@ -327,6 +327,23 @@ def test_out_of_date_statistics(tmp_path):
 
 
 @pytest.mark.parametrize(
+    ("fTsumw", "kept"),
+    # ROOT sums the fills and the bins in different orders, so with many fills
+    # (and weights that cancel) its fTsumw differs from the bins' by round-off
+    [(1.0 + 1e-11, True), (1.0 - 1e-11, True), (1.0 + 1e-6, False)],
+)
+def test_statistics_round_off(tmp_path, fTsumw, kept):
+    p = _write_and_read(tmp_path, _weighted_profile(10.0, fTsumw=fTsumw, fTsumwx=7.0))
+    roundtrip = _write_and_read(tmp_path, p.to_hist(), "roundtrip")
+    if kept:
+        assert roundtrip.member("fTsumw") == fTsumw
+        assert roundtrip.member("fTsumwx") == 7.0
+    else:
+        assert roundtrip.member("fTsumw") == 1.0
+        assert roundtrip.member("fTsumwx") == 0.5
+
+
+@pytest.mark.parametrize(
     "axis", [hist.axis.Regular(3, 0, 3), hist.axis.StrCategory(["a", "b", "c"])]
 )
 def test_weighted_empty_bins(tmp_path, axis):
