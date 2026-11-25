@@ -233,6 +233,11 @@ def to_writable(obj):
             if fSumw2 is not None:
                 fSumw2 = fSumw2.astype(">f8")
 
+        # ROOT has TH1/TH2/TH3 classes only for these types, so others, such as
+        # 64-bit or unsigned integers, are written as doubles (TH1D/TH2D/TH3D)
+        if (data.dtype.kind, data.dtype.itemsize) not in _TH_DATA_TYPES:
+            data = data.astype(">f8")
+
         # we're assuming the PlottableHistogram ensures data.shape == weights.shape
         if fSumw2 is not None:
             assert data.shape == fSumw2.shape
@@ -706,6 +711,10 @@ def to_writable(obj):
         raise TypeError(
             "unrecognized type cannot be written to a ROOT file: " + type(obj).__name__
         )
+
+
+# (dtype kind, itemsize) of the bin contents that TH1C/S/I/F/D (and TH2*, TH3*) store
+_TH_DATA_TYPES = {("i", 1), ("i", 2), ("i", 4), ("f", 4), ("f", 8)}
 
 
 def _axis_edges_and_labels(axis, boost_histogram):
