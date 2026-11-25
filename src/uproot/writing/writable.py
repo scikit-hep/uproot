@@ -496,12 +496,9 @@ class WritableFile(uproot.reading.CommonFileMethods):
                         other_key.cycle,
                         other_key.seek_location,
                     )
-                    if cache_id not in cache:
-                        stree = self._read_key(
-                            other_key, d, minimal_ttree_metadata=True
-                        )
-                        ranges = _collect_tree_basket_ranges(stree)
-                        cache[cache_id] = {s for s, _ in ranges}
+                    stree = self._read_key(other_key, d, minimal_ttree_metadata=True)
+                    ranges = _collect_tree_basket_ranges(stree)
+                    cache[cache_id] = {s for s, _ in ranges}
             self._tree_basket_seeks_cache = cache
 
         exclude_id = (

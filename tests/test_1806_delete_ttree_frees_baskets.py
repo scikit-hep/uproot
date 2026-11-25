@@ -385,6 +385,20 @@ def test_collect_tree_basket_ranges_edge_cases():
 
     assert _collect_tree_basket_ranges(TreeWithSubBranches()) == [(200, 260)]
 
+    # 6. Branch without fBasketSeek
+    class BranchWithoutBaskets:
+        def has_member(self, name):
+            return False
+
+    class TreeWithBranchWithoutBaskets:
+        def has_member(self, name):
+            return name == "fBranches"
+
+        def member(self, name):
+            return [BranchWithoutBaskets()]
+
+    assert _collect_tree_basket_ranges(TreeWithBranchWithoutBaskets()) == []
+
 
 def test_validate_basket_key_edge_cases():
     # 1. 32-bit key header (fVersion <= 1000)
@@ -468,6 +482,7 @@ def test_is_ttree_classname_streamer_hierarchy():
 
     # Inheritance chain: CustomTree inherits from IntermediateTree inherits from TTree
     streamers = [
+        object(),
         MockStreamer("CustomTree", ["IntermediateTree"]),
         MockStreamer("IntermediateTree", ["TTree"]),
     ]
@@ -563,3 +578,13 @@ def test_tree_basket_seeks_cache_and_invalidation(tmp_path):
             accept_new_fields=True,
         )
         assert f._file._tree_basket_seeks_cache is None
+
+
+def test_delete_empty_tree_has_no_baskets(tmp_path):
+    filename = os.path.join(tmp_path, "empty_tree.root")
+    with uproot.recreate(filename) as f:
+        f.mktree("empty", {"x": "int32"})
+
+    with uproot.update(filename) as f:
+        del f["empty"]
+        assert "empty" not in f
