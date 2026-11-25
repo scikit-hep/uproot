@@ -492,12 +492,74 @@ def test_delete_tree_with_broken_surviving_tree(tmp_path, monkeypatch):
     with uproot.update(filename) as f:
         orig_read_key = f._file._read_key
 
-        def mock_read_key(key, directory):
+        def mock_read_key(key, directory, **kwargs):
             if key.name.string == "t2":
                 raise OSError("corrupt surviving tree")
-            return orig_read_key(key, directory)
+            return orig_read_key(key, directory, **kwargs)
 
         monkeypatch.setattr(f._file, "_read_key", mock_read_key)
         del f["t1"]
         assert "t1" not in f
         assert "t2" in f
+        # Writing new data must not overwrite t2 baskets because basket freeing failed closed
+        f["h"] = (np.full(10, 5.0), np.linspace(0, 1, 11))
+
+    with uproot.open(filename) as f:
+        assert f["t2"]["y"].array().tolist() == list(range(10))
+
+
+def test_delete_tree_with_broken_subdirectory_fails_closed(tmp_path, monkeypatch):
+    filename = os.path.join(tmp_path, "broken_subdir.root")
+    with uproot.recreate(filename) as f:
+        t1 = f.mktree("t1", {"x": "int32"})
+        t1.extend({"x": np.arange(10, dtype=np.int32)})
+        f.mkdir("sub")
+
+    with uproot.update(filename) as f:
+        orig_subdir = f._subdir
+
+        def mock_subdir(key):
+            raise OSError("broken directory")
+
+        monkeypatch.setattr(f, "_subdir", mock_subdir)
+        del f["t1"]
+        monkeypatch.setattr(f, "_subdir", orig_subdir)
+        assert "t1" not in f
+        f["h"] = (np.full(10, 5.0), np.linspace(0, 1, 11))
+
+
+def test_tree_basket_seeks_cache_and_invalidation(tmp_path):
+    filename = os.path.join(tmp_path, "cache_invalidation.root")
+    with uproot.recreate(filename) as f:
+        t1 = f.mktree("t1", {"x": "int32"})
+        t1.extend({"x": np.arange(10, dtype=np.int32)})
+        t2 = f.mktree("t2", {"y": "int32"})
+        t2.extend({"y": np.arange(10, dtype=np.int32)})
+        t3 = f.mktree("t3", {"z": "int32"})
+        t3.extend({"z": np.arange(10, dtype=np.int32)})
+
+    with uproot.update(filename) as f:
+        assert f._file._tree_basket_seeks_cache is None
+        del f["t1"]
+        # Cache populated after first delete
+        assert f._file._tree_basket_seeks_cache is not None
+        # Subsequent delete reuses cache
+        del f["t2"]
+        assert "t2" not in f
+
+        # Invalidation on move_tree
+        f._file._trees[123] = "dummy"
+        f._file._move_tree(123, 456)
+        assert f._file._tree_basket_seeks_cache is None
+
+        # Extending with new fields invalidates cache
+        f._file._tree_basket_seeks_cache = {"some": "cache"}
+        t3 = f["t3"]
+        t3.extend(
+            {
+                "z": np.arange(10, dtype=np.int32),
+                "new_field": np.arange(10, dtype=np.float64),
+            },
+            accept_new_fields=True,
+        )
+        assert f._file._tree_basket_seeks_cache is None
