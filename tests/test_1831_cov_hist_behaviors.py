@@ -388,9 +388,10 @@ def test_profile_to_boost_without_fsumw2_member():
 
 
 @pytest.mark.parametrize("make", [tprofile2d, tprofile3d], ids=lambda x: x.__name__)
-def test_higher_dimensional_profiles_have_no_boost_equivalent(make):
-    with pytest.raises(NotImplementedError, match="this one kinda doesn't exist"):
-        make().to_boost()
+def test_higher_dimensional_profiles_to_boost(make):
+    pytest.importorskip("boost_histogram")
+    hist = make().to_boost()
+    assert hist.values().shape in ((3, 3), (3, 3, 3))
 
 
 def test_axis_traits_repr():
