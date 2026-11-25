@@ -332,6 +332,13 @@ def to_writable(obj):
                 # The mean is undefined (inf or NaN) in bins whose sum of weights is
                 # zero (possible with negative weights), so boost-histogram can't
                 # give sum(w*y) there; write 0, as for an empty bin.
+                if numpy.any((_sumw == 0) & ~numpy.isfinite(_value)):
+                    uproot._util.warn_outside_uproot(
+                        "some bins were filled with weights that sum to zero (possible "
+                        "with negative weights), so boost-histogram doesn't have their "
+                        "sums of weighted values, which ROOT would keep; they are "
+                        "written as zero",
+                    )
                 _value = numpy.where(_sumw != 0, _value, 0.0)
                 _sum_sq_dev = numpy.where(numpy.isfinite(_sum_sq_dev), _sum_sq_dev, 0.0)
 

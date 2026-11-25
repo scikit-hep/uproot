@@ -403,7 +403,9 @@ def test_zero_sum_of_weights(tmp_path):
     h = hist.Hist(hist.axis.Regular(2, 0, 2), storage=hist.storage.WeightedMean())
     h.fill([0.5, 0.5, 1.5], sample=[1.0, 3.0, 2.0], weight=[1.0, -1.0, 1.0])
 
-    p = _write_and_read(tmp_path, h)
+    with pytest.warns(UserWarning, match="weights that sum to zero") as record:
+        p = _write_and_read(tmp_path, h)
+    assert record[0].filename == __file__
     assert p.values(flow=True).tolist() == [0, 0, 2, 0]
     assert np.isfinite(p.member("fSumw2")).all()
     assert p.member("fTsumwy") == 2
