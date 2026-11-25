@@ -402,6 +402,15 @@ class TProfile(Profile):
         profiles), doesn't take the absolute value of a negative sum of squared
         deviations (possible with negative weights), and ignores the profile's
         error option (which is kept in ``metadata["fErrorMode"]``).
+
+        ROOT statistics that boost-histogram doesn't track are kept in
+        ``metadata`` for writing the profile back to ROOT: ``fEntries``,
+        ``fErrorMode``, and (if they go with the bins) ``fTsumw``, ``fTsumw2``,
+        ``fTsumwx`` and ``fTsumwx2``. They go with a ``"bins_fingerprint"`` of
+        the bins, and if the bins change (filled, added, reordered, ...), they
+        are recomputed from the bins when writing. Statistics in a histogram's
+        metadata without a ``"bins_fingerprint"`` (set by hand, or by older
+        versions of Uproot) are taken as they are, even if they are stale.
         """
         boost_histogram = uproot.extras.boost_histogram()
 
