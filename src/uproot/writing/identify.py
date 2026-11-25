@@ -414,9 +414,139 @@ def to_writable(obj):
 
         elif len(axes) == 2:
             if obj.kind == "MEAN":
-                raise NotImplementedError(
-                    "2D PlottableHistogram with kind='MEAN' (i.e. 2D profile plots) not supported yet"
-                )
+                if hasattr(obj, "storage_type"):
+                    obj_sum = obj.sum()
+                    _view_flow = obj.view(flow=True)
+
+                    if obj.storage_type is boost_histogram.storage.WeightedMean:
+                        _sumw = numpy.asarray(
+                            _view_flow["sum_of_weights"], dtype=numpy.float64
+                        )
+                        _sumw2 = numpy.asarray(
+                            _view_flow["sum_of_weights_squared"], dtype=numpy.float64
+                        )
+                        _value = numpy.asarray(_view_flow["value"], dtype=numpy.float64)
+                        _sum_sq_dev = numpy.asarray(
+                            _view_flow["_sum_of_weighted_deltas_squared"],
+                            dtype=numpy.float64,
+                        )
+                        fTsumw = obj_sum["sum_of_weights"]
+                        fTsumw2 = obj_sum["sum_of_weights_squared"]
+                        fTsumwz = obj_sum["value"] * obj_sum["sum_of_weights"]
+                        fTsumwz2 = obj_sum["_sum_of_weighted_deltas_squared"] + (
+                            obj_sum["value"] ** 2 * obj_sum["sum_of_weights"]
+                            if obj_sum["sum_of_weights"] > 0
+                            else 0
+                        )
+                    else:
+                        _sumw = numpy.asarray(_view_flow["count"], dtype=numpy.float64)
+                        _sumw2 = _sumw
+                        _value = numpy.asarray(_view_flow["value"], dtype=numpy.float64)
+                        _sum_sq_dev = numpy.asarray(
+                            _view_flow["_sum_of_deltas_squared"], dtype=numpy.float64
+                        )
+                        fTsumw = obj_sum["count"]
+                        fTsumw2 = obj_sum["count"]
+                        fTsumwz = obj_sum["value"] * obj_sum["count"]
+                        fTsumwz2 = obj_sum["_sum_of_deltas_squared"] + (
+                            obj_sum["value"] ** 2 * obj_sum["count"]
+                            if obj_sum["count"] > 0
+                            else 0
+                        )
+
+                    fSumw2 = _sum_sq_dev + _sumw * _value**2
+                    fEntries = (
+                        obj.metadata.get("fEntries", fTsumw)
+                        if ("metadata" in obj.__dir__() and obj.metadata is not None)
+                        else fTsumw
+                    )
+
+                    _data = _sumw * _value
+                    _fBinEntries = _sumw
+                    _fBinSumw2 = (
+                        _sumw2
+                        if obj.storage_type is boost_histogram.storage.WeightedMean
+                        else numpy.array([], dtype=numpy.float64)
+                    )
+
+                    pad_width = []
+                    for i, axis in enumerate(obj.axes):
+                        missing_before = (
+                            1
+                            if _sumw.shape[i] < len(axis) + 2
+                            and not getattr(axis.traits, "underflow", False)
+                            else 0
+                        )
+                        missing_after = (
+                            (len(axis) + 2) - _sumw.shape[i] - missing_before
+                        )
+                        pad_width.append((missing_before, missing_after))
+
+                    _data = numpy.pad(_data, pad_width)
+                    _fBinEntries = numpy.pad(_fBinEntries, pad_width)
+                    fSumw2 = numpy.pad(fSumw2, pad_width)
+                    if len(_fBinSumw2) > 0:
+                        _fBinSumw2 = numpy.pad(_fBinSumw2, pad_width)
+
+                    (
+                        _,
+                        _,
+                        fTsumwx,
+                        fTsumwx2,
+                        fTsumwy,
+                        fTsumwy2,
+                        fTsumwxy,
+                    ) = _root_stats_2d(
+                        _fBinEntries[1:-1, 1:-1], axis_info[0][0], axis_info[1][0]
+                    )
+
+                    fErrorMode = 0
+                    if "metadata" in obj.__dir__() and isinstance(
+                        obj.metadata, Mapping
+                    ):
+                        metadata = obj.metadata
+                        fEntries = metadata.get("fEntries", fEntries)
+                        fTsumw = metadata.get("fTsumw", fTsumw)
+                        fTsumw2 = metadata.get("fTsumw2", fTsumw2)
+                        fTsumwx = metadata.get("fTsumwx", fTsumwx)
+                        fTsumwx2 = metadata.get("fTsumwx2", fTsumwx2)
+                        fTsumwy = metadata.get("fTsumwy", fTsumwy)
+                        fTsumwy2 = metadata.get("fTsumwy2", fTsumwy2)
+                        fTsumwxy = metadata.get("fTsumwxy", fTsumwxy)
+                        fTsumwz = metadata.get("fTsumwz", fTsumwz)
+                        fTsumwz2 = metadata.get("fTsumwz2", fTsumwz2)
+                        fErrorMode = metadata.get("fErrorMode", 0)
+
+                    return to_TProfile2D(
+                        fName=None,
+                        fTitle=title,
+                        data=_data.T.reshape(-1),
+                        fEntries=fEntries,
+                        fTsumw=fTsumw,
+                        fTsumw2=fTsumw2,
+                        fTsumwx=fTsumwx,
+                        fTsumwx2=fTsumwx2,
+                        fTsumwy=fTsumwy,
+                        fTsumwy2=fTsumwy2,
+                        fTsumwxy=fTsumwxy,
+                        fTsumwz=fTsumwz,
+                        fTsumwz2=fTsumwz2,
+                        fSumw2=fSumw2.T.reshape(-1),
+                        fBinEntries=_fBinEntries.T.reshape(-1),
+                        fBinSumw2=(
+                            _fBinSumw2.T.reshape(-1)
+                            if len(_fBinSumw2) > 0
+                            else _fBinSumw2
+                        ),
+                        fXaxis=axes[0],
+                        fYaxis=axes[1],
+                        fErrorMode=fErrorMode,
+                    )
+                else:
+                    raise NotImplementedError(
+                        "2D PlottableHistogram with kind='MEAN' (i.e. 2D profile plots) "
+                        "is only supported for boost-histogram and hist objects"
+                    )
             else:
                 (
                     fTsumw,
@@ -446,9 +576,155 @@ def to_writable(obj):
 
         elif len(axes) == 3:
             if obj.kind == "MEAN":
-                raise NotImplementedError(
-                    "3D PlottableHistogram with kind='MEAN' (i.e. 3D profile plots) not supported yet"
-                )
+                if hasattr(obj, "storage_type"):
+                    obj_sum = obj.sum()
+                    _view_flow = obj.view(flow=True)
+
+                    if obj.storage_type is boost_histogram.storage.WeightedMean:
+                        _sumw = numpy.asarray(
+                            _view_flow["sum_of_weights"], dtype=numpy.float64
+                        )
+                        _sumw2 = numpy.asarray(
+                            _view_flow["sum_of_weights_squared"], dtype=numpy.float64
+                        )
+                        _value = numpy.asarray(_view_flow["value"], dtype=numpy.float64)
+                        _sum_sq_dev = numpy.asarray(
+                            _view_flow["_sum_of_weighted_deltas_squared"],
+                            dtype=numpy.float64,
+                        )
+                        fTsumw = obj_sum["sum_of_weights"]
+                        fTsumw2 = obj_sum["sum_of_weights_squared"]
+                        fTsumwt = obj_sum["value"] * obj_sum["sum_of_weights"]
+                        fTsumwt2 = obj_sum["_sum_of_weighted_deltas_squared"] + (
+                            obj_sum["value"] ** 2 * obj_sum["sum_of_weights"]
+                            if obj_sum["sum_of_weights"] > 0
+                            else 0
+                        )
+                    else:
+                        _sumw = numpy.asarray(_view_flow["count"], dtype=numpy.float64)
+                        _sumw2 = _sumw
+                        _value = numpy.asarray(_view_flow["value"], dtype=numpy.float64)
+                        _sum_sq_dev = numpy.asarray(
+                            _view_flow["_sum_of_deltas_squared"], dtype=numpy.float64
+                        )
+                        fTsumw = obj_sum["count"]
+                        fTsumw2 = obj_sum["count"]
+                        fTsumwt = obj_sum["value"] * obj_sum["count"]
+                        fTsumwt2 = obj_sum["_sum_of_deltas_squared"] + (
+                            obj_sum["value"] ** 2 * obj_sum["count"]
+                            if obj_sum["count"] > 0
+                            else 0
+                        )
+
+                    fSumw2 = _sum_sq_dev + _sumw * _value**2
+                    fEntries = (
+                        obj.metadata.get("fEntries", fTsumw)
+                        if ("metadata" in obj.__dir__() and obj.metadata is not None)
+                        else fTsumw
+                    )
+
+                    _data = _sumw * _value
+                    _fBinEntries = _sumw
+                    _fBinSumw2 = (
+                        _sumw2
+                        if obj.storage_type is boost_histogram.storage.WeightedMean
+                        else numpy.array([], dtype=numpy.float64)
+                    )
+
+                    pad_width = []
+                    for i, axis in enumerate(obj.axes):
+                        missing_before = (
+                            1
+                            if _sumw.shape[i] < len(axis) + 2
+                            and not getattr(axis.traits, "underflow", False)
+                            else 0
+                        )
+                        missing_after = (
+                            (len(axis) + 2) - _sumw.shape[i] - missing_before
+                        )
+                        pad_width.append((missing_before, missing_after))
+
+                    _data = numpy.pad(_data, pad_width)
+                    _fBinEntries = numpy.pad(_fBinEntries, pad_width)
+                    fSumw2 = numpy.pad(fSumw2, pad_width)
+                    if len(_fBinSumw2) > 0:
+                        _fBinSumw2 = numpy.pad(_fBinSumw2, pad_width)
+
+                    (
+                        _,
+                        _,
+                        fTsumwx,
+                        fTsumwx2,
+                        fTsumwy,
+                        fTsumwy2,
+                        fTsumwxy,
+                        fTsumwz,
+                        fTsumwz2,
+                        fTsumwxz,
+                        fTsumwyz,
+                    ) = _root_stats_3d(
+                        _fBinEntries[1:-1, 1:-1, 1:-1],
+                        axis_info[0][0],
+                        axis_info[1][0],
+                        axis_info[2][0],
+                    )
+
+                    fErrorMode = 0
+                    if "metadata" in obj.__dir__() and isinstance(
+                        obj.metadata, Mapping
+                    ):
+                        metadata = obj.metadata
+                        fEntries = metadata.get("fEntries", fEntries)
+                        fTsumw = metadata.get("fTsumw", fTsumw)
+                        fTsumw2 = metadata.get("fTsumw2", fTsumw2)
+                        fTsumwx = metadata.get("fTsumwx", fTsumwx)
+                        fTsumwx2 = metadata.get("fTsumwx2", fTsumwx2)
+                        fTsumwy = metadata.get("fTsumwy", fTsumwy)
+                        fTsumwy2 = metadata.get("fTsumwy2", fTsumwy2)
+                        fTsumwxy = metadata.get("fTsumwxy", fTsumwxy)
+                        fTsumwz = metadata.get("fTsumwz", fTsumwz)
+                        fTsumwz2 = metadata.get("fTsumwz2", fTsumwz2)
+                        fTsumwxz = metadata.get("fTsumwxz", fTsumwxz)
+                        fTsumwyz = metadata.get("fTsumwyz", fTsumwyz)
+                        fTsumwt = metadata.get("fTsumwt", fTsumwt)
+                        fTsumwt2 = metadata.get("fTsumwt2", fTsumwt2)
+                        fErrorMode = metadata.get("fErrorMode", 0)
+
+                    return to_TProfile3D(
+                        fName=None,
+                        fTitle=title,
+                        data=_data.T.reshape(-1),
+                        fEntries=fEntries,
+                        fTsumw=fTsumw,
+                        fTsumw2=fTsumw2,
+                        fTsumwx=fTsumwx,
+                        fTsumwx2=fTsumwx2,
+                        fTsumwy=fTsumwy,
+                        fTsumwy2=fTsumwy2,
+                        fTsumwxy=fTsumwxy,
+                        fTsumwz=fTsumwz,
+                        fTsumwz2=fTsumwz2,
+                        fTsumwxz=fTsumwxz,
+                        fTsumwyz=fTsumwyz,
+                        fTsumwt=fTsumwt,
+                        fTsumwt2=fTsumwt2,
+                        fSumw2=fSumw2.T.reshape(-1),
+                        fBinEntries=_fBinEntries.T.reshape(-1),
+                        fBinSumw2=(
+                            _fBinSumw2.T.reshape(-1)
+                            if len(_fBinSumw2) > 0
+                            else _fBinSumw2
+                        ),
+                        fXaxis=axes[0],
+                        fYaxis=axes[1],
+                        fZaxis=axes[2],
+                        fErrorMode=fErrorMode,
+                    )
+                else:
+                    raise NotImplementedError(
+                        "3D PlottableHistogram with kind='MEAN' (i.e. 3D profile plots) "
+                        "is only supported for boost-histogram and hist objects"
+                    )
             else:
                 (
                     fTsumw,
