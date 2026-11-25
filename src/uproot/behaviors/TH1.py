@@ -26,8 +26,11 @@ def _boost_axis(axis, metadata):
     if labels is None and fLabels is not None and len(fLabels) > 0:
         # e.g. ROOT extends a labeled axis by doubling its bins when it's filled
         # with a new label, leaving the added bins unlabeled
+        # bins labeled by bin number (more than one label can have the same one)
+        bin_numbers = {x.member("@fUniqueID", none_if_missing=True) for x in fLabels}
+        num_labeled = len(bin_numbers & set(range(1, fNbins + 1))) or len(fLabels)
         uproot._util.warn_outside_uproot(
-            f"axis {axis.member('fName')!r} has labels for only {len(fLabels)} "
+            f"axis {axis.member('fName')!r} has labels for only {num_labeled} "
             f"of its {fNbins} bins, so it is converted to a numerical axis and "
             "its labels are dropped",
         )

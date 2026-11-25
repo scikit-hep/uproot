@@ -111,6 +111,22 @@ def test_labels_partial(tmp_path, make):
 
 
 @pytest.mark.parametrize("make", [_th1, _tprofile])
+def test_labels_same_bin(tmp_path, make):
+    # every label has a valid bin number, but bin 2 has none: the labels can't
+    # be assigned in the order they were set
+    h = _write_and_read(
+        tmp_path, make(3, [(1, "x"), (1, "y"), (3, "z")], [0, 10, 20, 30, 0])
+    )
+    axis = h.member("fXaxis")
+    assert axis.labels() is None
+    assert not axis.traits.discrete
+
+    with pytest.warns(UserWarning, match="labels for only 2 of its 3 bins"):
+        out = h.to_hist()
+    assert out.values().tolist() == [10, 20, 30]
+
+
+@pytest.mark.parametrize("make", [_th1, _tprofile])
 def test_labeled_underflow(tmp_path, make):
     # no warning when it's empty
     _write_and_read(tmp_path, make(3, ABC, [0, 1, 0, 0, 0])).to_hist()

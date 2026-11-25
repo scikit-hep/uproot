@@ -70,8 +70,11 @@ class TAxis:
                 break
             out[bin_number - 1] = str(label)
         else:
+            # every label has a bin number, so some bins may be unlabeled
             if all(x is not None for x in out):
                 return out
+            else:
+                return None
 
         if len(fLabels) == fNbins:
             # no usable bin numbers; assume the labels were set in bin order
