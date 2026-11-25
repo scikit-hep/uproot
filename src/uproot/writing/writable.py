@@ -22,6 +22,7 @@ import datetime
 import difflib
 import itertools
 import queue
+import struct
 import sys
 import uuid
 from collections.abc import Mapping, MutableMapping
@@ -251,6 +252,7 @@ class WritableFile(uproot.reading.CommonFileMethods):
 
         self._trees = {}
         self._ntuples = {}
+        self._tree_basket_seeks_cache = None
 
     def __repr__(self):
         return f"<WritableFile {self.file_path!r} at 0x{id(self):012x}>"
@@ -455,6 +457,7 @@ class WritableFile(uproot.reading.CommonFileMethods):
 
     def _new_tree(self, tree):
         self._trees[tree._cascading.key.seek_location] = tree
+        self._invalidate_tree_basket_seeks_cache()
 
     def _new_ntuple(self, ntuple):
         self._ntuples[ntuple._cascading.key.seek_location] = ntuple
@@ -475,8 +478,42 @@ class WritableFile(uproot.reading.CommonFileMethods):
         tree = self._trees[oldloc]
         del self._trees[oldloc]
         self._trees[newloc] = tree
+        self._invalidate_tree_basket_seeks_cache()
 
-    def _read_key(self, key, parent=None):
+    def _invalidate_tree_basket_seeks_cache(self):
+        self._tree_basket_seeks_cache = None
+
+    def _get_surviving_tree_basket_seeks(
+        self, streamers, exclude_dir_path, exclude_key
+    ):
+        if self._tree_basket_seeks_cache is None:
+            cache = {}
+            for d, other_key in _iter_all_keys(self):
+                if _is_ttree_classname(other_key.classname.string, streamers):
+                    cache_id = (
+                        d.path,
+                        other_key.name.string,
+                        other_key.cycle,
+                        other_key.seek_location,
+                    )
+                    stree = self._read_key(other_key, d, minimal_ttree_metadata=True)
+                    ranges = _collect_tree_basket_ranges(stree)
+                    cache[cache_id] = {s for s, _ in ranges}
+            self._tree_basket_seeks_cache = cache
+
+        exclude_id = (
+            exclude_dir_path,
+            exclude_key.name.string,
+            exclude_key.cycle,
+            exclude_key.seek_location,
+        )
+        surviving = set()
+        for cid, seeks in self._tree_basket_seeks_cache.items():
+            if cid != exclude_id:
+                surviving.update(seeks)
+        return surviving
+
+    def _read_key(self, key, parent=None, minimal_ttree_metadata=False):
         """
         Deserializes the object at ``key`` (anything with ``seek_location``,
         ``num_bytes`` and ``compressed_bytes``) from the sink, with
@@ -484,7 +521,7 @@ class WritableFile(uproot.reading.CommonFileMethods):
         whole file isn't read into memory.
         """
         readforupdate = self._read_for_update()
-        readforupdate.options["minimal_ttree_metadata"] = False
+        readforupdate.options["minimal_ttree_metadata"] = minimal_ttree_metadata
 
         raw_bytes = self._sink.read(
             key.seek_location,
@@ -511,6 +548,114 @@ class WritableFile(uproot.reading.CommonFileMethods):
         )
         out.options = dict(uproot.reading.open.defaults)
         return out
+
+
+_KNOWN_TTREE_CLASSES = frozenset(
+    {"TTree", "TNtuple", "TNtupleD", "TTreeSQL", "THbookTree", "TChain"}
+)
+
+
+def _is_ttree_classname(classname, streamers=None):
+    if classname == "TTree" or classname in _KNOWN_TTREE_CLASSES:
+        return True
+    if not streamers:
+        return False
+    streamer_map = {}
+    for s in streamers:
+        if hasattr(s, "name") and hasattr(s, "elements"):
+            bases = [
+                el.name
+                for el in s.elements
+                if isinstance(el, uproot.streamers.Model_TStreamerBase)
+            ]
+            streamer_map[s.name] = bases
+
+    visited = set()
+    stack = [classname]
+    while stack:
+        curr = stack.pop()
+        if curr == "TTree" or curr in _KNOWN_TTREE_CLASSES:
+            return True
+        if curr in visited:
+            continue
+        visited.add(curr)
+        for base in streamer_map.get(curr, []):
+            stack.append(base)
+    return False
+
+
+def _iter_all_keys(file_obj):
+    dirs = [file_obj.root_directory]
+    while dirs:
+        d = dirs.pop()
+        for k in d._cascading.data._keys:
+            yield d, k
+        for dk in d._cascading.data.dir_keys:
+            dirs.append(d._subdir(dk))
+
+
+def _collect_tree_basket_ranges(tree):
+    ranges = []
+    try:
+        if not tree.has_member("fBranches"):
+            return ranges
+        stack = list(tree.member("fBranches"))
+    except Exception:
+        return ranges
+
+    while stack:
+        branch = stack.pop()
+        try:
+            if branch.has_member("fBranches"):
+                sub_branches = branch.member("fBranches")
+                if sub_branches:
+                    stack.extend(sub_branches)
+
+            if branch.has_member("fFileName"):
+                filename = branch.member("fFileName")
+                if filename and len(filename) > 0:
+                    continue
+
+            if branch.has_member("fBasketSeek") and branch.has_member("fBasketBytes"):
+                seeks = branch.member("fBasketSeek")
+                nbytes_list = branch.member("fBasketBytes")
+                for seek, nbytes in zip(seeks, nbytes_list, strict=False):
+                    s = int(seek)
+                    nb = int(nbytes)
+                    if s > 0 and nb > 0:
+                        ranges.append((s, s + nb))
+        except Exception:
+            continue
+
+    return ranges
+
+
+def _validate_basket_key(sink, seek, nbytes):
+    try:
+        raw_prefix = sink.read(seek, 6, insist=False)
+        if len(raw_prefix) < 6:
+            return False
+        fNbytes, fVersion = struct.unpack(">ih", raw_prefix)
+        if fNbytes != nbytes:
+            return False
+
+        if fVersion > 1000:
+            header_size = uproot.reading._key_format_big.size
+        else:
+            header_size = uproot.reading._key_format_small.size
+
+        raw_key = sink.read(seek, header_size + 8, insist=False)
+        if len(raw_key) < header_size + 1:
+            return False
+
+        classname_len = raw_key[header_size]
+        if len(raw_key) < header_size + 1 + classname_len:
+            return False
+
+        classname = raw_key[header_size + 1 : header_size + 1 + classname_len]
+        return classname == b"TBasket"
+    except Exception:
+        return False
 
 
 class WritableDirectory(MutableMapping):
@@ -1624,13 +1769,56 @@ class WritableDirectory(MutableMapping):
                 file_path=self.file_path,
                 object_path=self.object_path,
             )
+        key_range = (
+            key.seek_location,
+            key.seek_location + key.num_bytes + key.compressed_bytes,
+        )
+        ranges_to_free = []
+        streamers = self._file._cascading.tlist_of_streamers
+        if not _is_ttree_classname(key.classname.string, streamers):
+            ranges_to_free.append(key_range)
+        else:
+            try:
+                # Another key may point at this same TTree record; only free the
+                # record if no other key does. If the scan fails, free nothing.
+                if not any(
+                    other_key.seek_location == key.seek_location
+                    and not (
+                        d.path == self._path
+                        and other_key.name.string == key.name.string
+                        and other_key.cycle == key.cycle
+                    )
+                    for d, other_key in _iter_all_keys(self._file)
+                ):
+                    ranges_to_free.append(key_range)
+                tree_obj = self._file._read_key(key, self)
+                basket_ranges = _collect_tree_basket_ranges(tree_obj)
+                if basket_ranges:
+                    surviving_seeks = self._file._get_surviving_tree_basket_seeks(
+                        streamers, self._path, key
+                    )
+                    for b_start, b_stop in basket_ranges:
+                        if b_start not in surviving_seeks and _validate_basket_key(
+                            self._file.sink, b_start, b_stop - b_start
+                        ):
+                            ranges_to_free.append((b_start, b_stop))
+                if self._file._tree_basket_seeks_cache is not None:
+                    del_id = (
+                        self._path,
+                        key.name.string,
+                        key.cycle,
+                        key.seek_location,
+                    )
+                    self._file._tree_basket_seeks_cache.pop(del_id, None)
+            except Exception:
+                self._file._invalidate_tree_basket_seeks_cache()
+
         for handles in (self._file._trees, self._file._ntuples):
             handle = handles.pop(key.seek_location, None)
             if handle is not None:
                 handle._deleted = True
-        start = key.seek_location
-        stop = start + key.num_bytes + key.compressed_bytes
-        self._cascading.freesegments.release(start, stop)
+
+        self._cascading.freesegments.release_many(ranges_to_free)
 
         self._cascading._data.remove_key(key)
         self._cascading.header.modified_on = datetime.datetime.now()
@@ -2204,6 +2392,7 @@ in file {source.file_path} in directory {source.path}"""
 
             uproot.writing.identify.add_to_directory(v, name, directory, streamers)
         self._file._cascading.streamers.update_streamers(self._file.sink, streamers)
+        self._file._invalidate_tree_basket_seeks_cache()
 
 
 def _is_jagged(data):
@@ -3151,9 +3340,11 @@ class WritableTree:
                 )
                 self._commit_branches(staged)
                 casc.extend(self._file, self._file.sink, data, prepared=prepared)
+                self._file._invalidate_tree_basket_seeks_cache()
                 return
 
         self._cascading.extend(self._file, self._file.sink, data)
+        self._file._invalidate_tree_basket_seeks_cache()
 
     def show(
         self,

@@ -697,43 +697,59 @@ class FreeSegments(CascadeNode):
             return out
 
     @staticmethod
-    def _another_slice(slices, original_start, original_stop):
-        for start, stop in slices:
-            if start <= original_start < stop or start < original_stop <= stop:
+    def _merge_slices(slices, new_intervals):
+        valid_new = [
+            (int(start), int(stop)) for start, stop in new_intervals if start < stop
+        ]
+        if not valid_new:
+            return slices
+
+        valid_new = sorted(set(valid_new), key=lambda x: (x[0], x[1]))
+
+        for i in range(len(valid_new) - 1):
+            if valid_new[i][1] > valid_new[i + 1][0]:
                 raise RuntimeError(
-                    "segment of data to release overlaps one already marked as free: "
-                    f"releasing [{original_start}, {original_stop}) but [{start}, {stop}) is free"
+                    "segment of data to release overlaps another segment to release: "
+                    f"[{valid_new[i][0]}, {valid_new[i][1]}) overlaps [{valid_new[i + 1][0]}, {valid_new[i + 1][1]})"
                 )
 
-        for i in range(len(slices) - 1):
-            if slices[i][1] == original_start and original_stop == slices[i + 1][0]:
-                # These two slices need to be merged, including the newly released interval.
-                return (*slices[:i], (slices[i][0], slices[i + 1][1]), *slices[i + 2 :])
+        for orig_start, orig_stop in valid_new:
+            for start, stop in slices:
+                if (
+                    start <= orig_start < stop
+                    or start < orig_stop <= stop
+                    or (orig_start <= start and stop <= orig_stop)
+                ):
+                    raise RuntimeError(
+                        "segment of data to release overlaps one already marked as free: "
+                        f"releasing [{orig_start}, {orig_stop}) but [{start}, {stop}) is free"
+                    )
 
-        for i, (start, stop) in enumerate(slices):
-            if original_start == stop:
-                # This slice needs to grow to the right.
-                return tuple(
-                    slices[j] if i != j else (start, original_stop)
-                    for j in range(len(slices))
-                )
+        all_intervals = sorted((*slices, *valid_new), key=lambda x: (x[0], x[1]))
+        merged = [all_intervals[0]]
+        for start, stop in all_intervals[1:]:
+            last_start, last_stop = merged[-1]
+            if start == last_stop:
+                merged[-1] = (last_start, stop)
+            else:
+                merged.append((start, stop))
+        return tuple(merged)
 
-            elif original_stop == start:
-                # This slice needs to grow to the left.
-                return tuple(
-                    slices[j] if i != j else (original_start, stop)
-                    for j in range(len(slices))
-                )
-
-        # The FreeSegments record will have to grow.
-        return tuple(sorted((*slices, (original_start, original_stop))))
+    @staticmethod
+    def _another_slice(slices, original_start, original_stop):
+        return FreeSegments._merge_slices(slices, [(original_start, original_stop)])
 
     @staticmethod
     def _slices_bytes(slices):
         return _slices_bytes(slices)
 
-    def release(self, start, stop):
-        new_slices = self._another_slice(self._data.slices, start, stop)
+    def release_many(self, intervals):
+        if not intervals:
+            return
+
+        new_slices = self._merge_slices(self._data.slices, intervals)
+        if new_slices == self._data.slices:
+            return
 
         if self.at_end:
             self._data.slices = new_slices
@@ -744,7 +760,7 @@ class FreeSegments(CascadeNode):
             self._key.compressed_bytes = self._key.uncompressed_bytes
 
         elif self._slices_bytes(new_slices) <= self._slices_bytes(self._data.slices):
-            # Wherever the FreeSegments record is, it's not getting bigger.
+            # Wherever the FreeSegments record is, it is not getting bigger.
             # It can stay there.
             self._data.slices = new_slices
             self._data.allocation = None
@@ -753,12 +769,18 @@ class FreeSegments(CascadeNode):
 
         else:
             # The FreeSegments record needs to move, opening up yet another slice.
-            # Move it to the end (regardless of whether there's now enough room
+            # Move it to the end (regardless of whether there is now enough room
             # to put it elsewhere; we like keeping it at the end).
-            self._data.slices = self._another_slice(
+            self._data.slices = self._merge_slices(
                 new_slices,
-                self._key.location,
-                self._key.location + self._key.allocation + self._data.allocation,
+                [
+                    (
+                        self._key.location,
+                        self._key.location
+                        + self._key.allocation
+                        + self._data.allocation,
+                    )
+                ],
             )
             self._key.location = self._data.end
             self._data.end = self._data.required_end(
@@ -766,6 +788,9 @@ class FreeSegments(CascadeNode):
             )
             self._key.uncompressed_bytes = self._data.allocation
             self._key.compressed_bytes = self._key.uncompressed_bytes
+
+    def release(self, start, stop):
+        self.release_many([(start, stop)])
 
     def write(self, sink):
         self._key.uncompressed_bytes = self._data.allocation
