@@ -37,7 +37,9 @@ def test_empty_filter_raises_for_all_read_methods(ntuple, field_path, method):
 
 
 @pytest.mark.parametrize("method", ["num_entries_for", "arrays", "iterate"])
-@pytest.mark.parametrize("filter_kwargs", [{"filter_name": "*"}, {"filter_typename": "*"}])
+@pytest.mark.parametrize(
+    "filter_kwargs", [{"filter_name": "*"}, {"filter_typename": "*"}]
+)
 def test_matching_filter_on_a_leaf_field_still_reads(ntuple, method, filter_kwargs):
     # A leaf field has no subfields, so counting keys() would reject even a filter that
     # matches the field itself. The selected form always includes the field.
