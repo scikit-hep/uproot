@@ -263,6 +263,8 @@ class HasFields(Mapping):
         # For compatibility reasons we also accepts kwargs meant for TTrees
         interpretation_executor=None,
         filter_branch=unset,
+        # Private: iterate() has already checked these same filters.
+        _filters_checked=False,
     ):
         """
         Args:
@@ -403,6 +405,10 @@ class HasFields(Mapping):
             filter_branch=filter_branch,
             ak_add_doc=ak_add_doc,
         )
+        if not _filters_checked:
+            _check_for_no_fields(
+                self, filter_name, filter_typename, filter_field, filter_branch
+            )
 
         # only read columns mentioned in the awkward form
         target_cols = []
@@ -662,6 +668,9 @@ class HasFields(Mapping):
             filter_branch=filter_branch,
             ak_add_doc=ak_add_doc,
         )
+        _check_for_no_fields(
+            self, filter_name, filter_typename, filter_field, filter_branch
+        )
 
         step_size = _regularize_step_size(
             self.ntuple, akform, step_size, entry_start, entry_stop
@@ -680,6 +689,7 @@ class HasFields(Mapping):
                 ak_add_doc=ak_add_doc,
                 how=how,
                 filter_branch=filter_branch,
+                _filters_checked=True,
             )
             if report:
                 sub_entry_stop = min(start + step_size, entry_stop)
@@ -1186,6 +1196,9 @@ class HasFields(Mapping):
             filter_field=filter_field,
             filter_branch=filter_branch,
         )
+        _check_for_no_fields(
+            self, filter_name, filter_typename, filter_field, filter_branch
+        )
 
         if len(akform.contents) == 0:
             return
@@ -1415,6 +1428,51 @@ def _filter_name_deep(filter_name, hasfields, field):
     if name != shallow and filter_name(name):
         return True
     return filter_name("." + name)
+
+
+def _check_for_no_fields(
+    hasfields, filter_name, filter_typename, filter_field, filter_branch
+):
+    """Raise if the given filters selected nothing.
+
+    ``keys`` on a field lists only its subfields, so a field with none of its own is not
+    evidence of a non-match: ``to_akform`` always includes the field itself, which is why
+    a leaf still reads. Only something that has subfields to match can fail to match
+    them. Measuring the selected form instead would be wrong twice over, since an empty
+    struct contributes no columns and ``columns`` raises on a union form.
+
+    Only the filters that were actually given are reported, so the message never shows
+    the repr of a default.
+    """
+    applied = [
+        (name, value)
+        for name, value in (
+            ("filter_name", filter_name),
+            ("filter_typename", filter_typename),
+            ("filter_field", filter_field),
+            ("filter_branch", filter_branch),
+        )
+        if value is not no_filter and value is not unset
+    ]
+    if not applied:
+        return
+
+    if len(
+        hasfields.keys(
+            filter_name=filter_name,
+            filter_typename=filter_typename,
+            filter_field=filter_field,
+            filter_branch=filter_branch,
+        )
+    ):
+        return
+
+    # Nothing matched. Only complain if there was anything here to match.
+    if not len(hasfields.keys()):
+        return
+
+    given = ", ".join(f"{name}={value!r}" for name, value in applied)
+    raise ValueError(f"no fields matched the given filters: {given}")
 
 
 def _with_subfield_keys(hasfields, keys):
