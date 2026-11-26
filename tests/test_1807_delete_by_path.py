@@ -119,10 +119,50 @@ def test_contains_cycle_and_path(tmp_path):
         assert "d/h;1" in f
         assert "/d/h" in f
         assert "d/nothere" not in f
+        assert "d/h;foo" not in f
+        assert "h/x" not in f
+        assert "nothere/h" not in f
+        assert "/" not in f
+        assert "//" not in f
 
     with uproot.open(filename) as f:
         assert "h;2" in f
         assert "d/h" in f
+
+
+def test_contains_does_not_load_trees(tmp_path):
+    filename = tmp_path / "contains_no_load.root"
+    with uproot.recreate(filename) as f:
+        f["d/t"] = {"x": np.arange(3, dtype=np.int32)}
+
+    with uproot.update(filename) as f:
+        assert len(f._file._trees) == 0
+        assert "d/t" in f
+        assert "d/t;1" in f
+        assert "d/t;9" not in f
+        assert len(f._file._trees) == 0
+
+    with open(filename, "r+b") as fo, uproot.update(fo) as f:
+        assert "t" in f["d"]
+        assert "d/t" in f
+        assert "d/t;1" in f
+        assert "d/t;9" not in f
+
+
+@pytest.mark.parametrize("where", ["/", "//"])
+def test_delete_root_path_raises(tmp_path, where):
+    filename = tmp_path / "delete_root_path.root"
+    with uproot.recreate(filename) as f:
+        f["d/h"] = hist([1.0])
+    expected = ["d;1", "d/h;1"]
+
+    with uproot.update(filename) as f:
+        with pytest.raises(uproot.KeyInFileError):
+            del f[where]
+        assert f.keys() == expected
+
+    with uproot.open(filename) as f:
+        assert f.keys() == expected
 
 
 def test_get_root_path(tmp_path):

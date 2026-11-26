@@ -681,12 +681,21 @@ class WritableDirectory(MutableMapping):
         if self._cascading.data.haskey(where):
             return True
         if isinstance(where, str) and (";" in where or "/" in where):
-            try:
-                self._get_del_search(where, True)
-            except uproot.KeyInFileError:
-                pass
-            else:
-                return True
+            items = [item for item in where.split("/") if item != ""]
+            step = self
+            for item in items[:-1]:
+                key = step._cascading.data.get_key(*_parse_name_cycle(item))
+                if key is None or key.classname.string not in (
+                    "TDirectory",
+                    "TDirectoryFile",
+                ):
+                    return False
+                step = step._subdir(key)
+            return (
+                bool(items)
+                and step._cascading.data.get_key(*_parse_name_cycle(items[-1]))
+                is not None
+            )
         return any(where in self._subdir(x) for x in self._cascading.data.dir_keys)
 
     def __iter__(self):
@@ -1032,6 +1041,13 @@ class WritableDirectory(MutableMapping):
             last_item = max(
                 (i for i, item in enumerate(items) if item != ""), default=None
             )
+            if last_item is None and not isget:
+                raise uproot.KeyInFileError(
+                    where,
+                    keys=self._cascading.data.key_names,
+                    file_path=self.file_path,
+                    object_path=self.object_path,
+                )
 
             for i, item in enumerate(items):
                 if item != "":
