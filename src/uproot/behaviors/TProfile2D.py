@@ -104,4 +104,95 @@ class TProfile2D(uproot.behaviors.TProfile.Profile):
             return values[1:-1, 1:-1], errors[1:-1, 1:-1]
 
     def to_boost(self, metadata=boost_metadata, axis_metadata=boost_axis_metadata):
-        raise NotImplementedError("FIXME @henryiii: this one kinda doesn't exist")
+        boost_histogram = uproot.extras.boost_histogram()
+
+        xaxis_fNbins = self.member("fXaxis").member("fNbins")
+        yaxis_fNbins = self.member("fYaxis").member("fNbins")
+        fNcells = self.member("fNcells")
+
+        def _reshape_2d(values):
+            return numpy.transpose(
+                numpy.asarray(values, dtype=numpy.float64).reshape(
+                    yaxis_fNbins + 2, xaxis_fNbins + 2
+                )
+            )
+
+        effective_counts = _reshape_2d(
+            numpy.asarray(self.counts(flow=True)).reshape(-1)
+        )
+        sum_of_bin_weights = _reshape_2d(self.member("fBinEntries"))
+        raw_values = _reshape_2d(self._bases[0]._bases[-1])
+        fSumw2_member = self.member("fSumw2", none_if_missing=True)
+
+        # Compute mean = sum(y) / count (ROOT TProfile stores sum(y) in the TArray)
+        nonzero = sum_of_bin_weights != 0
+        mean_values = numpy.zeros(raw_values.shape, dtype=numpy.float64)
+        mean_values[nonzero] = raw_values[nonzero] / sum_of_bin_weights[nonzero]
+
+        # Compute sum_sq_dev = sum(y^2) - count * mean^2 directly from fSumw2.
+        # fErrorMode is intentionally ignored here: it controls how ROOT displays
+        # bin errors but does not change the underlying data. boost-hostogram's
+        # storage has a fixed meaning for _sum_of_weighted_deltas_squared,
+        # so we can't change it based on fErrorMode.
+        if fSumw2_member is not None:
+            fSumw2 = numpy.asarray(fSumw2_member, dtype=numpy.float64).reshape(-1)
+        else:
+            fSumw2 = numpy.array([], dtype=numpy.float64)
+        if len(fSumw2) == fNcells:
+            fSumw2 = _reshape_2d(fSumw2)
+            sum_sq_dev = numpy.maximum(
+                fSumw2 - sum_of_bin_weights * mean_values**2, 0.0
+            )
+        else:
+            sum_sq_dev = numpy.zeros(raw_values.shape, dtype=numpy.float64)
+
+        if self.weighted:
+            storage = boost_histogram.storage.WeightedMean()
+        else:
+            storage = boost_histogram.storage.Mean()
+
+        xaxis = uproot.behaviors.TH1._boost_axis(self.member("fXaxis"), axis_metadata)
+        yaxis = uproot.behaviors.TH1._boost_axis(self.member("fYaxis"), axis_metadata)
+        out = boost_histogram.Histogram(xaxis, yaxis, storage=storage)
+        for k, v in metadata.items():
+            setattr(out, k, self.member(v))
+
+        # ROOT's categorical axes (with fLabels) always have an underflow bin (bin 0).
+        # boost-histogram's Category axes do not have underflow.
+        # We slice off the first ROOT bin along each categorical axis.
+        if self.member("fXaxis").member("fLabels") is not None:
+            effective_counts = effective_counts[1:, :]
+            mean_values = mean_values[1:, :]
+            sum_sq_dev = sum_sq_dev[1:, :]
+            sum_of_bin_weights = sum_of_bin_weights[1:, :]
+        if self.member("fYaxis").member("fLabels") is not None:
+            effective_counts = effective_counts[:, 1:]
+            mean_values = mean_values[:, 1:]
+            sum_sq_dev = sum_sq_dev[:, 1:]
+            sum_of_bin_weights = sum_of_bin_weights[:, 1:]
+
+        # TODO: This should only be needed for weighted storage, but there seems to be some bug in Uproot's serialization of fBinSumw2
+        # that causes weighted TProfiles to appear unweighted when read back in.
+        out.metadata = {
+            "fEntries": self.member("fEntries"),
+        }
+        view = out.view(flow=True)
+
+        # https://github.com/root-project/root/blob/ffc7c588ac91aca30e75d356ea971129ee6a836a/hist/hist/src/TProfileHelper.h#L668-L671
+        if self.weighted:
+            with numpy.errstate(divide="ignore", invalid="ignore"):
+                sum_of_bin_weights_squared = (sum_of_bin_weights**2) / effective_counts
+            # TODO: Drop this when boost-histogram has a way to set using the constructor.
+            # New version should look something like this:
+            # view[...] = np.stack(sum_of_bin_weights, sum_of_bin_weights_squared, mean_values, sum_sq_dev)
+            # Current / classic version:
+            view["sum_of_weights"] = sum_of_bin_weights
+            view["sum_of_weights_squared"] = sum_of_bin_weights_squared
+            view["value"] = mean_values
+            view["_sum_of_weighted_deltas_squared"] = sum_sq_dev
+        else:
+            view["count"] = sum_of_bin_weights
+            view["value"] = mean_values
+            view["_sum_of_deltas_squared"] = sum_sq_dev
+
+        return out
