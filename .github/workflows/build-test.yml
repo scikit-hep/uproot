@@ -132,40 +132,6 @@ jobs:
           report_type: test_results
           files: junit.xml
 
-  numpy1-build:
-    name: NumPy 1 test on ${{ matrix.platform }} with Python ${{ matrix.python-version }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # NumPy 1's default integer is 32-bit on Windows, so that is the
-        # platform that differs; macOS adds little on top of Linux
-        platform: [windows-latest, ubuntu-latest]
-        python-version: ['3.11']
-
-    runs-on: ${{ matrix.platform }}
-    timeout-minutes: 30
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-
-      - name: Pip install the package
-        run: |
-          uv venv
-          # pyarrow 26 requires NumPy 2
-          uv pip install -e. 'numpy<2' 'pyarrow<26' --group test
-
-      - name: Run pytest
-        run: |
-          uv run --no-sync pytest -vv -n auto tests --reruns 10 --reruns-delay 30 --only-rerun "(?i)http|ssl|timeout|expired|connection|socket"
-
   pyodide-build:
     name: Pyodide test
     runs-on: ubuntu-latest
@@ -312,7 +278,7 @@ jobs:
   pass:
     name: Check required tests
     if: always()
-    needs: [build, numpy1-build, pyodide-build]
+    needs: [build, pyodide-build]
     runs-on: ubuntu-slim
     timeout-minutes: 2
     steps:

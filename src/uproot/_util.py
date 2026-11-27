@@ -70,23 +70,16 @@ def ensure_numpy(array, types=(numpy.bool_, numpy.integer, numpy.floating)):
     desired type and raises TypeError if it cannot.
     """
 
-    with warnings.catch_warnings():
-        warnings.simplefilter(
-            "error", getattr(numpy, "exceptions", numpy).VisibleDeprecationWarning
-        )
-        if isinstance(array, awkward.contents.Content):
-            out = awkward.to_numpy(array)
-        else:
-            try:
-                out = numpy.asarray(array)
-            except (
-                ValueError,
-                getattr(numpy, "exceptions", numpy).VisibleDeprecationWarning,
-            ) as err:
-                raise TypeError("cannot be converted to a NumPy array") from err
-        if not issubclass(out.dtype.type, types):
-            raise TypeError(f"cannot be converted to a NumPy array of type {types}")
-        return out
+    if isinstance(array, awkward.contents.Content):
+        out = awkward.to_numpy(array)
+    else:
+        try:
+            out = numpy.asarray(array)
+        except ValueError as err:
+            raise TypeError("cannot be converted to a NumPy array") from err
+    if not issubclass(out.dtype.type, types):
+        raise TypeError(f"cannot be converted to a NumPy array of type {types}")
+    return out
 
 
 def is_file_like(

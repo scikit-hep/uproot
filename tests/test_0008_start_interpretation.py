@@ -10,10 +10,7 @@ import uproot
 
 
 def tobytes(x):
-    if hasattr(x, "tobytes"):
-        return x.tobytes()
-    else:
-        return x.tostring()
+    return x.tobytes()
 
 
 def test_classname_encoding(tmpdir):
